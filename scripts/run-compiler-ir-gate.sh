@@ -44,14 +44,14 @@ grep -q "\[compiler\] compiled demo nodes=" "$WORKER_LOG" || { echo "[GATE] FAIL
 
 echo "[GATE] assert 5: semver — latest/^ pinned to concrete version at compile"
 LATEST_F="$(cygpath -w "$(pwd)/scripts/fixtures/latest-demo.yaml" 2>/dev/null || echo "$(pwd)/scripts/fixtures/latest-demo.yaml")"
-LATEST_OUT=$(./gradlew -q --no-daemon :app:cli --args="compile --file $LATEST_F --target conductor")
+LATEST_OUT=$(./gradlew -q --no-daemon :app:cli --args="compile --file '$LATEST_F' --target conductor")
 echo "$LATEST_OUT" | grep -q '"name":"db.upsert"' || { echo "[GATE] FAIL: db.upsert task missing"; exit 1; }
 echo "$LATEST_OUT" | grep -q '"_pinnedVersion":"1.2.0"' || { echo "[GATE] FAIL: caret not pinned to concrete 1.2.0"; echo "$LATEST_OUT"; exit 1; }
 if echo "$LATEST_OUT" | grep -q '\^1.0.0'; then echo "[GATE] FAIL: range string leaked into emitted JSON"; exit 1; fi
 
 echo "[GATE] assert 6: lint — irreversible-ordering REJECTED"
 BAD_F="$(cygpath -w "$(pwd)/scripts/fixtures/bad-order.yaml" 2>/dev/null || echo "$(pwd)/scripts/fixtures/bad-order.yaml")"
-if ./gradlew -q --no-daemon :app:cli --args="compile --file $BAD_F --target conductor" 2>/tmp/badorder.err; then
+if ./gradlew -q --no-daemon :app:cli --args="compile --file '$BAD_F' --target conductor" 2>/tmp/badorder.err; then
   echo "[GATE] FAIL: bad-order compiled (lint E1 not load-bearing)"; exit 1
 fi
 grep -q "irreversible-ordering" /tmp/badorder.err || { echo "[GATE] FAIL: no irreversible-ordering diagnostic"; cat /tmp/badorder.err; exit 1; }
