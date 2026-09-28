@@ -94,4 +94,39 @@ object FixtureBlockJar {
         }
         return jar
     }
+
+    const val NON_BLOCK_FQCN = "io.fixture.NotABlock"
+
+    /** Build a jar defining a public, concrete, no-arg-constructible class that does NOT implement [Block] —
+     *  exercises probe's `isAssignableFrom` rejection branch (as opposed to the classloader-identity or
+     *  modifier checks, which the other fixtures target). */
+    fun buildNonBlock(): File {
+        val work = File.createTempFile("koshei-fixture-nonblock", "").let { it.delete(); it.mkdirs(); it }
+        val srcDir = File(work, "src/io/fixture").apply { mkdirs() }
+        val srcFile = File(srcDir, "NotABlock.java").apply {
+            writeText(
+                """
+                package io.fixture;
+                public class NotABlock {
+                    public NotABlock() { }
+                }
+                """.trimIndent()
+            )
+        }
+        val classesDir = File(work, "classes").apply { mkdirs() }
+
+        val compiler = ToolProvider.getSystemJavaCompiler()
+            ?: error("no system Java compiler available (need a JDK, not a JRE)")
+        val rc = compiler.run(null, null, null, "-d", classesDir.absolutePath, srcFile.absolutePath)
+        check(rc == 0) { "javac failed (rc=$rc) compiling NotABlock fixture" }
+
+        val jar = File(work, "nonblock-${System.nanoTime()}.jar")
+        JarOutputStream(jar.outputStream()).use { jos ->
+            val classFile = File(classesDir, "io/fixture/NotABlock.class")
+            check(classFile.exists()) { "compiled class not found: $classFile" }
+            jos.putNextEntry(JarEntry("io/fixture/NotABlock.class"))
+            jos.write(classFile.readBytes()); jos.closeEntry()
+        }
+        return jar
+    }
 }

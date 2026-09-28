@@ -97,4 +97,15 @@ class PluginLoaderTest {
             PluginLoader().probe(jar.absolutePath, "koshei.blocks.TransformMapBlock")
         }
     }
+
+    @Test fun `probe rejects a class defined by the jar that does not implement Block`() {
+        // Exercises the isAssignableFrom branch specifically: the class IS defined by the candidate jar
+        // (passes the classloader-identity check) and IS public/concrete/no-arg-constructible (passes the
+        // modifier and ctor checks) — it just isn't a koshei.sdk.Block.
+        val jar = FixtureBlockJar.buildNonBlock()
+        val ex = assertFailsWith<IllegalArgumentException> {
+            PluginLoader().probe(jar.absolutePath, FixtureBlockJar.NON_BLOCK_FQCN)
+        }
+        assertTrue(ex.message?.contains("is not a koshei.sdk.Block") == true, "expected the not-a-Block message, got: ${ex.message}")
+    }
 }

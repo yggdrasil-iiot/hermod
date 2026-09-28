@@ -21,7 +21,9 @@ import java.io.File
  * `koshei.publish.disabled=true` (env `KOSHEI_PUBLISH_DISABLED=true`) closes this surface with 403 before the
  * contract is parsed or the jar is staged (for well-formed requests; a request missing a part still fails with
  * 400 during argument binding) — deployments that must not accept new plugin code (the episode outer loop,
- * design §14) set it.
+ * design §14) set it. Note that Spring still reads the full multipart body (up to the configured multipart
+ * size limit) into `contract`/`jar` before this method runs, so the switch prevents staging and registration
+ * of the plugin but not the upload itself.
  */
 @RestController
 @RequestMapping("/api")
