@@ -4,7 +4,10 @@ plugins {
     application
 }
 kotlin { jvmToolchain(21) }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    environment.remove("KOSHEI_RECIPE_SETPOINTS")  // hermetic: CanonicalAbsentTest asserts the no-canonical boot path
+}
 dependencies {
     implementation(project(":core"))
     implementation(project(":registry"))
