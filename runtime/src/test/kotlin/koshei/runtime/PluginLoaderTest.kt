@@ -71,8 +71,30 @@ class PluginLoaderTest {
     }
 
     @Test fun `probe releases the jar so it can be deleted`() {
+        // Only actually guards on Windows: POSIX delete() succeeds even with an open file handle, so this
+        // assertion is a no-op safety net on Linux/macOS CI, but it is the whole point on this Windows box.
         val jar = FixtureBlockJar.build(withManifest = false)
         PluginLoader().probe(jar.absolutePath, FixtureBlockJar.FQCN)
-        kotlin.test.assertTrue(jar.delete(), "probe must close its classloader (Windows keeps an open jar locked)")
+        assertTrue(jar.delete(), "probe must close its classloader (Windows keeps an open jar locked)")
+    }
+
+    @Test fun `probe rejects a jar with a corrupt class file as a clean rejection, not a LinkageError`() {
+        val jar = FixtureBlockJar.buildWithGarbageClassBytes()
+        assertFailsWith<IllegalArgumentException> { PluginLoader().probe(jar.absolutePath, FixtureBlockJar.FQCN) }
+    }
+
+    @Test fun `probe rejects a package-private Block`() {
+        val jar = FixtureBlockJar.build(withManifest = false, classModifiers = "")
+        assertFailsWith<IllegalArgumentException> { PluginLoader().probe(jar.absolutePath, FixtureBlockJar.FQCN) }
+    }
+
+    @Test fun `probe rejects a Block resolved from the host classpath instead of the plugin jar`() {
+        // koshei.blocks.TransformMapBlock is a real, public, concrete Block with a public no-arg ctor that
+        // already lives on :runtime's own classpath (via :blocks). Parent-first delegation would resolve
+        // it without ever touching the candidate jar, so probe must reject it as not-defined-by-the-jar.
+        val jar = FixtureBlockJar.build(withManifest = false)
+        assertFailsWith<IllegalArgumentException> {
+            PluginLoader().probe(jar.absolutePath, "koshei.blocks.TransformMapBlock")
+        }
     }
 }

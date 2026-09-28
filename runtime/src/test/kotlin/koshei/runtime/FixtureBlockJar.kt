@@ -82,4 +82,16 @@ object FixtureBlockJar {
         }
         return jar
     }
+
+    /** Build a jar whose `io/fixture/FixtureBlock.class` entry is garbage bytes, not a valid classfile —
+     *  simulates an unauthenticated caller uploading corrupt bytes, for probe's LinkageError-mapping test. */
+    fun buildWithGarbageClassBytes(): File {
+        val work = File.createTempFile("koshei-fixture-garbage", "").let { it.delete(); it.mkdirs(); it }
+        val jar = File(work, "garbage-${System.nanoTime()}.jar")
+        JarOutputStream(jar.outputStream()).use { jos ->
+            jos.putNextEntry(JarEntry("io/fixture/FixtureBlock.class"))
+            jos.write("not a class".toByteArray()); jos.closeEntry()
+        }
+        return jar
+    }
 }

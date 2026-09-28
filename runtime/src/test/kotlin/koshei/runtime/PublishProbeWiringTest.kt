@@ -6,6 +6,7 @@ import koshei.registry.BlockStore
 import koshei.registry.ManifestLoader
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
@@ -23,15 +24,20 @@ class PublishProbeWiringTest {
             ctorBody = "System.setProperty(\"$ctorKey\", \"ran\");",
         )
         val storeRoot = File.createTempFile("koshei-probe-store", "").let { it.delete(); it.mkdirs(); it }
-        val registry = DispatchAssembly.buildRegistry(
-            BlockIndex { error("no database in this test") },
-            BlockStore(storeRoot),
-        )
-        val contract = ManifestLoader.fromYaml(FixtureBlockJar.manifestYaml)
+        try {
+            val registry = DispatchAssembly.buildRegistry(
+                BlockIndex { error("no database in this test") },
+                BlockStore(storeRoot),
+            )
+            val contract = ManifestLoader.fromYaml(FixtureBlockJar.manifestYaml)
 
-        runCatching { registry.publish(jar, contract) }   // fails at the index — expected
+            val ex = runCatching { registry.publish(jar, contract) }.exceptionOrNull()
+            assertEquals("no database in this test", ex?.message, "publish must pass the handler check and reach the index")
 
-        assertNull(System.getProperty(clinitKey), "publish must not run the plugin's static initializer")
-        assertNull(System.getProperty(ctorKey), "publish must not construct the plugin")
+            assertNull(System.getProperty(clinitKey), "publish must not run the plugin's static initializer")
+            assertNull(System.getProperty(ctorKey), "publish must not construct the plugin")
+        } finally {
+            storeRoot.deleteRecursively()
+        }
     }
 }

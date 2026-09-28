@@ -23,7 +23,7 @@ class Registry(
     private val index: BlockIndex,
     private val store: BlockStore,
     private val builtins: Map<String, BlockContract>,                 // "id#version" -> contract (injected from runtime)
-    private val handlerLoadCheck: (jar: File, fqcn: String) -> Unit,  // injected; throws if class absent/not a Block
+    private val handlerLoadCheck: (jar: File, fqcn: String) -> Unit,  // injected; throws if the handler is not a loadable public concrete Block with a public no-arg ctor
 ) {
     fun publish(jar: File): PublishResult {
         val manifest = readManifestFromJar(jar)                       // §4.3.a: read /manifests/*.yaml in jar
