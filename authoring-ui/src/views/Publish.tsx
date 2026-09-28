@@ -132,7 +132,7 @@ export function Publish({ contract, onPublished, onEdit }: Props) {
 
       {errors && (
         <div className="banner err result-banner stack">
-          <strong>Publish rejected (gating)</strong>
+          <strong>Publish rejected</strong>
           {errors.map((e, i) => (
             <span key={i} className="err-detail">
               ✕ {e}

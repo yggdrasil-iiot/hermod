@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import type { APIRequestContext, Page, TestInfo } from "@playwright/test";
 
-const API = "http://localhost:18090";
+const API = "http://127.0.0.1:18090";
 
 // Trigger a run via the control plane; returns the runId (also recorded in run_index → Console RunList).
 export async function startRun(

@@ -218,9 +218,10 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 > by default, and publish-time checks never run uploaded plugin code: the handler class is resolved without
 > initialization and never instantiated until a block is executed. A published block *does* run, with that
 > process's privileges, wherever it is executed (the worker) when a workflow uses it — close the surface with
-> `KOSHEI_PUBLISH_DISABLED=true` on deployments that must not accept new plugin code.
+> `KOSHEI_PUBLISH_DISABLED=true` on deployments that must not accept new plugin code. This closes the HTTP
+> publish endpoint only; the local CLI (`:app:cli publish`) is unaffected.
 
-The `:app:run`, `:app:cli`, and `:app:starter` tasks forward these env keys from the live shell into the forked task JVM (see the `forwardKosheiEnv` block in `app/build.gradle.kts`), so the worker and the CLI agree on the plugin store and DB.
+The `:app:run`, `:app:cli`, and `:app:starter` tasks forward these env keys from the live shell into the forked task JVM (see the `forwardKosheiEnv` block in `app/build.gradle.kts`), so the worker and the CLI agree on the plugin store and DB. `:authoring-api:run` now forwards every `KOSHEI_*` variable from the live shell as well, so switches like `KOSHEI_PUBLISH_DISABLED` and `KOSHEI_BIND_ADDRESS` reach the control plane even on a warm Gradle daemon.
 
 ### Ports (bundled Docker Compose stack)
 

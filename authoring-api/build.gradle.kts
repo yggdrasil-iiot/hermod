@@ -31,3 +31,12 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 application { mainClass.set("koshei.authoring.AuthoringApplicationKt") }
+
+// The Gradle daemon captures its environment at startup, so env vars exported AFTER the daemon started
+// (e.g. KOSHEI_PUBLISH_DISABLED / KOSHEI_BIND_ADDRESS set by an operator) would NOT reach the forked `run`
+// JVM, silently leaving a switch like publish-disable inapplied. Forward every KOSHEI_* var from the live
+// shell into the run task so the shell env is authoritative (mirrors `forwardKosheiEnv` in app/build.gradle.kts).
+// No-op when unset.
+tasks.named<JavaExec>("run") {
+    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
+}
