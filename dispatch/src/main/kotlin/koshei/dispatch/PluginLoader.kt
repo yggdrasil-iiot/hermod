@@ -2,14 +2,38 @@ package koshei.dispatch
 
 import koshei.sdk.Block
 import java.io.File
+import java.lang.reflect.Modifier
 import java.net.URLClassLoader
 
 /**
  * Loads a plugin [Block] from a jar in an isolated child classloader. Parent = the loader that has
  * `:sdk` (this class's loader), so `koshei.sdk.Block` is the SAME Class in host and plugin (parent-first
  * delegation gives type identity — the `as Block` cast and `isAssignableFrom` work across the boundary).
+ *
+ * [probe] is the publish-time check; [load] is the execution path.
  */
 class PluginLoader(private val parent: ClassLoader = PluginLoader::class.java.classLoader) {
+    /**
+     * Publish-time check that runs NO plugin code: resolves [fqcn] from the jar WITHOUT initialization
+     * (`initialize=false`, so no static initializer), then checks by reflection only (never instantiated) that
+     * [load] could instantiate it — a public, concrete [Block] with a public no-arg constructor — and closes the
+     * loader so the candidate jar is released. A jar published through an unauthenticated surface must not
+     * execute during the check (design §14). Trade-off: a class whose static initializer or constructor THROWS
+     * now passes publish and fails at its first execution instead (a failed activity), because detecting that
+     * would mean running the code.
+     */
+    fun probe(jarPath: String, fqcn: String) {
+        URLClassLoader(arrayOf(File(jarPath).toURI().toURL()), parent).use { loader ->
+            val cls = Class.forName(fqcn, false, loader)
+            require(Block::class.java.isAssignableFrom(cls)) { "$fqcn is not a koshei.sdk.Block" }
+            require(Modifier.isPublic(cls.modifiers) && !cls.isInterface && !Modifier.isAbstract(cls.modifiers)) {
+                "$fqcn must be a public concrete class"
+            }
+            val ctor = runCatching { cls.getDeclaredConstructor() }.getOrNull()
+            require(ctor != null && Modifier.isPublic(ctor.modifiers)) { "$fqcn needs a public no-arg constructor" }
+        }
+    }
+
     fun load(jarPath: String, fqcn: String): Block {
         // The loader is intentionally NOT closed: on success it must outlive the returned Block (which
         // lazily resolves further plugin classes through it), and HandlerRegistry caches that Block for
