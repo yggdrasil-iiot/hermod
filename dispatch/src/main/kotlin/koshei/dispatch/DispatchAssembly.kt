@@ -32,8 +32,9 @@ object DispatchAssembly {
 
     /**
      * Construct a [Registry] over the given index/store with the static builtins (plus optional [extraBuiltins]
-     * for test fixtures) and a real PluginLoader-based handlerLoadCheck (a publish probe: the forwardHandler
-     * must classload as a [koshei.sdk.Block] from the candidate jar).
+     * for test fixtures) and a PluginLoader-based handlerLoadCheck. The check is [PluginLoader.probe]: it proves
+     * the forwardHandler is a public concrete [koshei.sdk.Block] with a public no-arg ctor WITHOUT running any plugin code — publish is
+     * reachable from an unauthenticated API, so the candidate jar must not execute during the check (design §14).
      */
     fun buildRegistry(
         index: BlockIndex,
@@ -45,7 +46,7 @@ object DispatchAssembly {
             index = index,
             store = store,
             builtins = builtinContracts + extraBuiltins,
-            handlerLoadCheck = { jar, fqcn -> loader.load(jar.absolutePath, fqcn) },
+            handlerLoadCheck = { jar, fqcn -> loader.probe(jar.absolutePath, fqcn) },
         )
     }
 }
