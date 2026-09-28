@@ -1,5 +1,5 @@
 // Typed fetch wrappers for the five :authoring-api endpoints. All paths are relative ("/api/...")
-// so the Vite dev proxy (→ http://localhost:18090) handles them transparently.
+// so the Vite dev proxy (→ http://127.0.0.1:18090) handles them transparently.
 
 import type {
   AuthoredContract,
