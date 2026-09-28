@@ -1,5 +1,8 @@
 server:
   port: 18090
+  # Loopback by default: the control plane has no authentication (design §14, PoC limit), so it must not be
+  # reachable from the network unless an operator opts in explicitly with KOSHEI_BIND_ADDRESS (e.g. 0.0.0.0).
+  address: ${KOSHEI_BIND_ADDRESS:127.0.0.1}
 spring:
   servlet:
     multipart:
