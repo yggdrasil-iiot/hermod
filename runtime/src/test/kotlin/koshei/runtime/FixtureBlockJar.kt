@@ -17,12 +17,17 @@ object FixtureBlockJar {
     const val ID = "io.fixture.block"
     const val VERSION = "1.0.0"
 
-    private val javaSource = """
+    /** Java source for the fixture. [staticInit] and [ctorBody] are spliced in verbatim so a test can plant
+     *  an observable side effect (e.g. System.setProperty) and prove whether publish-time probing ran it;
+     *  [classModifiers] / [ctorModifiers] let a test build a class the worker could not instantiate. */
+    private fun javaSource(staticInit: String, ctorBody: String, classModifiers: String, ctorModifiers: String) = """
         package io.fixture;
         import koshei.sdk.Block;
         import koshei.sdk.BlockInput;
         import koshei.sdk.BlockOutput;
-        public class FixtureBlock implements Block {
+        $classModifiers class FixtureBlock implements Block {
+            static { $staticInit }
+            $ctorModifiers FixtureBlock() { $ctorBody }
             public String getId() { return "$ID"; }
             public BlockOutput forward(BlockInput input) {
                 return new BlockOutput(
@@ -46,10 +51,16 @@ object FixtureBlockJar {
     """.trimIndent()
 
     /** Build a jar with the compiled fixture .class and, when [withManifest], a manifests/block.yaml. */
-    fun build(withManifest: Boolean = true): File {
+    fun build(
+        withManifest: Boolean = true,
+        staticInit: String = "",
+        ctorBody: String = "",
+        classModifiers: String = "public",
+        ctorModifiers: String = "public",
+    ): File {
         val work = File.createTempFile("koshei-fixture", "").let { it.delete(); it.mkdirs(); it }
         val srcDir = File(work, "src/io/fixture").apply { mkdirs() }
-        val srcFile = File(srcDir, "FixtureBlock.java").apply { writeText(javaSource) }
+        val srcFile = File(srcDir, "FixtureBlock.java").apply { writeText(javaSource(staticInit, ctorBody, classModifiers, ctorModifiers)) }
         val classesDir = File(work, "classes").apply { mkdirs() }
 
         val sdkCp = File(Block::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
