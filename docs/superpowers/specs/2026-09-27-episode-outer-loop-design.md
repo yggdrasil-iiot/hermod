@@ -439,7 +439,9 @@ picasso 와의 경계 (picasso 2026-09-30 답):
 | 재할당 | **이 설계는 `reassign` 을 부르지 않는다.** 재할당은 배정 정책이 부른다(picasso ADR 41) — picasso 가 스스로 옮기지 않고, 바깥 루프의 후보도 명령도 아니다. 사용자가 달리 정하기 전까지 특히 결과 통보에 `inDoubtUnits` 가 있거나, `physicalState` 가 OPERATOR_HOLD 인데 `blockedBy` 가 빈 실행에는 부르지 않는다. picasso 는 보류로 간 단위를 도는 단위로 보지 않아 그 실행의 재할당을 막지 않고, 사람이 뒤에 `REWORK` 를 내면 새 기체에서 돈다(코드로 확인, 시험으로 밟지는 않음 — picasso 2026-09-30 답). **이 빈 곳은 §19 E ③ 전까지 막는 장치가 없다.** 배정 정책이 부르는 재할당은 koshei 밖이라, R8 의 「자동 재할당 0」은 koshei 만으로 검증할 수 없다 |
 
 **`SAGA_ACTION` 과 자식 사가 (계획 D).** koshei 가 직접 하는 조치 유형(OT 쓰기, MES 반영 등)은 정책 표의 **조치 목록(action
-catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(선언과 관측의 경로), `requiresPerson`.
+catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(선언과 관측의 경로), `requiresPerson`, **전제(`preconditions`)** —
+사람이 UNKNOWN(PRECONDITION) 에서 확인할 명제(§8.3)이자 `revalidate` 가 재조회할 세계 사실. 전제를 하나도 선언하지 않은 항목은
+`validate`(§10.2)와 `policy activate` 가 거절한다 — 확인할 명제 없이 「전제 성립」을 누르게 되기 때문이다.
 - `requiresPerson` 은 정책 활성화 때 CLI 가 사가 정의의 블록 계약을 풀어 계산해 박는다: 어느 블록이든 `requireApprovalBefore` 이거나
   IRREVERSIBLE 이면 true. 투영과 전이 함수는 이 값만 본다(순수).
 - 활성화는 **모든 블록이 정확한 판으로 고정된 사가 정의만** 받는다(`^x`·`latest` 거절). 워커가 `workflow_def` 에서 `name@version` 을
