@@ -602,6 +602,15 @@ koshei 가 진단 응답(계약 0.6 §4)과 자기 상태로 그린다. narrator
 
 사람이 읽지 않는 경로일수록 확인 못 한 주장에 기대지 않게 하려는 것이다.
 
+**깨끗함은 올바름이 아니다** (narrator 권고 측정 두 판, 2026-10-01). 깨끗함은 인용을 제대로 달았는지를 잴 뿐, 권고가 옳은지는
+재지 않는다. 측정에서 드러난 한계 셋:
+- `uncitedSentences` 는 문장 단위로 센다. 같은 사실 읽기라도 따로 한 문장이면 걸리고(R01), 인용이 달린 문장 안에 있으면
+  지난다(R03). 내용이 아니라 문장을 어떻게 끊었느냐가 자격을 가른다.
+- 판단의 핵심인 자료 칸(기체 상태 같은 사실)은 코퍼스 문서가 아니어서 원리상 인용을 달 수 없다. 두 판에서 인용 없는 문장 여섯 가운데
+  다섯이 이것이었다.
+- khala 의 벡터 검색이 시간을 넘겨 죽은 채로 선 진단도 깨끗하게 나올 수 있다. 계약 0.6 의 응답에는 검색 고장을 알릴 칸이 없다.
+그래서 정책 v1 은 `APPROVE_REMEDY` 자동 승인을 끈다(§10.1, §18).
+
 ---
 
 ## 10. 정책 표
@@ -613,7 +622,7 @@ version: 2026-09-27.1
 expiresAt: null
 agentLayerEnabled: true
 autoApprove:                                               # 자동 승인이 가능한 종류만 칸이 있다
-  APPROVE_REMEDY: { allowed: true, requireClean: true, skills: [pick_place] }
+  APPROVE_REMEDY: { allowed: false, requireClean: true, skills: [pick_place] }   # v1 은 끈다 (§18, 2026-10-01)
 actionCatalog: []                                          # SAGA_ACTION 항목, 항목마다 autoApprove.allowed (계획 D)
 deadlines:
   correlatingMs: …        # 병합 창
@@ -842,6 +851,17 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
   상태기계를 요구하면 구동부만 바꿔 옮길 수 있게 한다(`outer-loop-requirements.md` 6절의 "누가 운영하느냐" 기준).
 - **ESCALATED 를 종료로 두지 않음.** 사람에게 넘긴 뒤에도 이미 나간 조치의 결과와 근거가 들어온다. 닫아 버리면 그 기록을 받을 곳이
   사라진다. 대신 보존 기한으로 반드시 닫힌다.
+- **정책 v1 은 `APPROVE_REMEDY` 자동 승인을 끈다 (2026-10-01, 사용자 결정).** 코드로 잠그지 않고 정책 값
+  `allowed: false` 로 끈다 — R6 의 「끄기」 스위치 그대로이고, 다시 켜는 것은 정책 한 번이다. 까닭:
+  (1) 깨끗함은 올바름이 아니라 인용 위생을 잰다(§9.5).
+  (2) 자동 승인의 다른 관문(picasso 자격)도 이 경우를 거르지 못했다 — picasso 시나리오에서 에이전트가 승인한 같은 제안이
+  실행 뒤 `PAYLOAD_LOST` 로 끝났다(측정 R01 과 같은 줄).
+  (3) 대가가 비대칭이다. 끈 것을 켜는 비용은 정책 한 줄이지만, 잘못 나간 자동 승인은 물리적 결과로 남는다. 막아서 치르는 값은 사람을
+  기다리는 시간이고, 그동안 picasso 는 단위를 멈춰 둔다.
+  약점도 적어 둔다: 표본이 작다(둘째 판 열 가운데 하나, 그것도 점수 없는 사례). R03 의 요청 정보만으로는 A 를 권한 것이 틀린 진단이라고
+  할 수 없다. 이 결정은 「진단이 틀렸다」가 아니라 「깨끗함이 안전 조건으로 모자라다」에 기댄다.
+  v0.5 임시 동작에서는 어차피 모든 `APPROVE_REMEDY` 가 전제 확인(UNKNOWN(PRECONDITION))에서 사람을 거친다. 이 결정은 §19 C·E 가
+  서는 날 자동 승인이 조용히 열리지 않게 기본값을 잠가 두는 것이다. 다시 켤 조건은 §19.
 - **`abort` 없이 `takeover` + `close`.** "중단"의 두 뜻(에이전트를 멈춤 / 에피소드를 무효로 끝냄)을 두 입력으로 가른다.
 - **`NO_PROPOSAL` · `REMEDY_NOT_APPLIED` → UNKNOWN.** 나갔는지 모르면 다시 하지 않는다. picasso 2026-09-30 답도 같다(나누기 전까지
   「이미 소모됐을 수 있음」). `CONSUMED` 가 들어오면 좁힌다(§19 B).
@@ -880,6 +900,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | khala 변경 여섯: 프롬프트 지문 결함과 `prompt_version`, 브리지 구조화 출력, `answer_context`, `numbers[].found_in`, `corpus_version`, `search_fingerprint` | khala | R9 · R11 판 칸, `UNCITED` 재진단 조정 |
 | 개발용 동시 한도 | khala · narrator | narrator 워커 동시 실행 설정 (벽 순서는 계약 0.5 에서 정해짐) |
 | 고정 예제의 응답 넷 | narrator | §17 계약 시험 |
+| `APPROVE_REMEDY` 자동 승인을 다시 켤 조건 — 셋이 다 서면 사용자가 다시 정한다: ① 점수 매긴 사례에서 깨끗한 권고가 충분한 수로 옳다는 측정, ② 검색 고장(khala `degraded`)을 진단 응답에 싣고 그때는 깨끗하지 않다고 보는 것(계약 판 올림), ③ §19 C·E(담는 쪽, 증분 조회) | narrator 측정 · narrator 계약 · picasso · 사용자 | 정책의 `APPROVE_REMEDY.allowed: true` (v1 은 `false`, §18) |
 | 검색에 쓰지 않는 자료 칸 (권고 모드 전제, khala `answer_context`) | khala | 진단 Mock → 실연결 전환. 그 전에는 실물 호출이 khala 422 → narrator `unreachable`(비재시도) → `DIAGNOSIS_FAILED` 로 끝난다. 배선 시험은 이 실패 길까지는 끝까지 볼 수 있다 |
 
 narrator 쪽 현황(2026-09-28): 진단 워커가 섰다 — 큐 `narrator-tq`, 액티비티 `diagnose`, `python -m diagnose.worker`
