@@ -33,26 +33,40 @@
 | `sawCandidatesVersion` | `sha256:` + 16진 소문자 64자 |
 | `rationale` · `cause` | `null` 또는 비지 않은 글자 — 빈 글자로 적지 않는다(§4) |
 | `card` | `{ label, text }`(둘 다 글자) 의 목록 |
-| `citations` | 객체의 목록 — 원문 그대로 둔다 |
+| `citations` | 객체의 목록 — 원문 그대로 둔다(`{title, section, verified, provenance_tier, provenance_mark}`) |
 | `unverifiedClaims` | `{ kind: CITATION \| NUMBER, text: 글자 \| null, foundIn: null \| 글자 목록 }` 의 목록, CITATION 이면 `foundIn` 은 `null`. **목록 자체는 `null` 이 아니다** |
 | `uncitedSentences` | 글자 목록. **`null` 이 아니다** |
 | `versions` | 객체, 다섯 칸(`modelId` · `promptVersion` · `corpusVersion` · `searchFingerprint` · `narratorCommit`) 각각 글자 또는 `null` |
-| `elapsedSeconds` | 0 이상의 수 |
+| `elapsedSeconds` | 0 이상의 **유한한** 수(`1e400` 은 Jackson 이 Infinity 로 읽는다 — 거절) |
 | 그 밖의 키 | 무시한다(원문에는 남는다) |
 
 **깨끗함(`clean`)**: `rationale != null` ∧ `uncitedSentences` 빔 ∧ `unverifiedClaims` 빔 — 설계 §9.5 의 `requireClean` 조건.
 
 ## 판정 순서 (설계 §5.2 DIAGNOSING 행)
 
-1. 읽기 위반 → `Escalate(DIAGNOSIS_FAILED)` (위반 목록을 `detail` 에)
+1. 읽기 위반 → `Escalate(DIAGNOSIS_FAILED)` (위반 목록을 `detail` 에, 받은 트리를 `raw` 에, 글자로 받았으면 그 글자를 `rawText` 에)
 2. `contractVersion` ≠ `"0.6"` · `episodeId` 나 `attempt` 가 요청과 다름 → `Escalate(DIAGNOSIS_FAILED)`
 3. `sawCandidatesVersion` ≠ 요청의 `candidatesVersion` → `Escalate(CANDIDATES_VERSION_MISMATCH)`
 4. `NO_GROUNDS` · `UNCITED` → 같은 이름의 사유. `OUT_OF_CANDIDATES` → 같은 이름, `picked` 를 싣는다
 5. `RECOMMENDED`:
    - `candidateId == "ESCALATE"` → `Escalate(ESCALATE_RECOMMENDED)`
+   - `verified` 가 JSON 참인 인용이 하나도 없음 → `Escalate(DIAGNOSIS_FAILED)` — 계약 §4 규칙 3 은 이때 narrator 가 `UNCITED`
+     를 내야 한다고 한다. koshei 가 다시 본다(응답 혼자 정하지 않는다). narrator 의 `UNCITED` 는 측정되는 결과이고 이것은 계약
+     위반이라 `UNCITED` 로 섞지 않는다
    - 요청의 후보에 없음 → `Escalate(OUT_OF_CANDIDATES)`, `picked` = 그 식별자(판정 주인이 둘이어도 결과가 같다, 계약 §4)
-   - 실행 계열인데 요청의 `unknowns` 가 비지 않음 → `Escalate(UNKNOWN_BLOCKS_EXECUTION)` — 투영이 이미 뺐어야 하므로 투영 결함 신호
+   - 실행 계열인데 요청의 `unknowns` 가 비지 않음 → `Escalate(UNKNOWN_BLOCKS_EXECUTION)` — 투영이 이미 뺐어야 하므로 투영 결함
+     신호. 막힌 식별자는 `response.candidateId` 다(`picked` 는 `OUT_OF_CANDIDATES` 에만 싣는다)
    - 그 밖 → `Proposed(후보, clean)`
+
+판정은 읽은 응답을 싣는다: `Proposed.response` 는 늘 있고, `Escalate.response` 는 읽기 위반일 때만 `null` 이다(그때는 `raw` ·
+`rawText`). `CANDIDATES_VERSION_MISMATCH` 는 `detail` 에 `saw … , sent …` 를 싣는다. 판정 값은 메모리 안의 값이다 — Temporal
+페이로드로 직렬화하지 않는다(JVM 에서는 생성자가 공개라 역직렬화한 `Proposed` 는 판정을 건너뛴다). 응답 원문을 두고 다시 판정한다.
+
+> **검토 뒤 고침 (2026-09-30).** Chunk 1 의 코드 목록은 첫 구현(`106a298` · `07b9d44`) 그대로다. 두 번의 품질 검토로 코드가
+> 달라졌다(`99e2ccc` · `c9b999e`): 위 두 표와 판정 순서가 지금 코드를 설명하고, **목록과 코드가 다르면 코드가 정본이다.**
+> 달라진 것 — 글자 입구 `parseDiagnosisResponse(String)`(엄격한 mapper 로 읽어 겹친 키를 잡는다; 워크플로는 액티비티 결과를
+> 글자로 넘긴다), 출력 쪽 불변(`raw` · `citations` 는 꺼낼 때마다 깊은 사본, 목록은 고칠 수 없음), `ClaimKind` 열거, `!!` 없음,
+> `versions.*` 의 빈 글자 거절, `Proposed` · `Escalate` 의 internal 생성자.
 
 ---
 
