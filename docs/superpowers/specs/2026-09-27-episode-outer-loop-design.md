@@ -199,7 +199,9 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 `POLICY_EXPIRED` · `TAKEN_OVER` · `DISPATCH_REFUSED(enum)` · `CHILD_FAILED` · `CHILD_OVERDUE` · `RECORD_FAILED`.
 알림 전용(전이 없음): `POLICY_REJECTED` (§8.2), `RECORD_LAG` (실행 의도가 아닌 기록의 실패, §8.5).
 
-- `UNCITED` 를 자동 재진단으로 바꾸는 조정은 khala 브리지 구조화 출력이 들어간 뒤로 미룬다. 그 전에는 구독 한도 안내 문구가 답으로
+- `UNCITED` 를 자동 재진단으로 바꾸는 조정은 khala 브리지 구조화 출력이 들어간 뒤로 미룬다. **2026-09-30 결정: 브리지 구조화 출력이 섰지만 `UNCITED` 는 계속 ESCALATED 다.** 재진단 한 번이 4~9분이라 라인 기한에
+  부담이 크고, 첫 실물 진단에서 표지 오판독(`## 권고:`) 같은 다른 원인이 섞여 있었다. narrator 측정으로 `UNCITED` 의 비율과 원인을
+  본 뒤 다시 정한다. 그 전에는 구독 한도 안내 문구가 답으로
   둔갑해 `UNCITED` 로 분류될 수 있다.
 - `POLICY_MISSING` 과 `POLICY_EXPIRED` 는 같게 동작하지만 같은 값으로 접지 않는다.
 
