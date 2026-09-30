@@ -168,6 +168,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | DIAGNOSING | `RECOMMENDED(ESCALATE)` · `NO_GROUNDS` · `UNCITED` | ESCALATED | `ESCALATE_RECOMMENDED` · `NO_GROUNDS` · `UNCITED` |
 | DIAGNOSING | 응답이 계약에 맞지 않음(읽기 위반 · `contractVersion` · `episodeId` · `attempt` 가 요청과 다름 · `verified` 인용 없는 `RECOMMENDED` — 계약 §4 규칙 3 은 `UNCITED` 를 요구한다) | ESCALATED | `DIAGNOSIS_FAILED`, 위반 목록과 응답 원문 기록. narrator 의 `UNCITED` 와 섞지 않는다 — 그쪽은 측정되는 결과, 이쪽은 계약 위반 |
 | DIAGNOSING | 액티비티 기한 초과 / 비재시도 실패 | ESCALATED | `DIAGNOSIS_EXPIRED` / `DIAGNOSIS_FAILED` |
+| DIAGNOSING | 위 행 어디에도 맞지 않는 `DiagnosisReturned` · `DiagnosisFailed` | ESCALATED | `DIAGNOSIS_FAILED`. 액티비티 결과는 표 아래의 「그대로」 규칙으로 삼키지 않는다 |
 | PROPOSED | 같은 candidateId 의 **실행(Dispatch) 횟수** ≥ `repeatedRemedyThreshold` | ESCALATED | `REPEATED_REMEDY`. 승인이 아니라 실행을 센다 — 사람 과업 종류는 승인 단계가 없기 때문이다 |
 | PROPOSED | 후보가 사람 과업 종류(`CHOOSE_SOURCE`, `OPERATOR_DECISION`) | REVALIDATING | 승인 단계 없음 — 과업을 받는 사람이 곧 결정한다. `approval.by = null`, 기록 `PERSON_TASK` |
 | PROPOSED | 정책이 자동 승인 허용 ∧ 후보에 사람 관문 없음 ∧ (`requireClean` 이면 이유 있음 ∧ 확인 못 한 주장·인용 없는 문장 없음, §9.5) | AUTO_APPROVED → REVALIDATING | `approval.by = POLICY` |
@@ -179,17 +180,21 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | REVALIDATING | FALSE + 이 시도의 진단 스냅샷 뒤에 합류한 증상(`SymptomJoined`) 있음 | DIAGNOSING | 전제가 깨졌고 새 증상이 있다 — 끝내지 않고 다시 본다 |
 | REVALIDATING | FALSE + 합류한 증상 없음 | SUPERSEDED | 낡은 `APPROVE_REMEDY` 권고(같은 (기체, 주문)에 더 새 탐색 줄, §8.3)도 FALSE 다 |
 | REVALIDATING | UNKNOWN / 액티비티 실패 | UNKNOWN(PRECONDITION) | 지금 기준으로 읽지 못한 실물 종류는 모두 여기다(§8.3) |
+| REVALIDATING | 위 행 어디에도 맞지 않는 `Revalidated` | UNKNOWN(PRECONDITION) | 액티비티 실패와 같게 다룬다. 실행이 막히고(§6) 사람의 명제 확인이나 `unknownMs` 로만 나간다 — 사람 없이 조치가 나가는 길이 없는 쪽이라 이것을 고른다 |
 | DISPATCH_PENDING | `Recorded` | DISPATCHED | 명령 `Dispatch`. 기록 없는 조치는 구조적으로 없다 |
 | DISPATCH_PENDING | `RecordFailed` · `recordMs` 만료 | ESCALATED | `RECORD_FAILED`. 조치는 나가지 않았다 |
-| DISPATCH_PENDING | `EvidenceArrived` | (그대로) | 기록만. `Recorded` 앞에 처리한 것이라 근거로 치지 않는다 (§12) |
+| DISPATCH_PENDING | 이 실행 의도와 맞지 않는 `Recorded` · `RecordFailed`(다른 `seq`) | ESCALATED | `RECORD_FAILED`. 조치를 내지 않는 쪽을 고른다 — `Dispatch` 는 이 의도의 `Recorded` 에서만 나온다 |
+| DISPATCH_PENDING | `EvidenceArrived` | (그대로) | 기록만. 이 시도의 `Recorded` 앞에 처리한 것이라 근거로 치지 않는다 (§12) |
 | DISPATCHED | `EvidenceArrived` | (그대로) | 기록하고 보관한다. 결과 통보는 수락과 같은 펌프에서 나오므로 답보다 먼저 올 수 있다. AWAITING_EVIDENCE · UNKNOWN(OUTCOME) 에 들어갈 때 다시 적용한다 — 내부 재적용이라 `eventId` 중복 제거(§6)에 걸리지 않는다 |
 | DISPATCHED | 답의 `schemaVersion` 이 `"2"` 가 아님 · `refusal` 이 판 2 의 아는 값 넷(`NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · `REFUSED_BY_GATE` · `NOT_DECLARED`) 밖 | ESCALATED | `DISPATCH_ANSWER_UNKNOWN`. **DISPATCHED 의 picasso 답 행 중 이 검사가 먼저다** (§8.4) |
-| DISPATCHED | 수락(`delivered`) · 자식 사가 완료 | AWAITING_EVIDENCE | `REMEDY_NOT_APPLIED` 는 수락이 아니다 (아래 행) |
+| DISPATCHED | 수락(`APPROVE_REMEDY` 는 `delivered: true`) · 사람 과업 발행 · 자식 사가 완료 | AWAITING_EVIDENCE | `REMEDY_NOT_APPLIED` 는 수락이 아니다 (아래 행) |
+| DISPATCHED | 승인이 수락됐는데 `delivered` 가 true 가 아님(false · null) | UNKNOWN(OUTCOME) | 전달됐는지 모른다. 재시도하지 않는다 |
 | DISPATCHED | `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · 재시도 소진 · `dispatchMs` 만료 · 자식 사가 UNKNOWN 보고 | UNKNOWN(OUTCOME) | 나갔는지 모름 (§11). 둘 다 「내 앞선 시도가 이미 들어갔을 수 있음」이고 재시도로 풀지 않는다 |
 | DISPATCHED | 재진단 목록(§8.4)에 있는 거절 열거값 | DIAGNOSING | `DISPATCH_REFUSED(enum)`. 목록은 지금 비어 있다 |
 | DISPATCHED | 그 밖의 아는 거절 값(`REFUSED_BY_GATE` · `NOT_DECLARED`) | ESCALATED | `DISPATCH_REFUSED(enum)`. 기본값. `refusal` 열거값으로만 가르고 산문은 보지 않는다. 재진단으로 고칠 수 없는 거절을 다른 후보로 돌려 누르지 않게 한다 (§8.4) |
 | DISPATCHED | 자식 사가 실패(보상 끝남) | DIAGNOSING | `CHILD_FAILED` |
-| AWAITING_EVIDENCE, UNKNOWN(OUTCOME) | ① `EvidenceArrived` 인데 대상과 이어지지 않음 · `Recorded` 앞 · 이미 본 `jobResponseId` | (그대로) | 기록만. 기한(`evidenceMs` · `unknownMs`)이 출구를 지킨다 |
+| DISPATCHED | 위 행 어디에도 맞지 않는 `DispatchReturned` | ESCALATED | `DISPATCH_ANSWER_UNKNOWN`. 액티비티 결과는 「그대로」 규칙으로 삼키지 않는다 |
+| AWAITING_EVIDENCE, UNKNOWN(OUTCOME) | ① `EvidenceArrived` 인데 대상과 이어지지 않음 · **이 시도의** `Recorded` 앞(앞선 시도의 늦은 통보 포함) · 이미 본 `jobResponseId` | (그대로) | 기록만. 기한(`evidenceMs` · `unknownMs`)이 출구를 지킨다 |
 | AWAITING_EVIDENCE | ② `EvidenceArrived` 에 `inDoubtUnits` · `unverifiedUnits` 가 비지 않음 또는 `operatorRequired` 참 | UNKNOWN(OUTCOME) | NOT_DONE 으로 접지 않는다. 해당 단위를 `unknowns` 에도 넣는다 (§9.1) |
 | AWAITING_EVIDENCE | ③ `EvidenceArrived` DONE (대상 단위가 `completedUnits` 에 있음) | RESOLVED | ① · ② 에 걸리지 않을 때만. `judgeEvidence` 가 판정 (§12) |
 | AWAITING_EVIDENCE | ④ `EvidenceArrived` NOT_DONE | DIAGNOSING | 결과를 붙여. **지금 결과 통보는 이 값을 내지 않는다 — 사람만 낸다**(`ConfirmedOutcome`, 아래) |
@@ -206,12 +211,19 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | ESCALATED | `DispatchReturned` · `EvidenceArrived` · `OutcomeRechecked` · `Recorded` · `RecordFailed` | (그대로) | 기록만. 에이전트 명령 없음. DISPATCH_PENDING 중 인수되면 기록 결과가 늦게 올 수 있다 — `Dispatch` 는 DISPATCH_PENDING 에서만 나오므로 안전하다 |
 | ESCALATED | `close(by, outcome)` · 보존 기한 | CLOSED | |
 
-**결과 통보의 판정 순서.** AWAITING_EVIDENCE · UNKNOWN(OUTCOME) 의 `EvidenceArrived` 는 ① 기록만(이어지지 않음 · `Recorded` 앞 ·
+**결과 통보의 판정 순서.** AWAITING_EVIDENCE · UNKNOWN(OUTCOME) 의 `EvidenceArrived` 는 ① 기록만(이어지지 않음 · 이 시도의 `Recorded` 앞 ·
 중복) → ② UNKNOWN(보류 · 미검증 단위, `operatorRequired`) → ③ DONE 순서로 본다. 한 통보가 DONE 과 UNKNOWN 을 함께 말하면 UNKNOWN 이다.
 모호한 통보로 자동 RESOLVED 되는 일은 없다. UNKNOWN(OUTCOME) 에서는 ② 가 상태를 그대로 두고 `unknowns` 만 늘린다.
 
-표에 없는 (상태, 사건) 짝은 상태를 바꾸지 않고 기록만 한다. 종료 상태가 아닌 모든 상태에는 사건 · 사람 · 기한 중 하나로 나가는
-출구가 있다: PROPOSED 는 순간 상태, 나머지는 §5.1 의 상태 기한과 `episodeMs`, ESCALATED 는 `close` · `escalatedRetentionMs`.
+표에 없는 (상태, 사건) 짝은 상태를 바꾸지 않고 기록만 한다. **단 그 상태가 기다리는 액티비티의 결과는 이 규칙에 들지 않는다** —
+DIAGNOSING 의 `DiagnosisReturned` · `DiagnosisFailed`, REVALIDATING 의 `Revalidated`, DISPATCH_PENDING 의 `Recorded` · `RecordFailed`,
+DISPATCHED 의 `DispatchReturned`. 각 상태의 「위 행 어디에도 맞지 않는」 행이 받는다. 결과가 돌아오면 그 액티비티의 기한은 이미
+다 쓴 것이라, 삼키면 `episodeMs` 까지 아무에게도 알리지 않고 멈춰 있게 된다.
+
+종료 상태가 아닌 모든 상태에는 사건 · 사람 · 기한 중 하나로 나가는 출구가 있다: PROPOSED 는 순간 상태, ESCALATED 는 `close` ·
+`escalatedRetentionMs`, 나머지는 사건 · 사람과 §5.1 의 상태 기한 · `episodeMs`. 액티비티를 기다리는 네 상태(DIAGNOSING ·
+REVALIDATING · DISPATCH_PENDING · DISPATCHED)에서 상태 기한은 **액티비티가 끝내 돌아오지 않는 경우만** 덮는다 — 돌아온 결과는
+반드시 표의 한 행이 받는다.
 
 `abort` 는 따로 두지 않는다. 운영자의 "중단"은 `takeover` 다 — 에이전트의 행동을 멈추고 사람이 맡는다. 에피소드를 무효로 끝내려면
 그 뒤에 `close` 한다.
@@ -392,7 +404,7 @@ false` 가 글자 그대로 있으면 마지막 유효 판으로 돌아가지 �
 | 왜 따로 보나 | 승인 요청의 `sawSkillTypes` 는 조치 유형의 열만 대조한다. 같은 모양의 새 제안은 같은 것으로 지나간다 |
 | 규칙 | 후보는 자기를 만든 탐색 줄의 `searchId` 를 `ref` 에 든다(§9.2). 원천에 그 (기체, 주문)의 **더 새 탐색 줄**이 있으면 낡음 → FALSE (§5.2 REVALIDATING FALSE). 「더 새」는 같은 `runId` 의 내보내기에서 그 줄보다 뒤에 적힌 줄이다. `searchId` 는 분해해 견주지 않고(§12) 그 줄을 찾는 데만 쓴다. 구동마다 되풀이되므로 `runId` 를 넘어 견주지 않는다 |
 | 지금 기준 읽기 | 읽은 대장이 시간창 안(지금 기준)이 아니면 UNKNOWN 이다. **낡은 읽기로 TRUE 를 내지 않는다** — 더 새 줄이 아직 안 적혔을 수 있다. 이 규칙은 `APPROVE_REMEDY` 만이 아니라 원천을 다시 읽는 **모든 실물 종류**(`CHOOSE_SOURCE`, `OPERATOR_DECISION`, `SAGA_ACTION` 의 원천 재조회)에 걸린다 |
-| 사람이 확인할 명제 | UNKNOWN(PRECONDITION) 의 카드와 과업은 사람이 확인할 명제를 후보의 `ref` 로 그대로 적는다. 예: `APPROVE_REMEDY` 면 「picasso 가 (hum-02, PATROL-1)에 `searchId` X 에서 온 제안을 아직 보이고 있다」. 다른 종류는 「그 후보를 세운 줄(`ref`)이 아직 그대로다」. 명제 없이 「전제 맞음」만 누르게 하지 않는다 — `ConfirmedPrecondition(true)` 가 도장 찍기가 되지 않게 |
+| 사람이 확인할 명제 | UNKNOWN(PRECONDITION) 의 카드와 과업은 사람이 확인할 명제를 후보의 `ref` 값으로 채워 그대로 적는다. 명제는 **거짓으로 드러날 수 있는 세계의 사실**이어야 한다 — 「줄이 그대로다」 같은 명제는 쓰지 않는다. 종류별: `APPROVE_REMEDY` 「(기체, 주문)에 `searchId` X 뒤로 더 새 탐색 줄이 없다」(위 규칙과 같은 판정, 예: (hum-02, PATROL-1)) + 스냅샷 뒤에 합류한 증상을 함께 보인다 · `CHOOSE_SOURCE` 「주문 O 의 자재 M 이 아직 결품이고 대체 위치 B 가 아직 쓸 수 있다」 · `OPERATOR_DECISION` 「실행 ex 의 단위 u 가 아직 운영자 보류이고 판단이 나지 않았다」 · `SAGA_ACTION` 조치 목록 항목에 선언한 전제(계획 D) — 여기서 확인하면 자식 사가가 자동으로 돈다. 사람도 그 명제를 관측할 수 없으면 카드가 그렇다고 적고, `unknownMs` 가 지나게 둔다. 명제 없이 「전제 맞음」만 누르게 하지 않는다 — `ConfirmedPrecondition(true)` 가 도장 찍기가 되지 않게 |
 | 보수 쪽으로 틀림 | 탐색 줄은 제안 표가 아니다. NONE · SOURCE_MISSING 은 서 있던 FOUND 제안을 지우지 않는다(지우는 것은 접수 뒤 `settle` 하나). FOUND 뒤에 NONE 이 적히면 제안이 서 있어도 낡음으로 본다. 받아들인다 |
 | FOUND 밖 후보 | picasso 쪽 낡음 검사가 없다. `resolve` · `release` 는 대상이 이미 그 상태가 아니면 `false` 뿐이라 「이미 누가 했다」와 「처음부터 아니었다」가 접힌다(`NO_PROPOSAL` 과 같은 접힘). koshei 는 둘 다 부르지 않는다(§8.4) |
 
@@ -565,7 +577,7 @@ koshei 가 진단 응답(계약 0.6 §4)과 자기 상태로 그린다. narrator
 | 인용 없는 문장 | 응답 `uncitedSentences` | 이유 안에서 따로 표시 |
 | 확인 못 한 주장 | 응답 `unverifiedClaims` | `CITATION` / `NUMBER` 구분, `NUMBER` 는 `foundIn` 을 함께 (`[]` = 어디에도 없음, `["query"]` = 질의에만 있음). `NUMBER` 의 `text` 는 khala `numbers[]` 의 값이다. `text` 가 `null` 인 `NUMBER` 는 `numbers[]` 가 없는 옛 응답의 대비책이고, 그때만 "확인 못 한 숫자 n개(위치 모름)"로 묶어 그린다 |
 | 확인 불가 | 에피소드 `unknowns` | 있으면 맨 위 |
-| 확인할 전제 | UNKNOWN(PRECONDITION) 의 명제(§8.3), 후보 `ref` | UNKNOWN(PRECONDITION) 일 때만. 명제를 그대로 적고 `confirm` 에 실어 보낸다 |
+| 확인할 전제 | UNKNOWN(PRECONDITION) 의 명제(§8.3, 종류별 세계의 사실), 후보 `ref` 의 값, `APPROVE_REMEDY` 면 스냅샷 뒤 합류 증상 | UNKNOWN(PRECONDITION) 일 때만. 명제를 그대로 적고 `confirm` 에 실어 보낸다. 사람도 관측할 수 없는 명제면 그렇다고 적는다(그때는 `unknownMs` 로 끝난다). `SAGA_ACTION` 이면 확인 뒤 자식 사가가 자동으로 돈다는 것을 함께 보인다 |
 | 결정 칸 | `proposalId`, `candidatesVersion`, 남은 기한 | `decide` Update 에 그대로 실어 보낸다 (낡음 검사) |
 | 신원 수준 | `identityAssurance` | PoC 동안 `SELF_ASSERTED` 표시 |
 
@@ -699,10 +711,10 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
   펌프 단위로 실시간이고 picasso §6 승격과 무관하다(picasso 2026-09-30 답). 나르는 모양은 담는 쪽과 함께 정한다(§19 C).
 - 결과 통보 → 에피소드: 대응(`(기체, 주문)` / `(실행, 단위)` → 에피소드)은 **실행 의도 `Record` 에 함께 적는다** — `Dispatch` 보다
   먼저 서므로 수락과 같은 펌프에서 나온 결과 통보도 찾아간다(§5.2 는 답보다 먼저 온 근거를 보관한다). 중복 제거 열쇠는
-  `jobResponseId`. 사건 시각은 감시자가 받은 시각이다(`observedAt`). **워크플로가 `Recorded` 를 처리한 뒤에 처리한 결과 통보만
-  친다** — 이력의 순서로 정하고 두 시계를 견주지 않는다.
+  `jobResponseId`. 사건 시각은 감시자가 받은 시각이다(`observedAt`). **워크플로가 이 시도의 `Recorded` 를 처리한 뒤에 처리한 결과
+  통보만 친다** — 이력의 순서로 정하고 두 시계를 견주지 않는다. 앞선 시도의 늦은 통보는 지금 시도의 근거가 되지 않는다.
 - 판정(워크플로 안의 순수 함수 `judgeEvidence`), **이 순서로**:
-  1. 기록만: 대상과 이어지지 않음 · `Recorded` 앞 · 이미 본 `jobResponseId`.
+  1. 기록만: 대상과 이어지지 않음 · 이 시도의 `Recorded` 앞 · 이미 본 `jobResponseId`.
   2. UNKNOWN: `inDoubtUnits` · `unverifiedUnits` 가 비지 않았거나 `operatorRequired` 가 참 → UNKNOWN(OUTCOME), 해당 단위를
      `unknowns` 에도 넣는다(§9.1). NOT_DONE 으로 접지 않는다.
   3. DONE: 1 · 2 에 걸리지 않고 대상 단위가 `completedUnits` 에 있다.
