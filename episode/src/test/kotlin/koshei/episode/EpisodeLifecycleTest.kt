@@ -1,5 +1,7 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.ObjectNode
 import koshei.episode.Episodes.INSTANCE
 import koshei.episode.Episodes.OPERATOR
 import koshei.episode.Episodes.T0
@@ -34,9 +36,10 @@ class EpisodeLifecycleTest {
         assertTrue(missing.timers(Timer.EPISODE).isEmpty())
         assertEquals(NoticeKind.ESCALATED, missing.notices().single().kind)
 
-        val off = open(read = policy { put("agentLayerEnabled", false) })
+        // The table's own retention (12 h), not the 24 h fallback: the assertion would be vacuous with equal values.
+        val off = open(read = policy { put("agentLayerEnabled", false); (get("deadlines") as ObjectNode).put("escalatedRetentionMs", 43_200_000) })
         assertEquals(EscalationReason.AGENT_LAYER_OFF, off.reason)
-        assertEquals(T0.plusMillis(86_400_000), off.timers(Timer.RETENTION).single().at)
+        assertEquals(T0.plusMillis(43_200_000), off.timers(Timer.RETENTION).single().at)
 
         assertEquals(EscalationReason.POLICY_EXPIRED, open(read = policy { put("expiresAt", "2026-09-30T00:00:00Z") }).reason)
 
@@ -149,5 +152,120 @@ class EpisodeLifecycleTest {
         assertNull(late.reply)
         assertEquals(1, late.state.symptoms.size)
         assertEquals(1, late.records(RecordKind.IGNORED).size)
+    }
+
+    @Test fun `close is accepted only when the episode was already escalated before the event`() {
+        val byTime = open().on(EpisodeEvent.Closed(OPERATOR, "x"), T0.plusMillis(3_600_000))
+        assertEquals(Reply.REFUSED_NOT_ESCALATED, byTime.reply)
+        assertEquals(Phase.ESCALATED, byTime.state.phase)
+        assertEquals(EscalationReason.EPISODE_EXPIRED, byTime.reason)
+        val byRead = open().on(EpisodeEvent.Closed(OPERATOR, "x"), T0.plusSeconds(1), read = policy { put("agentLayerEnabled", false) })
+        assertEquals(Reply.REFUSED_NOT_ESCALATED, byRead.reply)
+        assertEquals(Phase.ESCALATED, byRead.state.phase)
+    }
+
+    @Test fun `the episode deadline is enforced by time on any event`() {
+        val s = open().on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusMillis(3_600_000))
+        assertEquals(EscalationReason.EPISODE_EXPIRED, s.reason)
+        assertEquals(2, s.state.symptoms.size)
+        assertEquals(1, s.timers(Timer.RETENTION).size)
+    }
+
+    @Test fun `a policy read that is off while escalated neither escalates again nor restarts retention`() {
+        val escalated = open().on(EpisodeEvent.TakenOver(OPERATOR), T0.plusSeconds(1))
+        val s = escalated.on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(5), read = policy { put("agentLayerEnabled", false) })
+        assertEquals(Phase.ESCALATED, s.state.phase)
+        assertEquals(EscalationReason.TAKEN_OVER, s.reason)
+        assertTrue(s.timers(Timer.RETENTION).isEmpty())
+        assertTrue(s.notices().none { it.kind == NoticeKind.ESCALATED })
+        assertEquals(escalated.state.token, s.state.token)
+    }
+
+    @Test fun `the diagnosis in flight is cancelled by agent-off, an off policy read and the episode deadline`() {
+        val d = open().expireState()
+        assertTrue(d.on(EpisodeEvent.AgentOff, T0.plusSeconds(10)).commands.any { it is Command.CancelDiagnosis })
+        val off = d.on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(10), read = policy { put("agentLayerEnabled", false) })
+        assertTrue(off.commands.any { it is Command.CancelDiagnosis })
+        assertEquals(EscalationReason.AGENT_LAYER_OFF, off.reason)
+        val expired = d.on(EpisodeEvent.DeadlineExpired(Timer.EPISODE, EPISODE_TOKEN), T0.plusMillis(3_600_000))
+        assertTrue(expired.commands.any { it is Command.CancelDiagnosis })
+        val late = d.on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusMillis(3_600_000))
+        assertTrue(late.commands.any { it is Command.CancelDiagnosis })
+    }
+
+    @Test fun `a diagnosis result that arrives with a global escalation needs no cancel and is kept`() {
+        val d = open().expireState()
+        val json = Responses.forRequest(d.request).toString()
+        val off = d.on(EpisodeEvent.DiagnosisReturned(json), T0.plusSeconds(10), read = policy { put("agentLayerEnabled", false) })
+        assertEquals(EscalationReason.AGENT_LAYER_OFF, off.reason)
+        assertTrue(off.commands.none { it is Command.CancelDiagnosis })
+        assertEquals(json, off.records(RecordKind.IGNORED).single().entry.payload.get("json").textValue())
+        val failed = d.on(EpisodeEvent.DiagnosisFailed(expired = false, message = "x"), T0.plusMillis(3_600_000))
+        assertEquals(EscalationReason.EPISODE_EXPIRED, failed.reason)
+        assertTrue(failed.commands.none { it is Command.CancelDiagnosis })
+    }
+
+    @Test fun `record seqs run 1 to n without gaps and transitions chain from to`() {
+        val opened = open()
+        val diagnosing = opened.expireState()
+        val revalidating = diagnosing.answer()
+        val pending = revalidating.revalidated(TriState.TRUE, revalidating.state.enteredAt.plusSeconds(1))
+        assertEquals(Phase.DISPATCH_PENDING, pending.state.phase)
+        val commands = listOf(opened, diagnosing, revalidating, pending).flatMap { it.commands }
+        val seqs = commands.mapNotNull {
+            when (it) {
+                is Command.Record -> it.seq
+                is Command.RecordIntent -> it.seq
+                else -> null
+            }
+        }
+        assertEquals((1L..seqs.size).toList(), seqs)
+        assertEquals(pending.state.recordSeq, seqs.last())
+        assertTrue(commands.any { it is Command.RecordIntent })
+        val transitions = commands.filterIsInstance<Command.Record>().filter { it.entry.kind == RecordKind.TRANSITION }.map { it.entry.payload }
+        assertTrue(transitions.first().get("from").isNull)
+        assertEquals(
+            listOf("CORRELATING", "DIAGNOSING", "REVALIDATING", "DISPATCH_PENDING"),
+            transitions.map { it.get("to").textValue() },
+        )
+        transitions.zipWithNext().forEach { (a, b) -> assertEquals(a.get("to").textValue(), b.get("from").textValue()) }
+    }
+
+    @Test fun `the opening record keeps the manifest and the line verbatim and names the policy`() {
+        val s = open()
+        val payload = s.records(RecordKind.OPENED).single().entry.payload
+        assertEquals("search-1", payload.get("line").get("searchId").textValue())
+        assertEquals(mapper.readTree(PicassoRun1.manifest).get("schemaVersion"), payload.get("manifest").get("schemaVersion"))
+        assertEquals("2026-09-30.1", payload.get("policyVersion").textValue())
+        val off = open(read = PolicyRead.Missing).records(RecordKind.OPENED).single().entry.payload
+        assertTrue(off.get("policyVersion").isNull)
+    }
+
+    @Test fun `a joined symptom is recorded verbatim`() {
+        val joined = open().on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(1))
+        val line: JsonNode = joined.records(RecordKind.SYMPTOM_JOINED).single().entry.payload.get("line")
+        assertEquals(mapper.readTree(PicassoRun1.incident("incident-1")), line)
+    }
+
+    @Test fun `a read that carries another table version is recorded as adopted - once, and never for the first table`() {
+        assertTrue(open().records(RecordKind.POLICY_ADOPTED).isEmpty())
+        val v2 = policy { put("version", "2026-10-01.2") }
+        val first = open().on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(1), read = v2)
+        assertEquals("2026-10-01.2", first.records(RecordKind.POLICY_ADOPTED).single().entry.payload.get("version").textValue())
+        assertEquals("2026-10-01.2", first.state.policy!!.version)
+        val again = first.on(EpisodeEvent.SymptomJoined(incident("incident-2")), T0.plusSeconds(2), read = v2)
+        assertTrue(again.records(RecordKind.POLICY_ADOPTED).isEmpty())
+        val same = open().on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(1), read = policy())
+        assertTrue(same.records(RecordKind.POLICY_ADOPTED).isEmpty())
+    }
+
+    @Test fun `an ignored update names who sent it`() {
+        val s = open().on(EpisodeEvent.ApprovalDecided("$INSTANCE#1", "sha256:x", true, OPERATOR, null, null), T0.plusSeconds(1))
+        val payload = s.records(RecordKind.IGNORED).single().entry.payload
+        assertEquals("op-1", payload.get("by").textValue())
+        assertEquals("SELF_ASSERTED", payload.get("assurance").textValue())
+        val signal = open().on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(1))
+            .on(EpisodeEvent.SymptomJoined(incident("incident-1")), T0.plusSeconds(2))
+        assertFalse(signal.records(RecordKind.IGNORED).single().entry.payload.has("by"))
     }
 }

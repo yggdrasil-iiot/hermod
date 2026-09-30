@@ -27,7 +27,11 @@ internal fun Out.enterDiagnosing(policy: PolicyTable, now: Instant) {
     }
     if (snapshot.searches.any { it.text("outcome") == "WITHHELD" })
         return escalate(now, Escalation(EscalationReason.WITHHELD_HUMAN_FIRST))
-    val bytes = mapper.writeValueAsBytes(snapshot.toJson()).size
+    val bytes = try {
+        mapper.writeValueAsBytes(snapshot.toJson()).size
+    } catch (e: Exception) {
+        return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "snapshot: ${e.message}"))
+    }
     if (bytes > policy.snapshotMaxBytes)
         return escalate(now, Escalation(EscalationReason.SNAPSHOT_TOO_LARGE, "$bytes bytes > ${policy.snapshotMaxBytes}"))
     val request = try {
@@ -55,10 +59,21 @@ internal fun Out.onDiagnosing(event: EpisodeEvent, policy: PolicyTable, now: Ins
             state = state.copy(attempt = attempt.copy(verdict = verdict))
             record(RecordKind.DIAGNOSIS_RESULT) {
                 put("attempt", attempt.number)
-                put("verdict", verdict.toString())
                 when (verdict) {
-                    is DiagnosisVerdict.Proposed -> set<JsonNode>("response", verdict.response.raw)
+                    is DiagnosisVerdict.Proposed -> {
+                        put("verdict", "PROPOSED")
+                        put("candidateId", verdict.candidate.candidateId)
+                        putNull("reason")
+                        put("clean", verdict.clean)
+                        putNull("detail")
+                        set<JsonNode>("response", verdict.response.raw)
+                    }
                     is DiagnosisVerdict.Escalate -> {
+                        put("verdict", "ESCALATE")
+                        put("candidateId", verdict.response?.candidateId)
+                        put("reason", verdict.reason.name)
+                        putNull("clean")
+                        put("detail", verdict.detail)
                         set<JsonNode>("response", verdict.response?.raw ?: verdict.raw)
                         put("rawText", verdict.rawText)
                     }
@@ -92,27 +107,31 @@ private fun Out.propose(proposed: DiagnosisVerdict.Proposed, policy: PolicyTable
     state = state.copy(attempt = state.attempt?.copy(proposedAt = now))
     val dispatched = state.dispatchCounts[candidate.candidateId] ?: 0
     val route = when {
-        dispatched >= policy.repeatedRemedyThreshold -> "REPEATED_REMEDY"
-        candidate.kind == CandidateKind.CHOOSE_SOURCE || candidate.kind == CandidateKind.OPERATOR_DECISION -> "PERSON_TASK"
-        autoApproves(candidate, proposed.clean, policy) -> "POLICY"
-        else -> "AWAITING_APPROVAL"
+        dispatched >= policy.repeatedRemedyThreshold -> Route.REPEATED_REMEDY
+        candidate.kind == CandidateKind.CHOOSE_SOURCE || candidate.kind == CandidateKind.OPERATOR_DECISION -> Route.PERSON_TASK
+        autoApproves(candidate, proposed.clean, policy) -> Route.POLICY
+        else -> Route.AWAITING_APPROVAL
     }
     record(RecordKind.PROPOSED) {
         put("candidateId", candidate.candidateId)
         put("clean", proposed.clean)
-        put("route", route)
+        put("route", route.name)
+        put("policyVersion", policy.version)
     }
     when (route) {
-        "REPEATED_REMEDY" -> escalate(
+        Route.REPEATED_REMEDY -> escalate(
             now,
             Escalation(EscalationReason.REPEATED_REMEDY, "${candidate.candidateId} dispatched $dispatched times"),
             cancelDiagnosis = false,
         )
-        "PERSON_TASK" -> enterRevalidating(null, policy, now)
-        "POLICY" -> enterRevalidating(Approval(ApprovalBy.POLICY, null, now), policy, now)
-        else -> awaitApproval(candidate, policy, now)
+        Route.PERSON_TASK -> enterRevalidating(null, policy, now)
+        Route.POLICY -> enterRevalidating(Approval(ApprovalBy.POLICY, null, now), policy, now)
+        Route.AWAITING_APPROVAL -> awaitApproval(candidate, policy, now)
     }
 }
+
+/** Where a proposal goes (the PROPOSED record's `route`). */
+private enum class Route { REPEATED_REMEDY, PERSON_TASK, POLICY, AWAITING_APPROVAL }
 
 internal fun Out.awaitApproval(candidate: Candidate, policy: PolicyTable, now: Instant) {
     enter(Phase.AWAITING_APPROVAL, now)
@@ -137,12 +156,25 @@ internal fun Out.onAwaitingApproval(event: EpisodeEvent, policy: PolicyTable, no
                 return ignore(event, "stale: ${event.proposalId} / ${event.sawCandidatesVersion}")
             }
             reply = Reply.ACCEPTED
-            if (event.approve) enterRevalidating(Approval(ApprovalBy.PERSON, event.by, now), policy, now)
-            else rediagnose(
-                RediagnoseReason.APPROVAL_REJECTED, policy, now,
-                ApprovalSummary(ApprovalResult.REJECTED, ApprovalBy.PERSON, event.reason ?: RejectReason.OTHER, now),
-                detail = listOfNotNull("by ${event.by.id}", event.note).joinToString(": "),
-            )
+            if (event.approve) enterRevalidating(Approval(ApprovalBy.PERSON, event.by, now), policy, now, note = event.note)
+            else {
+                val reason = event.reason ?: RejectReason.OTHER
+                // The operator's own words live here, in the audit record, and never in the history narrator reads.
+                record(RecordKind.APPROVAL) {
+                    put("candidateId", attempt.candidate?.candidateId)
+                    put("result", ApprovalResult.REJECTED.name)
+                    put("reason", reason.name)
+                    put("by", event.by.id)
+                    put("assurance", event.by.assurance.name)
+                    put("note", event.note)
+                    put("policyVersion", policy.version)
+                }
+                rediagnose(
+                    RediagnoseReason.APPROVAL_REJECTED, policy, now,
+                    ApprovalSummary(ApprovalResult.REJECTED, ApprovalBy.PERSON, reason, now),
+                    detail = listOfNotNull("by ${event.by.id}", event.note).joinToString(": "),
+                )
+            }
         }
         event is EpisodeEvent.DeadlineExpired && event.which == Timer.STATE -> escalate(
             now,
@@ -169,17 +201,25 @@ internal fun Out.rediagnose(
     enterDiagnosing(policy, now)
 }
 
-/** REVALIDATING: re-reads the source before anything is dispatched (design §8.3). [approval] null = person task. */
-internal fun Out.enterRevalidating(approval: Approval?, policy: PolicyTable, now: Instant) {
+/**
+ * REVALIDATING: re-reads the source before anything is dispatched (design §8.3). [approval] null = person task. The
+ * approval's validity is fixed here, from the table in force now ([Attempt.validUntil]): a later table can shorten it but
+ * never stretch it. [note] is the approver's free text, for the audit record only.
+ */
+internal fun Out.enterRevalidating(approval: Approval?, policy: PolicyTable, now: Instant, note: String? = null) {
     val attempt = state.attempt
     val candidate = attempt?.candidate
         ?: return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
-    state = state.copy(attempt = attempt.copy(approval = approval))
+    val basis = approval?.at ?: attempt.proposedAt ?: now
+    state = state.copy(attempt = attempt.copy(approval = approval, validUntil = basis.plusMillis(policy.deadlines.approvalValidityMs)))
     if (approval != null) record(RecordKind.APPROVAL) {
         put("candidateId", candidate.candidateId)
+        put("result", ApprovalResult.APPROVED.name)
         put("by", approval.by.name)
         put("approver", approval.approver?.id)
         put("assurance", approval.approver?.assurance?.name)
+        put("note", note)
+        put("policyVersion", policy.version)
     }
     enter(Phase.REVALIDATING, now)
     commands += Command.Revalidate(candidate, policy.deadlines.revalidateMs, state.token)

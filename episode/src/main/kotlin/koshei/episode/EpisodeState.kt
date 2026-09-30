@@ -15,6 +15,11 @@ data class Attempt internal constructor(
     val approval: Approval? = null,
     /** The seq of this attempt's execution-intent record, once DISPATCH_PENDING was entered. */
     val intentSeq: Long? = null,
+    /**
+     * Until when the approval (or, for a person task, the proposal) may be acted on — fixed when REVALIDATING was entered
+     * from the table in force then (design §5.1). Null before that. A later table can only shorten it.
+     */
+    val validUntil: Instant? = null,
 ) {
     /** design §7.2: instance id + attempt number. */
     val proposalId: String get() = "${request.episodeId}#$number"
@@ -25,6 +30,9 @@ data class Attempt internal constructor(
 /**
  * An episode between two events (design §5). Only [startEpisode] and [transition] make one. Every phase entry takes a
  * new [token]; STATE and RECHECK timers carry it, so a timer from an earlier phase is recognisably stale.
+ *
+ * The state holds [DiagnosisVerdict] values (inside [Attempt]), which are never serialized — see `DiagnosisVerdicts.kt`.
+ * Runtime persistence (plan B3) uses its own shape and re-judges from the raw response.
  */
 @ConsistentCopyVisibility
 data class EpisodeState internal constructor(

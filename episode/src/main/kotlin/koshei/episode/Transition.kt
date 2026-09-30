@@ -1,6 +1,8 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
+import com.fasterxml.jackson.databind.node.TextNode
 import java.time.Instant
 
 /** One transition's result: the next state, the commands to run in order, and the reply if the event was an Update. */
@@ -24,12 +26,16 @@ fun startEpisode(event: EpisodeEvent.Detected, read: PolicyRead, now: Instant): 
             lastRejected = emptyList(), recordSeq = 0,
         ),
     )
+    val resolution = resolvePolicy(read, null, now)
+    // The audit record keeps what arrived, verbatim (design §13): the manifest text as a tree, the line as it was.
     out.record(RecordKind.OPENED) {
         put("instanceId", event.instanceId)
         put("eventId", event.symptom.eventId)
         put("kind", event.symptom.kind.name)
+        set<JsonNode>("manifest", rawJson(event.manifestJson))
+        set<JsonNode>("line", event.symptom.line)
+        put("policyVersion", (resolution as? PolicyResolution.Active)?.policy?.version)
     }
-    val resolution = resolvePolicy(read, null, now)
     out.applyPolicy(resolution, announce = false)
     when (resolution) {
         is PolicyResolution.Off -> out.escalate(now, Escalation(resolution.reason.escalation()))
@@ -64,26 +70,36 @@ fun transition(state: EpisodeState, event: EpisodeEvent, read: PolicyRead?, now:
         out.reply = if (event.isUpdate()) Reply.REFUSED_CLOSED else null
         return out.step()
     }
-    if (read != null && state.phase != Phase.ESCALATED) {
+    // What the event met, before any global row below changes it: `close` needs an episode that was already with a person.
+    val wasEscalated = state.phase == Phase.ESCALATED
+    // A diagnosis result or failure IS the end of the activity: nothing is left to cancel when a global row escalates on it.
+    val cancel = event !is EpisodeEvent.DiagnosisReturned && event !is EpisodeEvent.DiagnosisFailed
+    if (read != null && !wasEscalated) {
         val resolution = resolvePolicy(read, state.policy, now)
         out.applyPolicy(resolution)
-        if (resolution is PolicyResolution.Off) out.escalate(now, Escalation(resolution.reason.escalation()))
+        if (resolution is PolicyResolution.Off) out.escalate(now, Escalation(resolution.reason.escalation()), cancelDiagnosis = cancel)
     }
     // Without a fresh read the table in force still expires (design §8.2): no decision on an expired table.
     val expiresAt = out.state.policy?.expiresAt
     if (read == null && out.state.phase != Phase.ESCALATED && expiresAt != null && !now.isBefore(expiresAt))
-        out.escalate(now, Escalation(EscalationReason.POLICY_EXPIRED))
+        out.escalate(now, Escalation(EscalationReason.POLICY_EXPIRED), cancelDiagnosis = cancel)
+    // The episode deadline holds by time too, not only by its timer: a late event must not be acted on past it.
+    val deadline = out.state.episodeDeadline
+    if (out.state.phase != Phase.ESCALATED && deadline != null && !now.isBefore(deadline))
+        out.escalate(now, Escalation(EscalationReason.EPISODE_EXPIRED), cancelDiagnosis = cancel)
     when {
         event is EpisodeEvent.SymptomJoined -> out.join(event)
         event is EpisodeEvent.Detected -> out.ignore(event, "already open")
+        event is EpisodeEvent.Closed && !wasEscalated -> out.ignore(event, "not escalated")
+        // The deadline check above has normally escalated already; an early-delivered EPISODE timer still counts.
+        event is EpisodeEvent.DeadlineExpired && event.which == Timer.EPISODE && !wasEscalated ->
+            if (out.state.phase != Phase.ESCALATED) out.escalate(now, Escalation(EscalationReason.EPISODE_EXPIRED))
         out.state.phase == Phase.ESCALATED -> out.onEscalated(event, now)
         event is EpisodeEvent.TakenOver -> {
             out.reply = Reply.ACCEPTED
             out.escalate(now, Escalation(EscalationReason.TAKEN_OVER, "by ${event.by.id}"))
         }
         event is EpisodeEvent.AgentOff -> out.escalate(now, Escalation(EscalationReason.AGENT_LAYER_OFF))
-        event is EpisodeEvent.DeadlineExpired && event.which == Timer.EPISODE ->
-            out.escalate(now, Escalation(EscalationReason.EPISODE_EXPIRED))
         event is EpisodeEvent.DeadlineExpired && event.token != out.state.token -> out.ignore(event, "stale timer")
         else -> {
             val policy = out.state.policy
@@ -130,12 +146,17 @@ private fun Out.join(event: EpisodeEvent.SymptomJoined) {
         put("eventId", symptom.eventId)
         put("kind", symptom.kind.name)
         put("observedAt", symptom.observedAt.toString())
+        set<JsonNode>("line", symptom.line)
     }
 }
 
 /**
  * Accumulates one transition. [opening] is true only inside [startEpisode], so the first TRANSITION record says it
  * came from nowhere.
+ *
+ * The helpers are order-sensitive: each reads and rewrites [state] at call time, so `escalate` looks at the phase the
+ * episode is in when it is called (whether a diagnosis is still in flight, which phase the notice names). Call it before
+ * entering another phase, never after.
  */
 internal class Out(var state: EpisodeState, private var opening: Boolean = true) {
     val commands = mutableListOf<Command>()
@@ -184,6 +205,11 @@ internal fun Out.ignore(event: EpisodeEvent, why: String) {
         put("why", why)
         // A late diagnosis is still the model's answer: keep it verbatim (design §13).
         if (event is EpisodeEvent.DiagnosisReturned) put("json", event.json)
+        // Who sent an Update that did not apply (the PoC has no authentication, design §7.2).
+        event.approver()?.let {
+            put("by", it.id)
+            put("assurance", it.assurance.name)
+        }
     }
     if (reply == null) reply = event.refusal()
 }
@@ -206,10 +232,21 @@ internal fun Out.closeAttempt(closedAs: ClosedAs, now: Instant, approval: Approv
     val approvalSummary = approval ?: a.approval?.let { ApprovalSummary(ApprovalResult.APPROVED, it.by, null, it.at) }
     val entry = HistoryEntry(a.number, a.request.candidatesVersion, a.diagnosisSummary(), approvalSummary, null, null, closedAs, now)
     state = state.copy(attempt = null, history = state.history + entry)
+    record(RecordKind.ATTEMPT_CLOSED) { setAll<ObjectNode>(entry.toJson()) }
 }
 
 /** Takes the resolved table into the state. [announce] = false defers the POLICY_REJECTED notice to [announceRejected]. */
 internal fun Out.applyPolicy(resolution: PolicyResolution, announce: Boolean = true) {
+    // A read that brings another table version than the one in state is an audit event. The very first table is not: there
+    // is nothing it replaces, and the OPENED record names it.
+    val adopted = resolution.adopt
+    val before = state.policy
+    if (adopted != null && before != null && adopted.version != before.version) {
+        record(RecordKind.POLICY_ADOPTED) {
+            put("version", adopted.version)
+            put("previousVersion", before.version)
+        }
+    }
     state = when (resolution) {
         is PolicyResolution.Active -> state.copy(policy = resolution.policy, autoApproveSuspended = resolution.autoApproveSuspended)
         is PolicyResolution.Off -> state.copy(policy = resolution.policy ?: state.policy)
@@ -236,6 +273,21 @@ private fun PolicyOffReason.escalation(): EscalationReason = when (this) {
     PolicyOffReason.POLICY_MISSING -> EscalationReason.POLICY_MISSING
     PolicyOffReason.POLICY_EXPIRED -> EscalationReason.POLICY_EXPIRED
     PolicyOffReason.AGENT_LAYER_OFF -> EscalationReason.AGENT_LAYER_OFF
+}
+
+private fun EpisodeEvent.approver(): Approver? = when (this) {
+    is EpisodeEvent.ApprovalDecided -> by
+    is EpisodeEvent.ConfirmedPrecondition -> by
+    is EpisodeEvent.TakenOver -> by
+    is EpisodeEvent.Closed -> by
+    else -> null
+}
+
+/** [json] as a tree for an audit record; text that does not parse is kept as a string instead — never lost, never a crash. */
+private fun rawJson(json: String): JsonNode = try {
+    mapper.readTree(json) ?: TextNode.valueOf(json)
+} catch (e: Exception) {
+    TextNode.valueOf(json)
 }
 
 private fun EpisodeEvent.isUpdate(): Boolean =

@@ -32,7 +32,7 @@ sealed interface EpisodeEvent {
     data class Revalidated(val result: TriState, val token: Long) : EpisodeEvent
 
     /** `confirm` Update on UNKNOWN(PRECONDITION): the person checked the proposition for [candidateId] (design §8.3). */
-    data class ConfirmedPrecondition(val candidateId: String, val holds: Boolean, val by: Approver) : EpisodeEvent
+    data class ConfirmedPrecondition(val candidateId: String, val proposalId: String, val holds: Boolean, val by: Approver) : EpisodeEvent
 
     data class DeadlineExpired(val which: Timer, val token: Long) : EpisodeEvent
 

@@ -1,5 +1,6 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.node.ObjectNode
 import koshei.episode.Episodes.CONFIRM_DONE
 import koshei.episode.Episodes.INSTANCE
 import koshei.episode.Episodes.OPERATOR
@@ -89,15 +90,15 @@ class RevalidatingTest {
     @Test fun `a person's confirmation decides the precondition - another subject is refused`() {
         val u = unknown()
         val t = u.state.enteredAt.plusSeconds(10)
-        val other = u.on(EpisodeEvent.ConfirmedPrecondition(CONFIRM_DONE, true, OPERATOR), t)
+        val other = u.on(EpisodeEvent.ConfirmedPrecondition(CONFIRM_DONE, "$INSTANCE#1", true, OPERATOR), t)
         assertEquals(Reply.REFUSED_SUBJECT_NOT_UNKNOWN, other.reply)
         assertEquals(Phase.UNKNOWN_PRECONDITION, other.state.phase)
-        val holds = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, true, OPERATOR), t)
+        val holds = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), t)
         assertEquals(Reply.ACCEPTED, holds.reply)
         assertEquals(Phase.DISPATCH_PENDING, holds.state.phase)
         assertEquals("op-1", holds.records(RecordKind.CONFIRMATION).single().entry.payload.get("by").textValue())
         assertEquals("PERSON", holds.records(RecordKind.REVALIDATION).single().entry.payload.get("source").textValue())
-        val broken = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, false, OPERATOR), t)
+        val broken = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", false, OPERATOR), t)
         assertEquals(Phase.SUPERSEDED, broken.state.phase)
     }
 
@@ -133,12 +134,66 @@ class RevalidatingTest {
     @Test fun `a policy approval the table no longer allows goes to a person before any intent`() {
         for (read in listOf(Episodes.policyV1(), Episodes.policy { put("bogus", 1) })) {
             val u = unknown()
-            val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, true, OPERATOR), u.state.enteredAt.plusSeconds(10), read)
+            val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), u.state.enteredAt.plusSeconds(10), read)
             assertEquals(Phase.AWAITING_APPROVAL, s.state.phase)
             assertNull(s.state.attempt!!.approval)
             assertTrue(s.commands.none { it is Command.RecordIntent })
             assertTrue(s.records(RecordKind.APPROVAL).single().entry.payload.get("revoked").booleanValue())
             assertTrue(s.notices().any { it.kind == NoticeKind.APPROVAL_NEEDED })
+            assertEquals("2026-09-30.1", s.records(RecordKind.APPROVAL).single().entry.payload.get("policyVersion").textValue())
         }
+    }
+
+    @Test fun `a confirmation from an earlier attempt's card is refused as stale`() {
+        // Attempt 1 waits in UNKNOWN(PRECONDITION); a symptom joins; FALSE re-diagnoses; attempt 2 proposes the same remedy.
+        val u1 = unknown()
+        val joined = u1.on(EpisodeEvent.SymptomJoined(search("search-2")), u1.state.enteredAt.plusSeconds(1))
+        val attempt2 = joined.revalidated(TriState.FALSE, joined.state.enteredAt.plusSeconds(2))
+        assertEquals(Phase.DIAGNOSING, attempt2.state.phase)
+        val r2 = attempt2.answer(candidateId = REMEDY)
+        assertEquals(Phase.REVALIDATING, r2.state.phase)
+        assertEquals(REMEDY, r2.state.attempt!!.candidate!!.candidateId)
+        val u2 = r2.revalidated(TriState.UNKNOWN, r2.at.plusSeconds(1))
+        assertEquals(Phase.UNKNOWN_PRECONDITION, u2.state.phase)
+
+        val stale = u2.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), u2.state.enteredAt.plusSeconds(5))
+        assertEquals(Reply.REFUSED_STALE, stale.reply)
+        assertEquals(Phase.UNKNOWN_PRECONDITION, stale.state.phase)
+        assertTrue(stale.commands.none { it is Command.RecordIntent })
+        val current = u2.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#2", true, OPERATOR), u2.state.enteredAt.plusSeconds(5))
+        assertEquals(Reply.ACCEPTED, current.reply)
+        assertEquals(Phase.DISPATCH_PENDING, current.state.phase)
+    }
+
+    @Test fun `a stale revalidation result while the precondition is unknown is ignored`() {
+        val u = unknown()
+        val stale = u.on(EpisodeEvent.Revalidated(TriState.TRUE, u.state.token - 1), u.state.enteredAt.plusSeconds(1))
+        assertEquals(Phase.UNKNOWN_PRECONDITION, stale.state.phase)
+        assertEquals("stale revalidation", stale.records(RecordKind.IGNORED).single().entry.payload.get("why").textValue())
+    }
+
+    @Test fun `the episode deadline is enforced by time even when its timer has not been delivered`() {
+        val long = Episodes.policy { (get("deadlines") as ObjectNode).put("approvalValidityMs", 3_600_000) }
+        val r = open(read = long).expireState().answer()
+        assertEquals(Phase.REVALIDATING, r.state.phase)
+        val s = r.on(EpisodeEvent.Revalidated(TriState.TRUE, r.state.token), r.state.episodeDeadline!!.plusSeconds(1))
+        assertEquals(EscalationReason.EPISODE_EXPIRED, s.reason)
+        assertTrue(s.commands.none { it is Command.RecordIntent })
+    }
+
+    @Test fun `an approval stays valid only as long as the table said when it was given`() {
+        val r = revalidating()   // POLICY approval under the 600 s table
+        val longer = Episodes.policy { (get("deadlines") as ObjectNode).put("approvalValidityMs", 3_000_000) }
+        val s = r.on(EpisodeEvent.Revalidated(TriState.TRUE, r.state.token), r.at.plusSeconds(700), longer)
+        assertEquals(Phase.DIAGNOSING, s.state.phase)
+        assertEquals("APPROVAL_LAPSED", s.records(RecordKind.REDIAGNOSE).single().entry.payload.get("reason").textValue())
+        assertTrue(s.commands.none { it is Command.RecordIntent })
+    }
+
+    @Test fun `an approval is also cut short by a table that shortens the validity`() {
+        val r = revalidating()
+        val shorter = Episodes.policy { (get("deadlines") as ObjectNode).put("approvalValidityMs", 100_000) }
+        val s = r.on(EpisodeEvent.Revalidated(TriState.TRUE, r.state.token), r.at.plusSeconds(200), shorter)
+        assertEquals(Phase.DIAGNOSING, s.state.phase)
     }
 }

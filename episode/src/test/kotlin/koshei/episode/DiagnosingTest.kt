@@ -200,4 +200,85 @@ class DiagnosingTest {
         assertEquals(Reply.REFUSED_NOT_AWAITING, s.reply)
         assertEquals(Phase.DIAGNOSING, s.state.phase)
     }
+
+    @Test fun `a symptom that joins during the diagnosis makes a broken precondition re-diagnose`() {
+        val d = open().expireState()
+        val joined = d.on(EpisodeEvent.SymptomJoined(search("search-2")), d.state.enteredAt.plusSeconds(1))
+        assertEquals(Phase.DIAGNOSING, joined.state.phase)
+        val r = joined.answer()
+        assertEquals(Phase.REVALIDATING, r.state.phase)
+        val s = r.revalidated(TriState.FALSE, r.state.enteredAt.plusSeconds(1))
+        assertEquals(Phase.DIAGNOSING, s.state.phase)
+        assertEquals(2, s.request.attempt)
+        assertEquals("PRECONDITION_BROKEN", s.records(RecordKind.REDIAGNOSE).single().entry.payload.get("reason").textValue())
+    }
+
+    @Test fun `a remedy dispatched once fewer than the threshold still goes on to revalidation`() {
+        val d = open().expireState()
+        val primed = Step(d.state.copy(dispatchCounts = mapOf(REMEDY to 1)), emptyList())
+        assertEquals(Phase.REVALIDATING, primed.answer().state.phase)
+    }
+
+    @Test fun `the diagnosis result record is structured`() {
+        val ok = open().expireState().answer().records(RecordKind.DIAGNOSIS_RESULT).single().entry.payload
+        assertEquals("PROPOSED", ok.get("verdict").textValue())
+        assertEquals(REMEDY, ok.get("candidateId").textValue())
+        assertTrue(ok.get("clean").booleanValue())
+        assertTrue(ok.get("reason").isNull)
+        val no = open().expireState().answer("NO_GROUNDS", candidateId = null).records(RecordKind.DIAGNOSIS_RESULT).single().entry.payload
+        assertEquals("ESCALATE", no.get("verdict").textValue())
+        assertEquals("NO_GROUNDS", no.get("reason").textValue())
+        val mismatch = open().expireState().answer(candidateId = "ESCALATE").records(RecordKind.DIAGNOSIS_RESULT).single().entry.payload
+        assertEquals("ESCALATE_RECOMMENDED", mismatch.get("reason").textValue())
+        assertEquals("ESCALATE", mismatch.get("candidateId").textValue())
+        val failed = open().expireState().answer { putArray("citations") }.records(RecordKind.DIAGNOSIS_RESULT).single().entry.payload
+        assertEquals("DIAGNOSIS_FAILED", failed.get("reason").textValue())
+        assertTrue(failed.get("detail").textValue().isNotBlank())
+    }
+
+    @Test fun `proposal and approval records name the table version and the decision`() {
+        val auto = open().expireState().answer()
+        assertEquals("2026-09-30.1", auto.records(RecordKind.PROPOSED).single().entry.payload.get("policyVersion").textValue())
+        val approval = auto.records(RecordKind.APPROVAL).single().entry.payload
+        assertEquals("APPROVED", approval.get("result").textValue())
+        assertEquals("POLICY", approval.get("by").textValue())
+        assertEquals("2026-09-30.1", approval.get("policyVersion").textValue())
+
+        val waiting = open(read = policyV1()).expireState().answer()
+        val person = waiting.on(EpisodeEvent.ApprovalDecided("$INSTANCE#1", waiting.request.candidatesVersion, true, OPERATOR, null, "looks right"), T0.plusSeconds(90))
+        val p = person.records(RecordKind.APPROVAL).single().entry.payload
+        assertEquals("APPROVED", p.get("result").textValue())
+        assertEquals("op-1", p.get("approver").textValue())
+        assertEquals("looks right", p.get("note").textValue())
+    }
+
+    @Test fun `a rejection is an audit record of its own, with the reason and the operator's note`() {
+        val waiting = open(read = policyV1()).expireState().answer()
+        val s = waiting.on(
+            EpisodeEvent.ApprovalDecided("$INSTANCE#1", waiting.request.candidatesVersion, false, OPERATOR, RejectReason.WRONG_TARGET, "wrong robot"),
+            T0.plusSeconds(90),
+        )
+        val rejected = s.records(RecordKind.APPROVAL).single().entry.payload
+        assertEquals(REMEDY, rejected.get("candidateId").textValue())
+        assertEquals("REJECTED", rejected.get("result").textValue())
+        assertEquals("WRONG_TARGET", rejected.get("reason").textValue())
+        assertEquals("op-1", rejected.get("by").textValue())
+        assertEquals("SELF_ASSERTED", rejected.get("assurance").textValue())
+        assertEquals("wrong robot", rejected.get("note").textValue())
+        assertEquals("2026-09-30.1", rejected.get("policyVersion").textValue())
+        val kinds = s.commands.filterIsInstance<Command.Record>().map { it.entry.kind }
+        assertTrue(kinds.indexOf(RecordKind.APPROVAL) < kinds.indexOf(RecordKind.REDIAGNOSE))
+    }
+
+    @Test fun `a closed attempt is recorded in full when it ends`() {
+        val s = open(read = policyV1()).expireState().answer().expireState()
+        val closed = s.records(RecordKind.ATTEMPT_CLOSED).single().entry.payload
+        assertEquals(1, closed.get("attempt").intValue())
+        assertEquals("ESCALATED", closed.get("closedAs").textValue())
+        assertEquals("EXPIRED", closed.get("approval").get("result").textValue())
+        assertEquals(s.state.history.single().toJson(), closed)
+        // and before the TRANSITION into ESCALATED, so the audit trail reads in causal order
+        val kinds = s.commands.filterIsInstance<Command.Record>().map { it.entry.kind }
+        assertTrue(kinds.indexOf(RecordKind.ATTEMPT_CLOSED) < kinds.indexOf(RecordKind.TRANSITION))
+    }
 }

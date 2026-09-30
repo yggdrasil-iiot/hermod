@@ -15,15 +15,22 @@ internal fun Out.onRevalidating(event: EpisodeEvent, policy: PolicyTable, now: I
  * proposition (§8.3), or `unknownMs` ends it.
  */
 internal fun Out.onUnknownPrecondition(event: EpisodeEvent, policy: PolicyTable, now: Instant) {
-    val candidate = state.attempt?.candidate
+    val attempt = state.attempt
+    val candidate = attempt?.candidate
         ?: return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
     when {
         event is EpisodeEvent.Revalidated && event.token == state.token -> onPrecondition(event.result, "REVALIDATE", policy, now)
         event is EpisodeEvent.Revalidated -> ignore(event, "stale revalidation")
+        // The same remedy can be proposed again by a later attempt: a card from the earlier one must not decide this one.
+        event is EpisodeEvent.ConfirmedPrecondition && event.candidateId == candidate.candidateId && event.proposalId != attempt.proposalId -> {
+            reply = Reply.REFUSED_STALE
+            ignore(event, "stale confirmation: ${event.proposalId}")
+        }
         event is EpisodeEvent.ConfirmedPrecondition && event.candidateId == candidate.candidateId -> {
             reply = Reply.ACCEPTED
             record(RecordKind.CONFIRMATION) {
                 put("candidateId", candidate.candidateId)
+                put("proposalId", event.proposalId)
                 put("holds", event.holds)
                 put("by", event.by.id)
                 put("assurance", event.by.assurance.name)
@@ -92,14 +99,20 @@ private fun Out.proceedToDispatch(policy: PolicyTable, now: Instant) {
     val basis = attempt?.approval?.at ?: attempt?.proposedAt
     if (attempt == null || candidate == null || basis == null)
         return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
-    if (!approvalStillValid(basis, now, policy))
-        return rediagnose(RediagnoseReason.APPROVAL_LAPSED, policy, now, detail = "valid until ${basis.plusMillis(policy.deadlines.approvalValidityMs)}")
+    // Valid only if both the window fixed when the approval was given and the window of the table in force now allow it.
+    val fixedUntil = attempt.validUntil
+    if (!approvalStillValid(basis, now, policy) || (fixedUntil != null && !now.isBefore(fixedUntil))) {
+        val until = listOfNotNull(basis.plusMillis(policy.deadlines.approvalValidityMs), fixedUntil).min()
+        return rediagnose(RediagnoseReason.APPROVAL_LAPSED, policy, now, detail = "valid until $until")
+    }
     val clean = (attempt.verdict as? DiagnosisVerdict.Proposed)?.clean ?: false
     if (attempt.approval?.by == ApprovalBy.POLICY && !autoApproves(candidate, clean, policy)) {
         record(RecordKind.APPROVAL) {
             put("candidateId", candidate.candidateId)
+            put("result", "REVOKED")
             put("by", ApprovalBy.POLICY.name)
             put("revoked", true)
+            put("policyVersion", policy.version)
         }
         state = state.copy(attempt = attempt.copy(approval = null))
         return awaitApproval(candidate, policy, now)

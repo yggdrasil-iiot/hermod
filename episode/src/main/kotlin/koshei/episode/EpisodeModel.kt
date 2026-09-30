@@ -85,7 +85,7 @@ data class Notice(val kind: NoticeKind, val phase: Phase, val reason: Escalation
 
 enum class RecordKind {
     OPENED, TRANSITION, SYMPTOM_JOINED, DIAGNOSIS_REQUESTED, DIAGNOSIS_RESULT, PROPOSED, APPROVAL, REDIAGNOSE,
-    REVALIDATION, RECHECK, CONFIRMATION, POLICY_REJECTED, IGNORED,
+    REVALIDATION, RECHECK, CONFIRMATION, POLICY_REJECTED, IGNORED, POLICY_ADOPTED, ATTEMPT_CLOSED,
 }
 
 /** One append-only record (design §13). The payload is a private copy; each read is a fresh copy. */
@@ -96,4 +96,5 @@ class RecordEntry(val kind: RecordKind, payload: ObjectNode) {
 }
 
 /** What the DISPATCH_PENDING intent record says will be dispatched (design §5.2, §11). */
-data class DispatchIntent(val candidate: Candidate, val idempotencyKey: String, val approval: Approval?)
+@ConsistentCopyVisibility
+data class DispatchIntent internal constructor(val candidate: Candidate, val idempotencyKey: String, val approval: Approval?)
