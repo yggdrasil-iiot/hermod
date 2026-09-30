@@ -18,35 +18,72 @@ sealed interface PolicyResolution {
     /** Why the freshly read table was rejected, if it was (notify `POLICY_REJECTED`); empty otherwise. */
     val rejectedErrors: List<String>
 
-    data class Active(val policy: PolicyTable, override val rejectedErrors: List<String>) : PolicyResolution
+    /** Set only when THIS read produced a valid table: the caller remembers it as the new last valid one. */
+    val adopt: PolicyTable?
 
-    /** [policy] is the table in force when there is one — ESCALATED still needs its retention. */
-    data class Off(val reason: PolicyOffReason, val policy: PolicyTable?, override val rejectedErrors: List<String>) : PolicyResolution
+    /**
+     * [autoApproveSuspended] is true whenever the fresh read was rejected or unreadable: we cannot know which
+     * auto-approval the operator meant, so a person approves.
+     */
+    data class Active(
+        val policy: PolicyTable,
+        val autoApproveSuspended: Boolean,
+        override val rejectedErrors: List<String>,
+        override val adopt: PolicyTable?,
+    ) : PolicyResolution
+
+    /** [policy] is the table whose retention (`escalatedRetentionMs`) applies — the one in force, else the last valid one. */
+    data class Off(
+        val reason: PolicyOffReason,
+        val policy: PolicyTable?,
+        override val rejectedErrors: List<String>,
+        override val adopt: PolicyTable?,
+    ) : PolicyResolution
 }
 
 /**
- * Decides the policy for one decision (design §8.2, §5.3). An explicit absence is POLICY_MISSING; an invalid read keeps
- * [lastValid] (and reports why) so one bad edit cannot silently escalate every episode; the table in force is then
- * checked for expiry (`expiresAt <= now`) and for the agent-layer switch.
+ * Decides the policy for one decision (design §8.2, §5.3). Every doubt is resolved toward the RESTRICTIVE side:
+ * - an explicit absence is POLICY_MISSING (the last valid table is kept only for ESCALATED retention, it is not in force);
+ * - a rejected or unreadable read keeps [lastValid] in force — so one bad edit cannot silently escalate every episode —
+ *   but suspends auto-approval (a person approves) and reports why;
+ * - restrictive intent literally present in a rejected tree is still honoured: `agentLayerEnabled` present and anything
+ *   but boolean `true` switches the layer off, a past `expiresAt` expires the policy (R5);
+ * - the table in force is finally checked for expiry (`expiresAt <= now`) and for the agent-layer switch.
  */
 fun resolvePolicy(read: PolicyRead, lastValid: PolicyTable?, now: Instant): PolicyResolution {
-    val (inForce, rejected) = when (read) {
-        PolicyRead.Missing -> return PolicyResolution.Off(PolicyOffReason.POLICY_MISSING, null, emptyList())
-        is PolicyRead.Unreadable -> lastValid to listOf("policy: unreadable (${read.reason})")
+    var adopt: PolicyTable? = null
+    val inForce: PolicyTable?
+    val rejected: List<String>
+    when (read) {
+        PolicyRead.Missing -> return PolicyResolution.Off(PolicyOffReason.POLICY_MISSING, lastValid, emptyList(), null)
+        is PolicyRead.Unreadable -> {
+            inForce = lastValid
+            rejected = listOf("policy: unreadable (${read.reason})")
+        }
         is PolicyRead.Found -> when (val parsed = parsePolicy(read.node)) {
-            is PolicyParse.Valid -> parsed.policy to emptyList()
+            is PolicyParse.Valid -> {
+                inForce = parsed.policy
+                adopt = parsed.policy
+                rejected = emptyList()
+            }
             is PolicyParse.Invalid -> {
-                // The off switch must work even in a table that fails validation for another reason (R5).
-                val off = read.node.get("agentLayerEnabled")
-                if (off != null && off.isBoolean && !off.booleanValue())
-                    return PolicyResolution.Off(PolicyOffReason.AGENT_LAYER_OFF, lastValid, parsed.errors)
-                lastValid to parsed.errors
+                rejected = parsed.errors
+                val enabled = read.node.get("agentLayerEnabled")
+                if (enabled != null && !(enabled.isBoolean && enabled.booleanValue()))
+                    return PolicyResolution.Off(PolicyOffReason.AGENT_LAYER_OFF, lastValid, rejected, null)
+                val expires = read.node.get("expiresAt")
+                val expiresAt = if (expires != null && expires.isTextual) {
+                    try { Instant.parse(expires.textValue()) } catch (e: java.time.format.DateTimeParseException) { null }
+                } else null
+                if (expiresAt != null && !now.isBefore(expiresAt))
+                    return PolicyResolution.Off(PolicyOffReason.POLICY_EXPIRED, lastValid, rejected, null)
+                inForce = lastValid
             }
         }
     }
-    if (inForce == null) return PolicyResolution.Off(PolicyOffReason.POLICY_MISSING, null, rejected)
+    if (inForce == null) return PolicyResolution.Off(PolicyOffReason.POLICY_MISSING, null, rejected, adopt)
     val expiresAt = inForce.expiresAt
-    if (expiresAt != null && !now.isBefore(expiresAt)) return PolicyResolution.Off(PolicyOffReason.POLICY_EXPIRED, inForce, rejected)
-    if (!inForce.agentLayerEnabled) return PolicyResolution.Off(PolicyOffReason.AGENT_LAYER_OFF, inForce, rejected)
-    return PolicyResolution.Active(inForce, rejected)
+    if (expiresAt != null && !now.isBefore(expiresAt)) return PolicyResolution.Off(PolicyOffReason.POLICY_EXPIRED, inForce, rejected, adopt)
+    if (!inForce.agentLayerEnabled) return PolicyResolution.Off(PolicyOffReason.AGENT_LAYER_OFF, inForce, rejected, adopt)
+    return PolicyResolution.Active(inForce, autoApproveSuspended = rejected.isNotEmpty(), rejectedErrors = rejected, adopt = adopt)
 }

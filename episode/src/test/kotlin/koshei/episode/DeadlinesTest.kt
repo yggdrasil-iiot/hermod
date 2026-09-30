@@ -3,6 +3,7 @@ package koshei.episode
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class DeadlinesTest {
     private val p = Policies.valid()   // episodeMs 3_600_000, escalatedRetentionMs 86_400_000, approvalValidityMs 600_000
@@ -20,6 +21,11 @@ class DeadlinesTest {
     @Test fun `a wait never outlives the episode`() {
         val entered = start.plusSeconds(3_500)
         assertEquals(episodeDeadline(start, p), waitUntil(entered, 300_000, episodeDeadline(start, p)))
+    }
+
+    @Test fun `a wait budget must be positive`() {
+        assertFailsWith<IllegalArgumentException> { waitUntil(start, 0, episodeDeadline(start, p)) }
+        assertFailsWith<IllegalArgumentException> { waitUntil(start, -1, episodeDeadline(start, p)) }
     }
 
     @Test fun `ESCALATED counts its retention from entry, past the episode deadline`() {

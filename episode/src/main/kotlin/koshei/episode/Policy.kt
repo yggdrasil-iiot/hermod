@@ -45,6 +45,11 @@ class PolicyTable internal constructor(
     val snapshotMaxBytes: Long,
     /** Merge rules; their meaning is plan C's. v1 only checks that this is a list. */
     val correlation: List<JsonNode>,
+    /**
+     * The tree this table was parsed from (a private copy). Persist it and re-parse with [parsePolicy] to restore the
+     * table, e.g. across a Temporal continue-as-new.
+     */
+    val source: JsonNode,
 ) {
     override fun toString(): String = "PolicyTable($version)"
 }
@@ -125,6 +130,8 @@ fun parsePolicy(root: JsonNode): PolicyParse {
         if (it >= SNAPSHOT_MAX_BYTES_CEILING) r.errors += "snapshotMaxBytes: must be < $SNAPSHOT_MAX_BYTES_CEILING, was $it"
     }
 
+    if (maxAttemptsPerEpisode != null && repeatedRemedyThreshold != null && repeatedRemedyThreshold > maxAttemptsPerEpisode)
+        r.errors += "repeatedRemedyThreshold ($repeatedRemedyThreshold) must be <= maxAttemptsPerEpisode ($maxAttemptsPerEpisode)"
     if (diagnosis != null) {
         val needed = try { Math.multiplyExact(diagnosis.maxAttempts.toLong(), diagnosis.startToCloseMs) } catch (e: ArithmeticException) { Long.MAX_VALUE }
         if (diagnosis.scheduleToCloseMs < needed)
@@ -153,8 +160,11 @@ fun parsePolicy(root: JsonNode): PolicyParse {
     if (r.errors.isNotEmpty()) return PolicyParse.Invalid(r.errors.toList())
     return PolicyParse.Valid(
         PolicyTable(
-            version!!, expiresAt, agentLayerEnabled!!, autoApprove, deadlines!!, diagnosis!!,
-            maxAttemptsPerEpisode!!, repeatedRemedyThreshold!!, snapshotMaxBytes!!, correlation!!,
+            version!!, expiresAt, agentLayerEnabled!!,
+            java.util.Collections.unmodifiableMap(LinkedHashMap(autoApprove)),
+            deadlines!!, diagnosis!!, maxAttemptsPerEpisode!!, repeatedRemedyThreshold!!, snapshotMaxBytes!!,
+            correlation!!.map { it.deepCopy<JsonNode>() },
+            root.deepCopy(),
         ),
     )
 }

@@ -12,8 +12,10 @@ const val FALLBACK_ESCALATED_RETENTION_MS: Long = 24L * 60 * 60 * 1000
 fun episodeDeadline(startedAt: Instant, policy: PolicyTable): Instant = startedAt.plusMillis(policy.deadlines.episodeMs)
 
 /** Every wait except ESCALATED wakes at `min(entered + its own budget, episode deadline)` (design §5.1). */
-fun waitUntil(enteredAt: Instant, stateBudgetMs: Long, episodeDeadline: Instant): Instant =
-    minOf(enteredAt.plusMillis(stateBudgetMs), episodeDeadline)
+fun waitUntil(enteredAt: Instant, stateBudgetMs: Long, episodeDeadline: Instant): Instant {
+    require(stateBudgetMs > 0) { "a wait budget must be positive, was $stateBudgetMs" }
+    return minOf(enteredAt.plusMillis(stateBudgetMs), episodeDeadline)
+}
 
 /** ESCALATED counts `escalatedRetentionMs` from its own entry, regardless of the episode deadline (design §5.1). */
 fun escalatedUntil(enteredAt: Instant, policy: PolicyTable?): Instant =

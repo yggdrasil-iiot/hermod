@@ -5,6 +5,7 @@ import koshei.episode.Policies.obj
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -101,6 +102,26 @@ class PolicyTest {
         Policies.errors { obj("autoApprove").putObject("OPERATOR_DECISION").put("allowed", true).putArray("skills") }
             .has("autoApprove.OPERATOR_DECISION")
         Policies.errors { obj("autoApprove").putObject("FOO").put("allowed", true) }.has("autoApprove.FOO: unknown key")
+    }
+
+    @Test fun `the source tree survives and re-parses to the same table`() {
+        val p = Policies.valid()
+        val again = parsePolicy(p.source)
+        assertIs<PolicyParse.Valid>(again)
+        assertEquals(p.version, again.policy.version)
+    }
+
+    @Test fun `the table keeps its own copy of the source`() {
+        val tree = Policies.node()
+        val p = (parsePolicy(tree) as PolicyParse.Valid).policy
+        tree.put("version", "changed")
+        assertEquals("2026-09-30.1", p.source.get("version").textValue())
+    }
+
+    @Test fun `the repeated-remedy threshold must be reachable within the attempt cap`() {
+        Policies.errors { put("repeatedRemedyThreshold", 4) }
+            .has("repeatedRemedyThreshold (4) must be <= maxAttemptsPerEpisode (3)")
+        assertEquals(3, Policies.valid { put("repeatedRemedyThreshold", 3) }.repeatedRemedyThreshold)
     }
 
     @Test fun `actionCatalog entries wait for plan D`() {
