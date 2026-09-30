@@ -1,0 +1,136 @@
+{
+  "contractVersion" : "0.6",
+  "episodeId" : "ep:measure-R09",
+  "attempt" : 1,
+  "snapshot" : {
+    "manifest" : {
+      "schemaVersion" : "5",
+      "runId" : "run-2026-09-22T16:47:37.854173400Z-1",
+      "writtenAt" : "2026-09-22T16:47:37.854173400Z",
+      "virtualNow" : "2026-09-06T00:02:34Z",
+      "contractSemver" : "0.9.0",
+      "counts" : {
+        "incidents" : 9,
+        "remedySearches" : 4
+      }
+    },
+    "incidents" : [
+      {
+        "incidentId" : "incident-5",
+        "jobOrderId" : "WT-781",
+        "executionId" : "exec-7",
+        "robotId" : "hum-03",
+        "unitId" : "HU-1042",
+        "at" : "2026-09-06T00:02:30Z",
+        "wallClockAt" : "2026-09-22T16:47:37.557547500Z",
+        "failureClass" : "SOURCE_CONTAINER_MISMATCH",
+        "fault" : null,
+        "blockedBy" : [ ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_EMPTY",
+          "objectRef" : "",
+          "reason" : ""
+        },
+        "unresolved" : false,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [ ],
+        "windowTruncated" : false,
+        "expectedHold" : null,
+        "observedHold" : "HOLD_KIND_EMPTY",
+        "effectMismatch" : null,
+        "requiredEvidence" : "E2",
+        "reachedEvidence" : "E0",
+        "verification" : "NOT_REQUESTED",
+        "step" : {
+          "at" : 1,
+          "plan" : [
+            "HU-1042"
+          ],
+          "completed" : [ ]
+        },
+        "route" : "FLEET",
+        "intent" : {
+          "workMasterId" : "DeliverContainer",
+          "orderVersion" : 1,
+          "orderParameters" : { },
+          "materials" : [ ],
+          "equipment" : [
+            {
+              "id" : "OUT-07",
+              "equipmentUse" : "source",
+              "properties" : {
+                "container" : "HU-1042"
+              }
+            },
+            {
+              "id" : "SEQ-IN-02",
+              "equipmentUse" : "destination",
+              "properties" : { }
+            }
+          ],
+          "capabilityMaxEvidence" : "E2",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "transport",
+          "unitParameters" : {
+            "container" : "HU-1042",
+            "destination" : "SEQ-IN-02",
+            "source" : "OUT-07"
+          },
+          "source" : "OUT-07",
+          "destination" : "SEQ-IN-02",
+          "expectedIdentity" : "HU-1042"
+        },
+        "observation" : {
+          "linkBroken" : false,
+          "lateEvents" : [ ],
+          "progressObservable" : null,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "c5ffd423581ebff9d8dd5f529268e985e017294b9d2469849fdefb0f04e73cf6"
+      }
+    ],
+    "searches" : [
+      {
+        "searchId" : "search-4",
+        "robotId" : "hum-03",
+        "jobOrderId" : "SEQ-RELOCATE",
+        "at" : "2026-09-06T00:02:34Z",
+        "wallClockAt" : "2026-09-22T16:47:37.751685200Z",
+        "outcome" : "SOURCE_MISSING",
+        "material" : "ENGINE-COVER-B",
+        "source" : "SEQ-IN-03.BIN-A",
+        "observed" : null,
+        "alternatives" : [
+          "SEQ-IN-03.BIN-B"
+        ]
+      }
+    ]
+  },
+  "candidates" : [
+    {
+      "candidateId" : "ESCALATE",
+      "kind" : "ESCALATE",
+      "ref" : null
+    }
+  ],
+  "candidatesVersion" : "sha256:4fd8fdfb9cf9be8ab199f8479cbe8780aad700155f8f7e3efed7539d416621a8",
+  "unknowns" : [
+    {
+      "subject" : {
+        "robotId" : "hum-03",
+        "executionId" : "exec-7",
+        "unitId" : "HU-1042"
+      },
+      "what" : "PROGRESS_UNOBSERVED",
+      "since" : "2026-09-06T00:02:30Z",
+      "source" : "picasso"
+    }
+  ],
+  "history" : [ ]
+}

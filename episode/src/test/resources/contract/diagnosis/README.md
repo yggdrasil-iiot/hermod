@@ -8,6 +8,10 @@ Fixtures for the narrator diagnosis contract (narrator repo `docs/superpowers/sp
   That update run writes the files and then **fails on purpose** ("fixtures regenerated; rerun without
   -Dkoshei.updateFixtures"), so it can never be mistaken for a green check; rerun without the property to verify.
   The test compares the committed files byte for byte (LF, UTF-8) and fails when the projection drifts from them.
+- `measurement/` — **owned by koshei**, 22 requests for narrator's recommendation measurement (contract §7), built by
+  the same projection from picasso handoff runs 1–4 (`src/test/resources/picasso/run-N/`). The line sets were chosen
+  by narrator; the first line of each list opened the episode; `episodeId` is `ep:measure-Rnn`, `attempt` 1. Same
+  regeneration switch (`DiagnosisMeasurementFixturesTest`).
 - Responses are **owned by narrator** and live in the narrator repo.
 
 | file | picasso run-1 lines (first line opened the episode) | request shape |

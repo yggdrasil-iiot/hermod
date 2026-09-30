@@ -1,13 +1,8 @@
 package koshei.episode
 
-import com.fasterxml.jackson.core.util.DefaultIndenter
-import com.fasterxml.jackson.core.util.DefaultPrettyPrinter
 import com.fasterxml.jackson.databind.node.ObjectNode
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
-import kotlin.test.fail
 
 /**
  * The four diagnosis-request fixtures of the contract (§8), built by the real projection from picasso run-1 lines.
@@ -56,45 +51,10 @@ class DiagnosisRequestFixturesTest {
     }
 
     @Test fun `every fixture obeys the contract's request-reading rules`() {
-        for (e in examples) {
-            val r = request(e)
-            val m = r.get("snapshot").get("manifest")
-            assertTrue(m.get("schemaVersion").isTextual && m.get("schemaVersion").textValue() == "5", e.file)
-            assertTrue(r.get("snapshot").get("incidents").size() + r.get("snapshot").get("searches").size() > 0, e.file)
-            val cs = r.get("candidates")
-            val ids = cs.map { it.get("candidateId").textValue() }
-            assertTrue(ids.isNotEmpty() && ids.size == ids.toSet().size && "ESCALATE" in ids, e.file)
-            cs.forEach { c ->
-                val escalate = c.get("kind").textValue() == "ESCALATE"
-                assertEquals(escalate, c.get("candidateId").textValue() == "ESCALATE", e.file)
-                assertEquals(escalate, c.get("ref").isNull, e.file)
-                c.get("sawSkillTypes")?.let { st -> assertTrue(st.isArray && st.all { it.isTextual }, e.file) }
-            }
-            assertTrue(Regex("sha256:[0-9a-f]{64}").matches(r.get("candidatesVersion").textValue()), e.file)
-            r.get("unknowns").forEach { assertEquals(listOf("subject", "what", "since", "source"), it.fieldNames().asSequence().toList(), e.file) }
-            assertTrue(r.get("history").isArray, e.file)
-        }
+        for (e in examples) ContractFixtures.assertReadingRules(request(e), e.file)
     }
 
     @Test fun `committed fixtures match the projection`() {
-        val dirPath = System.getProperty("koshei.fixturesDir")
-        assertTrue(!dirPath.isNullOrBlank(), "system property koshei.fixturesDir is not set (episode/build.gradle.kts sets it for the test task)")
-        val dir = File(dirPath)
-        val update = System.getProperty("koshei.updateFixtures") == "true"
-        val lf = DefaultIndenter("  ", "\n")
-        val writer = mapper.writer(DefaultPrettyPrinter().withObjectIndenter(lf).withArrayIndenter(lf))
-        for (e in examples) {
-            val expected = writer.writeValueAsString(request(e)) + "\n"
-            val f = File(dir, e.file)
-            if (update) {
-                dir.mkdirs()
-                f.writeText(expected, Charsets.UTF_8)
-            } else {
-                assertTrue(f.isFile, "missing fixture ${f.path}: run with -Dkoshei.updateFixtures=true")
-                val committed = f.readText(Charsets.UTF_8).replace("\r\n", "\n")
-                assertEquals(expected, committed, "${e.file} no longer matches the projection byte for byte")
-            }
-        }
-        if (update) fail("fixtures regenerated; rerun without -Dkoshei.updateFixtures")
+        ContractFixtures.check("requests", examples.associate { it.file to request(it) })
     }
 }

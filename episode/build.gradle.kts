@@ -5,12 +5,12 @@ plugins {
 kotlin { jvmToolchain(21) }
 tasks.test {
     useJUnitPlatform()
-    // `-Dkoshei.updateFixtures=true` regenerates the committed diagnosis-request fixtures and then fails on purpose
-    // (see DiagnosisRequestFixturesTest); rerun without it to verify.
+    // `-Dkoshei.updateFixtures=true` regenerates the committed diagnosis-contract fixtures (requests and measurement)
+    // and then fails on purpose (see DiagnosisRequestFixturesTest); rerun without it to verify.
     systemProperty("koshei.updateFixtures", System.getProperty("koshei.updateFixtures") ?: "false")
     systemProperty(
-        "koshei.fixturesDir",
-        layout.projectDirectory.dir("src/test/resources/contract/diagnosis/requests").asFile.absolutePath,
+        "koshei.contractFixturesDir",
+        layout.projectDirectory.dir("src/test/resources/contract/diagnosis").asFile.absolutePath,
     )
 }
 // Pure core of the episode outer loop (design §4.1): no Temporal, no Spring, no JDBC — only Jackson's JSON tree.

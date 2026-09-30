@@ -1,0 +1,922 @@
+{
+  "contractVersion" : "0.6",
+  "episodeId" : "ep:measure-R16",
+  "attempt" : 1,
+  "snapshot" : {
+    "manifest" : {
+      "schemaVersion" : "5",
+      "runId" : "run-2026-09-22T16:47:37.854173400Z-1",
+      "writtenAt" : "2026-09-22T16:47:37.854173400Z",
+      "virtualNow" : "2026-09-06T00:02:34Z",
+      "contractSemver" : "0.9.0",
+      "counts" : {
+        "incidents" : 9,
+        "remedySearches" : 4
+      }
+    },
+    "incidents" : [
+      {
+        "incidentId" : "incident-4",
+        "jobOrderId" : "SEQ-4",
+        "executionId" : "exec-6",
+        "robotId" : "hum-06",
+        "unitId" : "RACK-204.S05",
+        "at" : "2026-09-06T00:02:29Z",
+        "wallClockAt" : "2026-09-22T16:47:37.512746900Z",
+        "failureClass" : "UNCLASSIFIED",
+        "fault" : {
+          "failureClass" : "UNCLASSIFIED",
+          "errorType" : "X_FIXTURE_E9001",
+          "vendorDetail" : "X_FIXTURE_E9001",
+          "errorHint" : "정지 코드를 벤더 문서에서 조회하십시오. 코드만으로 갈리지 않으면 현장 점검이 필요합니다.",
+          "references" : [ ],
+          "canContinueCurrentTask" : false,
+          "canAcceptNewTask" : false,
+          "activeUntilKind" : "KIND_UNTIL_CLEARED",
+          "activeUntilTime" : ""
+        },
+        "blockedBy" : [ ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_HOLDING",
+          "objectRef" : "SEQ-IN-02.BIN-A",
+          "reason" : ""
+        },
+        "unresolved" : true,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [
+          {
+            "sequence" : 9,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S04 pick_place SKILL_STATE_RUNNING->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 10,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S04 TASK_STATE_RUNNING->TASK_STATE_SUCCEEDED rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "CELL_SIGNAL",
+            "detail" : "RACK-204.S04: occupied=true identity=ENGINE-COVER-A at=(read now)",
+            "local" : true
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S05 TASK_STATE_UNSPECIFIED->TASK_STATE_ACCEPTED rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 12,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S05 TASK_STATE_ACCEPTED->TASK_STATE_RUNNING rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 13,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S05 pick_place SKILL_STATE_READY->SKILL_STATE_RUNNING",
+            "local" : false
+          },
+          {
+            "sequence" : 14,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "FAULT_RAISED",
+            "detail" : "X_FIXTURE_E9001 class=UNCLASSIFIED can_accept_new_task=false",
+            "local" : false
+          },
+          {
+            "sequence" : 15,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S05 pick_place SKILL_STATE_RUNNING->SKILL_STATE_HALTED",
+            "local" : false
+          },
+          {
+            "sequence" : 16,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S05 pick_place SKILL_STATE_HALTED->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 17,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-4#RACK-204.S05 TASK_STATE_RUNNING->TASK_STATE_NEEDS_INTERVENTION rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 18,
+            "occurredAt" : "2026-09-06T00:02:29Z",
+            "kind" : "CELL_SIGNAL",
+            "detail" : "RACK-204.S05: occupied=true identity=ENGINE-COVER-A at=(read now)",
+            "local" : true
+          }
+        ],
+        "windowTruncated" : true,
+        "expectedHold" : "HOLD_KIND_HOLDING",
+        "observedHold" : "HOLD_KIND_HOLDING",
+        "effectMismatch" : null,
+        "requiredEvidence" : "E2",
+        "reachedEvidence" : "E0",
+        "verification" : "MATCHED",
+        "step" : {
+          "at" : 2,
+          "plan" : [
+            "RACK-204.S04",
+            "RACK-204.S05"
+          ],
+          "completed" : [
+            "RACK-204.S04"
+          ]
+        },
+        "route" : "ROBOT",
+        "intent" : {
+          "workMasterId" : "PrepareSequencedRack",
+          "orderVersion" : 17,
+          "orderParameters" : { },
+          "materials" : [
+            {
+              "materialDefinitionId" : "ENGINE-COVER-A",
+              "quantity" : 2
+            }
+          ],
+          "equipment" : [
+            {
+              "id" : "RACK-204.S04",
+              "equipmentUse" : "destination",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            },
+            {
+              "id" : "RACK-204.S05",
+              "equipmentUse" : "destination",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            },
+            {
+              "id" : "SEQ-IN-02.BIN-A",
+              "equipmentUse" : "source",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            }
+          ],
+          "capabilityMaxEvidence" : "E2",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "pick_place",
+          "unitParameters" : {
+            "destination" : "RACK-204.S05",
+            "object_id" : "SEQ-IN-02.BIN-A"
+          },
+          "source" : "SEQ-IN-02.BIN-A",
+          "destination" : "RACK-204.S05",
+          "expectedIdentity" : "ENGINE-COVER-A"
+        },
+        "observation" : {
+          "linkBroken" : false,
+          "lateEvents" : [ ],
+          "progressObservable" : true,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "510bb77136e44e58e1e495c606846e0d0481da309149fd7a12103813cd501502"
+      },
+      {
+        "incidentId" : "incident-6",
+        "jobOrderId" : "SEQ-6",
+        "executionId" : "exec-8",
+        "robotId" : "hum-07",
+        "unitId" : "RACK-204.S06",
+        "at" : "2026-09-06T00:02:31Z",
+        "wallClockAt" : "2026-09-22T16:47:37.609775700Z",
+        "failureClass" : "PAYLOAD_LOST",
+        "fault" : {
+          "failureClass" : "PAYLOAD_LOST",
+          "errorType" : "PAYLOAD_LOST",
+          "vendorDetail" : "",
+          "errorHint" : "떨어뜨린 대상을 회수해 원위치에 놓고 재시도하십시오.",
+          "references" : [
+            {
+              "key" : "KEY_SKILL_ID",
+              "value" : "pick_place"
+            },
+            {
+              "key" : "KEY_TASK_ID",
+              "value" : "SEQ-6#RACK-204.S06"
+            }
+          ],
+          "canContinueCurrentTask" : false,
+          "canAcceptNewTask" : false,
+          "activeUntilKind" : "KIND_UNTIL_CLEARED",
+          "activeUntilTime" : ""
+        },
+        "blockedBy" : [ ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_EMPTY",
+          "objectRef" : "",
+          "reason" : ""
+        },
+        "unresolved" : true,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [
+          {
+            "sequence" : 6,
+            "occurredAt" : "2026-09-06T00:02:30Z",
+            "kind" : "RESYNC",
+            "detail" : "snapshot: next sequence=6, faults=0, connection=CONNECTION_STATE_ONLINE",
+            "local" : true
+          },
+          {
+            "sequence" : 6,
+            "occurredAt" : "2026-09-06T00:02:30Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-6#RACK-204.S06 TASK_STATE_UNSPECIFIED->TASK_STATE_ACCEPTED rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-6#RACK-204.S06 TASK_STATE_ACCEPTED->TASK_STATE_RUNNING rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 8,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-6#RACK-204.S06 pick_place SKILL_STATE_READY->SKILL_STATE_RUNNING",
+            "local" : false
+          },
+          {
+            "sequence" : 9,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "LINK_BROKEN",
+            "detail" : "CONNECTION_STATE_CONNECTION_BROKEN while RACK-204.S06 is running — result unconfirmed",
+            "local" : true
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "FAULT_RAISED",
+            "detail" : "PAYLOAD_LOST class=PAYLOAD_LOST can_accept_new_task=false",
+            "local" : false
+          },
+          {
+            "sequence" : 12,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-6#RACK-204.S06 pick_place SKILL_STATE_RUNNING->SKILL_STATE_HALTED",
+            "local" : false
+          },
+          {
+            "sequence" : 13,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-6#RACK-204.S06 pick_place SKILL_STATE_HALTED->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 14,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-6#RACK-204.S06 TASK_STATE_RUNNING->TASK_STATE_NEEDS_INTERVENTION rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 15,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "CELL_SIGNAL",
+            "detail" : "RACK-204.S06: occupied=true identity=ENGINE-COVER-A at=(read now)",
+            "local" : true
+          }
+        ],
+        "windowTruncated" : false,
+        "expectedHold" : "HOLD_KIND_HOLDING",
+        "observedHold" : "HOLD_KIND_EMPTY",
+        "effectMismatch" : "PAYLOAD_LOST",
+        "requiredEvidence" : "E2",
+        "reachedEvidence" : "E0",
+        "verification" : "MATCHED",
+        "step" : {
+          "at" : 1,
+          "plan" : [
+            "RACK-204.S06"
+          ],
+          "completed" : [ ]
+        },
+        "route" : "ROBOT",
+        "intent" : {
+          "workMasterId" : "PrepareSequencedRack",
+          "orderVersion" : 17,
+          "orderParameters" : { },
+          "materials" : [
+            {
+              "materialDefinitionId" : "ENGINE-COVER-A",
+              "quantity" : 1
+            }
+          ],
+          "equipment" : [
+            {
+              "id" : "RACK-204.S06",
+              "equipmentUse" : "destination",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            },
+            {
+              "id" : "SEQ-IN-02.BIN-A",
+              "equipmentUse" : "source",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            }
+          ],
+          "capabilityMaxEvidence" : "E2",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "pick_place",
+          "unitParameters" : {
+            "destination" : "RACK-204.S06",
+            "object_id" : "SEQ-IN-02.BIN-A"
+          },
+          "source" : "SEQ-IN-02.BIN-A",
+          "destination" : "RACK-204.S06",
+          "expectedIdentity" : "ENGINE-COVER-A"
+        },
+        "observation" : {
+          "linkBroken" : true,
+          "lateEvents" : [ ],
+          "progressObservable" : true,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "7aebacbd7e2ed96eb1760ed27f8d2773a0126ff099ea1253751f2f68d1449869"
+      },
+      {
+        "incidentId" : "incident-7",
+        "jobOrderId" : "SEQ-7",
+        "executionId" : "exec-9",
+        "robotId" : "hum-08",
+        "unitId" : "RACK-204.S07",
+        "at" : "2026-09-06T00:02:32Z",
+        "wallClockAt" : "2026-09-22T16:47:37.655709100Z",
+        "failureClass" : "UNCLASSIFIED",
+        "fault" : {
+          "failureClass" : "UNCLASSIFIED",
+          "errorType" : "X_FIXTURE_E4412",
+          "vendorDetail" : "X_FIXTURE_E4412",
+          "errorHint" : "정지 코드를 벤더 문서에서 조회한 뒤 해당 절차를 따르십시오.",
+          "references" : [ ],
+          "canContinueCurrentTask" : false,
+          "canAcceptNewTask" : false,
+          "activeUntilKind" : "KIND_UNTIL_CLEARED",
+          "activeUntilTime" : ""
+        },
+        "blockedBy" : [ ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_HOLDING",
+          "objectRef" : "SEQ-IN-02.BIN-A",
+          "reason" : ""
+        },
+        "unresolved" : true,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "RESYNC",
+            "detail" : "snapshot: next sequence=7, faults=0, connection=CONNECTION_STATE_ONLINE",
+            "local" : true
+          },
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:31Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-7#RACK-204.S07 TASK_STATE_UNSPECIFIED->TASK_STATE_ACCEPTED rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 8,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-7#RACK-204.S07 TASK_STATE_ACCEPTED->TASK_STATE_RUNNING rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 9,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-7#RACK-204.S07 pick_place SKILL_STATE_READY->SKILL_STATE_RUNNING",
+            "local" : false
+          },
+          {
+            "sequence" : 10,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "FAULT_RAISED",
+            "detail" : "X_FIXTURE_E4412 class=UNCLASSIFIED can_accept_new_task=false",
+            "local" : false
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-7#RACK-204.S07 pick_place SKILL_STATE_RUNNING->SKILL_STATE_HALTED",
+            "local" : false
+          },
+          {
+            "sequence" : 12,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-7#RACK-204.S07 pick_place SKILL_STATE_HALTED->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 13,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-7#RACK-204.S07 TASK_STATE_RUNNING->TASK_STATE_NEEDS_INTERVENTION rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 14,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "CELL_SIGNAL",
+            "detail" : "RACK-204.S07: occupied=true identity=ENGINE-COVER-A at=(read now)",
+            "local" : true
+          }
+        ],
+        "windowTruncated" : false,
+        "expectedHold" : "HOLD_KIND_HOLDING",
+        "observedHold" : "HOLD_KIND_HOLDING",
+        "effectMismatch" : null,
+        "requiredEvidence" : "E2",
+        "reachedEvidence" : "E0",
+        "verification" : "MATCHED",
+        "step" : {
+          "at" : 1,
+          "plan" : [
+            "RACK-204.S07"
+          ],
+          "completed" : [ ]
+        },
+        "route" : "ROBOT",
+        "intent" : {
+          "workMasterId" : "PrepareSequencedRack",
+          "orderVersion" : 17,
+          "orderParameters" : { },
+          "materials" : [
+            {
+              "materialDefinitionId" : "ENGINE-COVER-A",
+              "quantity" : 1
+            }
+          ],
+          "equipment" : [
+            {
+              "id" : "RACK-204.S07",
+              "equipmentUse" : "destination",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            },
+            {
+              "id" : "SEQ-IN-02.BIN-A",
+              "equipmentUse" : "source",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            }
+          ],
+          "capabilityMaxEvidence" : "E2",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "pick_place",
+          "unitParameters" : {
+            "destination" : "RACK-204.S07",
+            "object_id" : "SEQ-IN-02.BIN-A"
+          },
+          "source" : "SEQ-IN-02.BIN-A",
+          "destination" : "RACK-204.S07",
+          "expectedIdentity" : "ENGINE-COVER-A"
+        },
+        "observation" : {
+          "linkBroken" : false,
+          "lateEvents" : [ ],
+          "progressObservable" : true,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "a67f01ae896df2ed3bcdb13dbcc8c0229ccdcba911e11c033925d6cf3d1b3dae"
+      },
+      {
+        "incidentId" : "incident-8",
+        "jobOrderId" : "SEQ-8",
+        "executionId" : "exec-10",
+        "robotId" : "hum-09",
+        "unitId" : "RACK-204.S08",
+        "at" : "2026-09-06T00:02:33Z",
+        "wallClockAt" : "2026-09-22T16:47:37.701891900Z",
+        "failureClass" : "UNCLASSIFIED",
+        "fault" : {
+          "failureClass" : "UNCLASSIFIED",
+          "errorType" : "X_FIXTURE_E2075",
+          "vendorDetail" : "X_FIXTURE_E2075",
+          "errorHint" : "정지 코드를 기록하고 벤더 문서의 조치 절차를 따르십시오.",
+          "references" : [ ],
+          "canContinueCurrentTask" : false,
+          "canAcceptNewTask" : false,
+          "activeUntilKind" : "KIND_UNTIL_CLEARED",
+          "activeUntilTime" : ""
+        },
+        "blockedBy" : [ ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_HOLDING",
+          "objectRef" : "SEQ-IN-02.BIN-A",
+          "reason" : ""
+        },
+        "unresolved" : true,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "RESYNC",
+            "detail" : "snapshot: next sequence=7, faults=0, connection=CONNECTION_STATE_ONLINE",
+            "local" : true
+          },
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:32Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-8#RACK-204.S08 TASK_STATE_UNSPECIFIED->TASK_STATE_ACCEPTED rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 8,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-8#RACK-204.S08 TASK_STATE_ACCEPTED->TASK_STATE_RUNNING rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 9,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-8#RACK-204.S08 pick_place SKILL_STATE_READY->SKILL_STATE_RUNNING",
+            "local" : false
+          },
+          {
+            "sequence" : 10,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "FAULT_RAISED",
+            "detail" : "X_FIXTURE_E2075 class=UNCLASSIFIED can_accept_new_task=false",
+            "local" : false
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-8#RACK-204.S08 pick_place SKILL_STATE_RUNNING->SKILL_STATE_HALTED",
+            "local" : false
+          },
+          {
+            "sequence" : 12,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-8#RACK-204.S08 pick_place SKILL_STATE_HALTED->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 13,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-8#RACK-204.S08 TASK_STATE_RUNNING->TASK_STATE_NEEDS_INTERVENTION rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 14,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "CELL_SIGNAL",
+            "detail" : "RACK-204.S08: occupied=true identity=ENGINE-COVER-A at=(read now)",
+            "local" : true
+          }
+        ],
+        "windowTruncated" : false,
+        "expectedHold" : "HOLD_KIND_HOLDING",
+        "observedHold" : "HOLD_KIND_HOLDING",
+        "effectMismatch" : null,
+        "requiredEvidence" : "E2",
+        "reachedEvidence" : "E0",
+        "verification" : "MATCHED",
+        "step" : {
+          "at" : 1,
+          "plan" : [
+            "RACK-204.S08"
+          ],
+          "completed" : [ ]
+        },
+        "route" : "ROBOT",
+        "intent" : {
+          "workMasterId" : "PrepareSequencedRack",
+          "orderVersion" : 17,
+          "orderParameters" : { },
+          "materials" : [
+            {
+              "materialDefinitionId" : "ENGINE-COVER-A",
+              "quantity" : 1
+            }
+          ],
+          "equipment" : [
+            {
+              "id" : "RACK-204.S08",
+              "equipmentUse" : "destination",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            },
+            {
+              "id" : "SEQ-IN-02.BIN-A",
+              "equipmentUse" : "source",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            }
+          ],
+          "capabilityMaxEvidence" : "E2",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "pick_place",
+          "unitParameters" : {
+            "destination" : "RACK-204.S08",
+            "object_id" : "SEQ-IN-02.BIN-A"
+          },
+          "source" : "SEQ-IN-02.BIN-A",
+          "destination" : "RACK-204.S08",
+          "expectedIdentity" : "ENGINE-COVER-A"
+        },
+        "observation" : {
+          "linkBroken" : false,
+          "lateEvents" : [ ],
+          "progressObservable" : true,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "f3cbb5b6b3e5f61e09d8d7dbd99bb92f3359dc64c1f4e4f33235fca69975fe71"
+      },
+      {
+        "incidentId" : "incident-9",
+        "jobOrderId" : "SEQ-9",
+        "executionId" : "exec-11",
+        "robotId" : "hum-10",
+        "unitId" : "RACK-204.S09",
+        "at" : "2026-09-06T00:02:34Z",
+        "wallClockAt" : "2026-09-22T16:47:37.749204700Z",
+        "failureClass" : "UNCLASSIFIED",
+        "fault" : {
+          "failureClass" : "UNCLASSIFIED",
+          "errorType" : "X_FIXTURE_E6130",
+          "vendorDetail" : "X_FIXTURE_E6130",
+          "errorHint" : "정지 코드를 벤더 문서에서 조회하고 현장을 확인한 뒤 재개하십시오.",
+          "references" : [ ],
+          "canContinueCurrentTask" : false,
+          "canAcceptNewTask" : false,
+          "activeUntilKind" : "KIND_UNTIL_CLEARED",
+          "activeUntilTime" : ""
+        },
+        "blockedBy" : [ ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_HOLDING",
+          "objectRef" : "SEQ-IN-02.BIN-A",
+          "reason" : ""
+        },
+        "unresolved" : true,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "RESYNC",
+            "detail" : "snapshot: next sequence=7, faults=0, connection=CONNECTION_STATE_ONLINE",
+            "local" : true
+          },
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:02:33Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-9#RACK-204.S09 TASK_STATE_UNSPECIFIED->TASK_STATE_ACCEPTED rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 8,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-9#RACK-204.S09 TASK_STATE_ACCEPTED->TASK_STATE_RUNNING rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 9,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-9#RACK-204.S09 pick_place SKILL_STATE_READY->SKILL_STATE_RUNNING",
+            "local" : false
+          },
+          {
+            "sequence" : 10,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "FAULT_RAISED",
+            "detail" : "X_FIXTURE_E6130 class=UNCLASSIFIED can_accept_new_task=false",
+            "local" : false
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-9#RACK-204.S09 pick_place SKILL_STATE_RUNNING->SKILL_STATE_HALTED",
+            "local" : false
+          },
+          {
+            "sequence" : 12,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "SEQ-9#RACK-204.S09 pick_place SKILL_STATE_HALTED->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 13,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "SEQ-9#RACK-204.S09 TASK_STATE_RUNNING->TASK_STATE_NEEDS_INTERVENTION rev=17 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 14,
+            "occurredAt" : "2026-09-06T00:02:34Z",
+            "kind" : "CELL_SIGNAL",
+            "detail" : "RACK-204.S09: occupied=true identity=ENGINE-COVER-A at=(read now)",
+            "local" : true
+          }
+        ],
+        "windowTruncated" : false,
+        "expectedHold" : "HOLD_KIND_HOLDING",
+        "observedHold" : "HOLD_KIND_HOLDING",
+        "effectMismatch" : null,
+        "requiredEvidence" : "E2",
+        "reachedEvidence" : "E0",
+        "verification" : "MATCHED",
+        "step" : {
+          "at" : 1,
+          "plan" : [
+            "RACK-204.S09"
+          ],
+          "completed" : [ ]
+        },
+        "route" : "ROBOT",
+        "intent" : {
+          "workMasterId" : "PrepareSequencedRack",
+          "orderVersion" : 17,
+          "orderParameters" : { },
+          "materials" : [
+            {
+              "materialDefinitionId" : "ENGINE-COVER-A",
+              "quantity" : 1
+            }
+          ],
+          "equipment" : [
+            {
+              "id" : "RACK-204.S09",
+              "equipmentUse" : "destination",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            },
+            {
+              "id" : "SEQ-IN-02.BIN-A",
+              "equipmentUse" : "source",
+              "properties" : {
+                "material" : "ENGINE-COVER-A"
+              }
+            }
+          ],
+          "capabilityMaxEvidence" : "E2",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "pick_place",
+          "unitParameters" : {
+            "destination" : "RACK-204.S09",
+            "object_id" : "SEQ-IN-02.BIN-A"
+          },
+          "source" : "SEQ-IN-02.BIN-A",
+          "destination" : "RACK-204.S09",
+          "expectedIdentity" : "ENGINE-COVER-A"
+        },
+        "observation" : {
+          "linkBroken" : false,
+          "lateEvents" : [ ],
+          "progressObservable" : true,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "a920a52519d946038da042ae03dd72ca5ac9355542da196be588592eb724f47c"
+      }
+    ],
+    "searches" : [ ]
+  },
+  "candidates" : [
+    {
+      "candidateId" : "ESCALATE",
+      "kind" : "ESCALATE",
+      "ref" : null
+    },
+    {
+      "candidateId" : "OPERATOR_DECISION:exec-10:RACK-204.S08:CONFIRM_DONE",
+      "kind" : "OPERATOR_DECISION",
+      "ref" : {
+        "executionId" : "exec-10",
+        "unitId" : "RACK-204.S08",
+        "decision" : "CONFIRM_DONE"
+      }
+    },
+    {
+      "candidateId" : "OPERATOR_DECISION:exec-11:RACK-204.S09:CONFIRM_DONE",
+      "kind" : "OPERATOR_DECISION",
+      "ref" : {
+        "executionId" : "exec-11",
+        "unitId" : "RACK-204.S09",
+        "decision" : "CONFIRM_DONE"
+      }
+    },
+    {
+      "candidateId" : "OPERATOR_DECISION:exec-6:RACK-204.S05:CONFIRM_DONE",
+      "kind" : "OPERATOR_DECISION",
+      "ref" : {
+        "executionId" : "exec-6",
+        "unitId" : "RACK-204.S05",
+        "decision" : "CONFIRM_DONE"
+      }
+    },
+    {
+      "candidateId" : "OPERATOR_DECISION:exec-8:RACK-204.S06:CONFIRM_DONE",
+      "kind" : "OPERATOR_DECISION",
+      "ref" : {
+        "executionId" : "exec-8",
+        "unitId" : "RACK-204.S06",
+        "decision" : "CONFIRM_DONE"
+      }
+    },
+    {
+      "candidateId" : "OPERATOR_DECISION:exec-9:RACK-204.S07:CONFIRM_DONE",
+      "kind" : "OPERATOR_DECISION",
+      "ref" : {
+        "executionId" : "exec-9",
+        "unitId" : "RACK-204.S07",
+        "decision" : "CONFIRM_DONE"
+      }
+    }
+  ],
+  "candidatesVersion" : "sha256:d72e6c86a2ce8ae61c56fea13f086719b29e8c9dac417f2eb98a52e7353f1c24",
+  "unknowns" : [
+    {
+      "subject" : {
+        "robotId" : "hum-07",
+        "executionId" : "exec-8",
+        "unitId" : "RACK-204.S06"
+      },
+      "what" : "LINK_BROKEN",
+      "since" : "2026-09-06T00:02:31Z",
+      "source" : "picasso"
+    }
+  ],
+  "history" : [ ]
+}
