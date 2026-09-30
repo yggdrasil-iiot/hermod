@@ -289,6 +289,18 @@ data class Step(val next: EpisodeState, val commands: List<Command>)
 fun transition(state: EpisodeState, event: EpisodeEvent, policy: PolicyTable): Step
 ```
 
+**구현 모양 (계획 B2b-2a, 2026-10-01).** 위 블록은 설계의 스케치이고, 코드는 이렇게 섰다. 시작은
+`startEpisode(Detected, read: PolicyRead, now)`, 그 뒤는 `transition(state, event, read: PolicyRead?, now)` — `read` 는 구동부가 이
+결정을 위해 `readPolicy` 를 부른 결과이고 `null` 이면 지금 표를 쓴다(해석은 `resolvePolicy`). 결과 `Step` 은 다음 상태 · 명령 목록 ·
+Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Phase` 에 없고 기록(`PROPOSED`)으로만 남는다. 기한 명령은
+`SetTimer(which, at, token)` 하나로 모았다 — 상태에 들어갈 때마다 `token` 이 늘어 지난 상태의 타이머는 무시된다. 실행 의도 기록은
+`RecordIntent(seq, intent, timeoutMs)` 이고, `Dispatch` 는 그 `Recorded(seq)` 뒤에만 나온다(B2b-2b). `Revalidate` 도 상태 `token` 을
+싣고 `Revalidated` 가 그것을 돌려준다 — 재진단 뒤에 도착한 앞 후보의 늦은 결과가 새 후보의 전제로 읽히지 않게. 거절 사유는
+`RejectReason { WRONG_TARGET, WRONG_ACTION, PRECONDITION_NOT_MET, NOT_NOW, OTHER }` 이고 이력(계약 §3.4)에는 이 값만 간다. 운영자의
+자유 글(`note`)은 감사 기록에만 남는다 — narrator 가 이력을 모델의 자료 칸에 옮기므로 인증 없는 글이 프롬프트로 가지 않게 한다.
+재진단 사유(기록 전용)는 `APPROVAL_REJECTED` · `APPROVAL_LAPSED` · `PRECONDITION_BROKEN`. POLICY 자동 승인은 실행 의도 직전에 지금 표로
+다시 판정하고, 그 사이 자동 승인이 꺼졌거나 표가 거절돼 멈췄으면 승인을 거두고 AWAITING_APPROVAL 로 간다.
+
 고정 규칙(정책 표로 못 바꾼다):
 - UNKNOWN 이거나 `unknowns` 가 비어 있지 않으면 **실행 계열**(§9.1 표의 "실행 계열" 열) `Dispatch` 명령이 나오지 않는다.
   `OPERATOR_DECISION/CONFIRM_DONE`(현물 확인 과업)과 `ESCALATE` 는 실행 계열이 아니므로 막히지 않는다 — 확인 불가를 푸는 길이
