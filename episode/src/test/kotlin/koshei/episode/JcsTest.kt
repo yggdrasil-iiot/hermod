@@ -28,7 +28,7 @@ class JcsTest {
     }
 
     @Test fun `isWellFormed accepts pairs and rejects lone surrogates`() {
-        assertEquals(true, Jcs.isWellFormed("aD83DDE00b"))
+        assertEquals(true, Jcs.isWellFormed("a\uD83D\uDE00b"))
         assertEquals(false, Jcs.isWellFormed("a\uD800"))
         assertEquals(false, Jcs.isWellFormed("\uDC00a"))
         assertEquals(false, Jcs.isWellFormed("\uD800\uD800"))
