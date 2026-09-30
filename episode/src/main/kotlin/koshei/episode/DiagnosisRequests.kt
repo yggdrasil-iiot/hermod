@@ -8,9 +8,10 @@ const val DIAGNOSIS_CONTRACT_VERSION = "0.6"
 
 /**
  * The `diagnose` activity request (contract 0.6 §3) as a typed value. [toJson] renders the wire form, with the keys in
- * the contract's order.
+ * the contract's order. Build it only through [diagnosisRequest], which keeps candidates, their version and the unknowns
+ * consistent.
  */
-class DiagnosisRequest(
+class DiagnosisRequest internal constructor(
     val episodeId: String,
     val attempt: Int,
     val snapshot: Snapshot,

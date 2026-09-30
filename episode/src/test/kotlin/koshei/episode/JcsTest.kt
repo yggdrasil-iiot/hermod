@@ -27,6 +27,13 @@ class JcsTest {
         assertFailsWith<IllegalArgumentException> { Jcs.canonical(mapper.createObjectNode().put("k\uDE00", "v")) }
     }
 
+    @Test fun `isWellFormed accepts pairs and rejects lone surrogates`() {
+        assertEquals(true, Jcs.isWellFormed("a😀b"))
+        assertEquals(false, Jcs.isWellFormed("a\uD800"))
+        assertEquals(false, Jcs.isWellFormed("\uDC00a"))
+        assertEquals(false, Jcs.isWellFormed("\uD800\uD800"))
+    }
+
     @Test fun `a valid surrogate pair passes through unescaped`() {
         assertEquals("\"\uD83D\uDE00\"", Jcs.canonical(TextNode.valueOf("\uD83D\uDE00")))
     }

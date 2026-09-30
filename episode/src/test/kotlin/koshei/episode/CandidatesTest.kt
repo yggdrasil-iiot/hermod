@@ -174,4 +174,12 @@ class CandidatesTest {
         assertEquals(null, c.ref!!["missingSource"])
         assertTrue(c.toJson().get("ref").get("missingSource").isNull)
     }
+
+    @Test fun `a value with a lone surrogate offers no candidate instead of breaking the version hash`() {
+        val line = mapper.readTree(PicassoRun1.search("search-1")) as ObjectNode
+        line.put("jobOrderId", "PATROL-\uD800")
+        val s = Snapshot(mapper.readTree(PicassoRun1.manifest) as ObjectNode, emptyList(), listOf(line))
+        assertEquals(listOf("ESCALATE"), projectCandidates(s, emptyList()).map { it.candidateId })
+        assertEquals(listOf("ESCALATE"), diagnosisRequest("ep:t", 1, s).candidates.map { it.candidateId })
+    }
 }

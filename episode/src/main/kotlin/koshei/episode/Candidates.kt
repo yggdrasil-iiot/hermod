@@ -45,6 +45,10 @@ class Candidate private constructor(
         if (kind == CandidateKind.APPROVE_REMEDY) putArray("sawSkillTypes").apply { sawSkillTypes.orEmpty().forEach { add(it) } }
     }
 
+    /** Every string the candidate carries can be hashed (JCS refuses lone surrogates). */
+    internal fun wellFormed(): Boolean =
+        (ref?.values.orEmpty().filterNotNull() + sawSkillTypes.orEmpty()).all(Jcs::isWellFormed)
+
     override fun equals(other: Any?): Boolean =
         this === other || (other is Candidate && candidateId == other.candidateId && kind == other.kind &&
             ref == other.ref && sawSkillTypes == other.sawSkillTypes)
@@ -99,7 +103,8 @@ class Candidate private constructor(
  */
 fun projectCandidates(snapshot: Snapshot, unknowns: List<Unknown>): List<Candidate> {
     val byId = LinkedHashMap<String, Candidate>()
-    fun add(c: Candidate) { byId.putIfAbsent(c.candidateId, c) }
+    // A candidate whose strings cannot be hashed is withheld (fail-safe) rather than breaking candidatesVersion.
+    fun add(c: Candidate) { if (c.wellFormed()) byId.putIfAbsent(c.candidateId, c) }
 
     add(Candidate.ESCALATE)
     for (s in snapshot.searches) {

@@ -39,18 +39,33 @@ object Jcs {
         }
     }
 
+    /** True when [s] is well-formed UTF-16: every high surrogate is followed by a low one, and no low surrogate stands alone. */
+    fun isWellFormed(s: String): Boolean {
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (Character.isHighSurrogate(c)) {
+                if (i + 1 >= s.length || !Character.isLowSurrogate(s[i + 1])) return false
+                i += 2
+                continue
+            }
+            if (Character.isLowSurrogate(c)) return false
+            i++
+        }
+        return true
+    }
+
     private fun writeString(s: String, sb: StringBuilder) {
+        require(isWellFormed(s)) { "JCS: lone surrogate in string" }
         sb.append('"')
         var i = 0
         while (i < s.length) {
             val c = s[i]
             when {
-                Character.isHighSurrogate(c) -> {
-                    require(i + 1 < s.length && Character.isLowSurrogate(s[i + 1])) { "JCS: lone high surrogate at index $i" }
+                Character.isSurrogate(c) -> {   // a well-formed pair: copy both halves unescaped
                     sb.append(c).append(s[i + 1])
                     i++
                 }
-                Character.isLowSurrogate(c) -> throw IllegalArgumentException("JCS: lone low surrogate at index $i")
                 c == '"' -> sb.append("\\\"")
                 c == '\\' -> sb.append("\\\\")
                 c == '\b' -> sb.append("\\b")
