@@ -12,7 +12,9 @@ Fixtures for the narrator diagnosis contract (narrator repo `docs/superpowers/sp
   the same projection from picasso handoff runs 1–4 (`src/test/resources/picasso/run-N/`). The line sets were chosen
   by narrator; the first line of each list opened the episode; `episodeId` is `ep:measure-Rnn`, `attempt` 1. Same
   regeneration switch (`DiagnosisMeasurementFixturesTest`).
-- Responses are **owned by narrator** and live in the narrator repo.
+- `responses/` — **owned by narrator**; byte copies of narrator's four response fixtures (narrator
+  `tests/fixtures/contract/diagnosis/responses/`, narrator commit `c39a9b0`),
+  checked by `DiagnosisResponseFixturesTest` against the requests above. Recopy when narrator changes them.
 
 | file | picasso run-1 lines (first line opened the episode) | request shape |
 |---|---|---|

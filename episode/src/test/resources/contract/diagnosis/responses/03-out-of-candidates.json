@@ -1,0 +1,72 @@
+{
+  "contractVersion": "0.6",
+  "episodeId": "ep:fixture-03-out-of-candidates",
+  "attempt": 1,
+  "outcome": "OUT_OF_CANDIDATES",
+  "candidateId": null,
+  "picked": "SEQ-IN-05.BIN-A 로 옮겨 집는다",
+  "sawCandidatesVersion": "sha256:9194b81be21a06655ccb8491bb72c0097ad9160c5e2caa3ff2b63d25f59137df",
+  "rationale": "대체 슬롯은 품번 동일 · 로트 제약 없음 · 대체 슬롯 선언의 세 조건이 모두 성립할 때만 쓰고 그때 대체 슬롯으로 작업 지시를 다시 낸다 [출처: SOP-03 자재 결품과 대체 슬롯 운용, §5].",
+  "card": [
+    {
+      "label": "절차",
+      "text": "단위를 시작하기 전에 멈춘다 [출처: SOP-03 자재 결품과 대체 슬롯 운용, §5]."
+    },
+    {
+      "label": "먼저",
+      "text": "대체를 허용하는 세 조건을 확인한다 [출처: SOP-03 자재 결품과 대체 슬롯 운용, §4]."
+    },
+    {
+      "label": "금지",
+      "text": "자동으로 옆 슬롯을 집지 않는다 [출처: SOP-03 자재 결품과 대체 슬롯 운용, §4]."
+    },
+    {
+      "label": "갈림",
+      "text": "대체 슬롯이 공정에 선언돼 있는지가 가른다 [출처: SOP-07 대체 슬롯 선언 목록, §2]."
+    },
+    {
+      "label": "근거 세기",
+      "text": "셀 자리의 점유 기록 하나다."
+    }
+  ],
+  "cause": "## 원인 후보\n후보 ① — 원래 슬롯의 결품.",
+  "citations": [
+    {
+      "title": "SOP-03 자재 결품과 대체 슬롯 운용",
+      "section": "§5",
+      "verified": true,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    },
+    {
+      "title": "SOP-03 자재 결품과 대체 슬롯 운용",
+      "section": "§4",
+      "verified": true,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    },
+    {
+      "title": "SOP-07 대체 슬롯 선언 목록, §2",
+      "section": "",
+      "verified": false,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    }
+  ],
+  "unverifiedClaims": [
+    {
+      "kind": "CITATION",
+      "text": "SOP-07 대체 슬롯 선언 목록, §2",
+      "foundIn": null
+    }
+  ],
+  "uncitedSentences": [],
+  "versions": {
+    "modelId": "claude-sonnet-5",
+    "promptVersion": "73536dc7c9c0",
+    "corpusVersion": "d462b22017d6",
+    "searchFingerprint": "b071397c854c",
+    "narratorCommit": "0000000"
+  },
+  "elapsedSeconds": 212.4
+}
