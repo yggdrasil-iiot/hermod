@@ -1,7 +1,11 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.DoubleNode
+import com.fasterxml.jackson.databind.node.ObjectNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -101,7 +105,90 @@ class DiagnosisResponsesTest {
         errors { put("outcome", "OUT_OF_CANDIDATES"); putNull("candidateId"); put("picked", 7) }.has("picked: expected null or a string")
         errors { (get("versions") as com.fasterxml.jackson.databind.node.ObjectNode).remove("narratorCommit") }
             .has("versions.narratorCommit: missing")
-        errors { put("elapsedSeconds", -1) }.has("elapsedSeconds: expected a number >= 0")
+        errors { put("elapsedSeconds", -1) }.has("elapsedSeconds: expected a finite number >= 0")
+    }
+
+    @Test fun `elapsedSeconds has to be finite`() {
+        val huge = mapper.readTree("1e400")
+        assertTrue(huge.doubleValue().isInfinite(), "premise: Jackson reads 1e400 as Infinity")
+        errors { set<JsonNode>("elapsedSeconds", huge) }.has("elapsedSeconds: expected a finite number >= 0")
+        errors { set<JsonNode>("elapsedSeconds", DoubleNode(Double.NaN)) }.has("elapsedSeconds: expected a finite number >= 0")
+    }
+
+    @Test fun `attempt has to be a whole int of at least 1`() {
+        errors { put("attempt", 1.0) }.has("attempt: expected an integer >= 1")
+        errors { put("attempt", "1") }.has("attempt: expected an integer >= 1")
+        errors { put("attempt", 2147483648L) }.has("attempt: expected an integer >= 1")
+        errors { put("attempt", -1) }.has("attempt: expected an integer >= 1")
+    }
+
+    @Test fun `a RECOMMENDED candidate id has to be a non-blank string`() {
+        errors { put("candidateId", "  ") }.has("candidateId: RECOMMENDED needs a candidate id")
+        errors { put("candidateId", 7) }.has("candidateId: RECOMMENDED needs a candidate id")
+    }
+
+    @Test fun `episodeId has to be non-blank`() {
+        errors { put("episodeId", " ") }.has("episodeId: expected a non-blank string")
+    }
+
+    @Test fun `versions is an object of nulls or non-blank strings`() {
+        errors { put("versions", "claude-sonnet-5") }.has("versions: expected an object")
+        errors { (get("versions") as ObjectNode).put("modelId", 5) }.has("versions.modelId: expected null or a non-blank string")
+        errors { (get("versions") as ObjectNode).put("promptVersion", " ") }
+            .has("versions.promptVersion: expected null or a non-blank string")
+    }
+
+    @Test fun `what a response hands out is a copy - changing it changes nothing`() {
+        val d = (parseDiagnosisResponse(Responses.forRequest(req)) as ResponseParse.Valid).response
+        d.raw.put("injected", 1)
+        (d.citations[0] as ObjectNode).put("verified", false)
+        assertNull(d.raw.get("injected"))
+        assertTrue(d.citations[0].get("verified").booleanValue())
+
+        val inv = parseDiagnosisResponse(Responses.forRequest(req) { put("outcome", "MAYBE") })
+        assertIs<ResponseParse.Invalid>(inv)
+        (inv.raw as ObjectNode).put("outcome", "RECOMMENDED")
+        assertEquals("MAYBE", inv.raw.get("outcome").textValue())
+    }
+
+    @Test fun `a response read from a string goes through the strict mapper`() {
+        val wire = Responses.forRequest(req).toString()
+        assertIs<ResponseParse.Valid>(parseDiagnosisResponse(wire))
+        val dup = "{\"candidateId\":\"ESCALATE\"," + wire.substring(1)
+        val r = parseDiagnosisResponse(dup)
+        assertIs<ResponseParse.Invalid>(r)
+        r.errors.has("response: unreadable JSON")
+        assertTrue(r.raw.isNull)
+        assertIs<ResponseParse.Invalid>(parseDiagnosisResponse("{\"episodeId\":"))
+    }
+
+    @Test fun `claim kinds are typed`() {
+        val d = (parseDiagnosisResponse(Responses.forRequest(req) {
+            putArray("unverifiedClaims").apply {
+                addObject().put("kind", "NUMBER").put("text", "12").putArray("foundIn").add("query")
+                addObject().put("kind", "CITATION").put("text", "SOP-07, 1").putNull("foundIn")
+            }
+        }) as ResponseParse.Valid).response
+        assertEquals(listOf(ClaimKind.NUMBER, ClaimKind.CITATION), d.unverifiedClaims.map { it.kind })
+        assertEquals(listOf("query"), d.unverifiedClaims[0].foundIn)
+        assertNull(d.unverifiedClaims[1].foundIn)
+    }
+
+    @Test fun `a response names itself briefly`() {
+        val d = (parseDiagnosisResponse(Responses.forRequest(req)) as ResponseParse.Valid).response
+        assertEquals("DiagnosisResponse(RECOMMENDED, APPROVE_REMEDY:hum-02:PATROL-1:pick_place, ep:fixture-01-recommended attempt 1)", d.toString())
+    }
+
+    @Test fun `the lists a response hands out are read-only`() {
+        val d = (parseDiagnosisResponse(Responses.forRequest(req) {
+            putArray("unverifiedClaims").addObject().put("kind", "NUMBER").put("text", "12").putArray("foundIn").add("query")
+            putArray("uncitedSentences").add("근거 없는 문장")
+        }) as ResponseParse.Valid).response
+        assertFailsWith<UnsupportedOperationException> { (d.card as MutableList<CardLine>).add(CardLine("a", "b")) }
+        assertFailsWith<UnsupportedOperationException> { (d.unverifiedClaims as MutableList<UnverifiedClaim>).clear() }
+        assertFailsWith<UnsupportedOperationException> { (d.uncitedSentences as MutableList<String>).clear() }
+        assertFailsWith<UnsupportedOperationException> { (d.unverifiedClaims[0].foundIn as MutableList<String>).add("evidence") }
+        assertFailsWith<UnsupportedOperationException> { (d.citations as MutableList<JsonNode>).clear() }
     }
 
     @Test fun `every violation is reported and a non-object is rejected`() {
