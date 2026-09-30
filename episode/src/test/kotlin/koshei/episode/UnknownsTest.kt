@@ -1,13 +1,15 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.ObjectNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class UnknownsTest {
     private fun incidentWith(observation: String?): String {
-        val base = mapper.readTree(PicassoRun1.incident("incident-1")) as com.fasterxml.jackson.databind.node.ObjectNode
-        if (observation == null) base.remove("observation") else base.set<com.fasterxml.jackson.databind.JsonNode>("observation", mapper.readTree(observation))
+        val base = mapper.readTree(PicassoRun1.incident("incident-1")) as ObjectNode
+        if (observation == null) base.remove("observation") else base.set<JsonNode>("observation", mapper.readTree(observation))
         return mapper.writeValueAsString(base)
     }
 

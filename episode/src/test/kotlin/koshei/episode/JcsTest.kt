@@ -1,5 +1,6 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.node.TextNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -17,6 +18,28 @@ class JcsTest {
 
     @Test fun `numbers are outside the supported subset`() {
         assertFailsWith<IllegalArgumentException> { Jcs.canonical(mapper.readTree("""{"n":1}""")) }
+    }
+
+    @Test fun `a lone high or low surrogate is rejected`() {
+        assertFailsWith<IllegalArgumentException> { Jcs.canonical(TextNode.valueOf("a\uD800b")) }
+        assertFailsWith<IllegalArgumentException> { Jcs.canonical(TextNode.valueOf("a\uDC00b")) }
+        assertFailsWith<IllegalArgumentException> { Jcs.canonical(TextNode.valueOf("\uD83D")) }
+        assertFailsWith<IllegalArgumentException> { Jcs.canonical(mapper.createObjectNode().put("k\uDE00", "v")) }
+    }
+
+    @Test fun `a valid surrogate pair passes through unescaped`() {
+        assertEquals("\"\uD83D\uDE00\"", Jcs.canonical(TextNode.valueOf("\uD83D\uDE00")))
+    }
+
+    @Test fun `DEL is not escaped and 0x1f is a lowercase u-escape`() {
+        assertEquals("\"\u007f\"", Jcs.canonical(TextNode.valueOf("\u007f")))
+        assertEquals("\"\\u001f\"", Jcs.canonical(TextNode.valueOf("\u001f")))
+    }
+
+    @Test fun `keys sort by UTF-16 code units, not by code points`() {
+        // U+FB01 (code unit 0xFB01) vs U+1F600 (code units 0xD83D 0xDE00): code-unit order puts the emoji first.
+        val node = mapper.createObjectNode().put("\uFB01", "a").put("\uD83D\uDE00", "b")
+        assertEquals("{\"\uD83D\uDE00\":\"b\",\"\uFB01\":\"a\"}", Jcs.canonical(node))
     }
 
     @Test fun `sha256 is lowercase hex of the UTF-8 bytes`() {

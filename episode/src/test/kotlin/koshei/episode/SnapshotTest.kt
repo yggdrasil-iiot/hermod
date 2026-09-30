@@ -1,5 +1,6 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.node.ObjectNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -35,6 +36,30 @@ class SnapshotTest {
     @Test fun `an incident line needs its digest and a search line its searchId`() {
         assertFailsWith<IllegalArgumentException> { Snapshot.parse(manifest, listOf("""{"incidentId":"x"}"""), emptyList()) }
         assertFailsWith<IllegalArgumentException> { Snapshot.parse(manifest, emptyList(), listOf("""{"outcome":"FOUND"}""")) }
+    }
+
+    @Test fun `a duplicate key is rejected`() {
+        assertFailsWith<IllegalArgumentException> {
+            Snapshot.parse(manifest, emptyList(), listOf("""{"searchId":"a","searchId":"b"}"""))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            Snapshot.parse(manifest.replace("\"runId\"", "\"schemaVersion\":\"5\",\"runId\""), emptyList(), listOf(PicassoRun1.search("search-1")))
+        }
+    }
+
+    @Test fun `trailing tokens are rejected`() {
+        assertFailsWith<IllegalArgumentException> { Snapshot.parse(manifest, emptyList(), listOf(PicassoRun1.search("search-1") + " {}")) }
+        assertFailsWith<IllegalArgumentException> { Snapshot.parse("$manifest garbage", emptyList(), listOf(PicassoRun1.search("search-1"))) }
+    }
+
+    @Test fun `the constructor copies the nodes it is given`() {
+        val m = mapper.readTree(manifest) as ObjectNode
+        val line = mapper.readTree(PicassoRun1.search("search-1")) as ObjectNode
+        val s = Snapshot(m, emptyList(), listOf(line))
+        line.put("outcome", "MUTATED")
+        m.put("schemaVersion", "9")
+        assertEquals("FOUND", s.searches[0].text("outcome"))
+        assertEquals("5", s.manifest.text("schemaVersion"))
     }
 
     @Test fun `a line that is not an object is rejected`() {

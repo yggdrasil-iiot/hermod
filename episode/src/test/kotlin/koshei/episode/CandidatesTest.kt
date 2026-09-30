@@ -3,7 +3,10 @@ package koshei.episode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CandidatesTest {
     private fun ids(snapshot: Snapshot, unknowns: List<Unknown> = deriveUnknowns(snapshot)) =
@@ -85,6 +88,54 @@ class CandidatesTest {
         val c = projectCandidates(s, emptyList())
         assertEquals(2, c.size)
         assertEquals("search-1", c[0].ref!!["searchId"])
+    }
+
+    @Test fun `skill lists that only differ by a plus sign get different ids`() {
+        val joined = Candidate.approveRemedy("r", "j", listOf("a+b"), "s1")
+        val two = Candidate.approveRemedy("r", "j", listOf("a", "b"), "s2")
+        assertEquals("APPROVE_REMEDY:r:j:a%2Bb", joined.candidateId)
+        assertEquals("APPROVE_REMEDY:r:j:a+b", two.candidateId)
+        assertNotEquals(joined.candidateId, two.candidateId)
+    }
+
+    @Test fun `a line missing a field its candidate needs is skipped, ESCALATE stays`() {
+        val noRobot = edited(PicassoRun1.search("search-1")) { remove("robotId") }
+        val noJobOrder = edited(PicassoRun1.search("search-1")) { remove("jobOrderId") }
+        val noMaterial = edited(PicassoRun1.search("search-4")) { remove("material") }
+        val noSourceJob = edited(PicassoRun1.search("search-4")) { remove("jobOrderId") }
+        for (line in listOf(noRobot, noJobOrder, noMaterial, noSourceJob))
+            assertEquals(listOf("ESCALATE"), ids(Snapshot.parse(PicassoRun1.manifest, emptyList(), listOf(line)), emptyList()))
+        for (field in listOf("executionId", "unitId")) {
+            val pending = edited(PicassoRun1.incident("incident-6")) { remove(field) }
+            assertEquals(listOf("ESCALATE"), ids(Snapshot.parse(PicassoRun1.manifest, listOf(pending), emptyList()), emptyList()))
+        }
+    }
+
+    @Test fun `candidates with the same content are equal, different ones are not`() {
+        assertEquals(Candidate.approveRemedy("r", "j", listOf("x"), "s"), Candidate.approveRemedy("r", "j", listOf("x"), "s"))
+        assertEquals(Candidate.approveRemedy("r", "j", listOf("x"), "s").hashCode(), Candidate.approveRemedy("r", "j", listOf("x"), "s").hashCode())
+        assertNotEquals(Candidate.approveRemedy("r", "j", listOf("x"), "s1"), Candidate.approveRemedy("r", "j", listOf("x"), "s2"))
+        assertNotEquals<Any>(Candidate.ESCALATE, Candidate.chooseSource("j", "m", "s", "id"))
+        assertEquals(Candidate.ESCALATE, Candidate.ESCALATE)
+    }
+
+    @Test fun `only CONFIRM_DONE stays outside the execution class`() {
+        val confirm = Candidate.operatorDecision("e", "u", OperatorDecision.CONFIRM_DONE)
+        val rework = Candidate.operatorDecision("e", "u", OperatorDecision.REWORK)
+        assertFalse(confirm.executionClass)
+        assertTrue(rework.executionClass)
+        assertEquals("CONFIRM_DONE", confirm.ref!!["decision"])
+        assertEquals("OPERATOR_DECISION:e:u:REWORK", rework.candidateId)
+        assertTrue(Candidate.approveRemedy("r", "j", listOf("x"), "s").executionClass)
+        assertFalse(Candidate.ESCALATE.executionClass)
+    }
+
+    @Test fun `the skill list is copied defensively`() {
+        val skills = mutableListOf("a")
+        val c = Candidate.approveRemedy("r", "j", skills, "s")
+        skills.add("b")
+        assertEquals(listOf("a"), c.sawSkillTypes)
+        assertEquals("APPROVE_REMEDY:r:j:a", c.candidateId)
     }
 
     @Test fun `JSON shape follows the contract example`() {

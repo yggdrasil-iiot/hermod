@@ -7,11 +7,17 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /**
  * The four diagnosis-request fixtures of the contract (§8), built by the real projection from picasso run-1 lines.
- * koshei owns the requests; narrator writes the matching responses. Regenerate with
+ * koshei owns the requests; narrator writes the matching responses. The committed files must equal the serialized
+ * request byte for byte (LF endings, UTF-8; CRLF is normalised to LF on the read side only as a defence).
+ *
+ * Regenerate with
  * `./gradlew :episode:test --tests 'koshei.episode.DiagnosisRequestFixturesTest' -Dkoshei.updateFixtures=true`.
+ * The update run writes the files and then FAILS on purpose ("fixtures regenerated"), so it can never be mistaken for
+ * a green check; rerun without the property to verify.
  */
 class DiagnosisRequestFixturesTest {
     private class Example(val file: String, val incidents: List<String>, val searches: List<String>) {
@@ -26,7 +32,7 @@ class DiagnosisRequestFixturesTest {
     )
 
     private fun request(e: Example): ObjectNode =
-        diagnosisRequest(e.episodeId, 1, PicassoRun1.snapshot(e.incidents, e.searches))
+        diagnosisRequest(e.episodeId, 1, PicassoRun1.snapshot(e.incidents, e.searches)).toJson()
 
     private fun ids(e: Example) = request(e).get("candidates").map { it.get("candidateId").textValue() }
     private fun whats(e: Example) = request(e).get("unknowns").map { it.get("what").textValue() }
@@ -71,20 +77,24 @@ class DiagnosisRequestFixturesTest {
     }
 
     @Test fun `committed fixtures match the projection`() {
-        val dir = File("src/test/resources/contract/diagnosis/requests")
+        val dirPath = System.getProperty("koshei.fixturesDir")
+        assertTrue(!dirPath.isNullOrBlank(), "system property koshei.fixturesDir is not set (episode/build.gradle.kts sets it for the test task)")
+        val dir = File(dirPath)
         val update = System.getProperty("koshei.updateFixtures") == "true"
         val lf = DefaultIndenter("  ", "\n")
         val writer = mapper.writer(DefaultPrettyPrinter().withObjectIndenter(lf).withArrayIndenter(lf))
         for (e in examples) {
-            val actual = request(e)
+            val expected = writer.writeValueAsString(request(e)) + "\n"
             val f = File(dir, e.file)
             if (update) {
                 dir.mkdirs()
-                f.writeText(writer.writeValueAsString(actual) + "\n", Charsets.UTF_8)
+                f.writeText(expected, Charsets.UTF_8)
             } else {
                 assertTrue(f.isFile, "missing fixture ${f.path}: run with -Dkoshei.updateFixtures=true")
-                assertEquals(mapper.readTree(f), actual, "${e.file} no longer matches the projection")
+                val committed = f.readText(Charsets.UTF_8).replace("\r\n", "\n")
+                assertEquals(expected, committed, "${e.file} no longer matches the projection byte for byte")
             }
         }
+        if (update) fail("fixtures regenerated; rerun without -Dkoshei.updateFixtures")
     }
 }

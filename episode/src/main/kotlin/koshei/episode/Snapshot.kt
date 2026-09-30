@@ -1,5 +1,6 @@
 package koshei.episode
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 
@@ -9,7 +10,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode
  * first of each list into its query). The checks mirror the diagnosis contract's request-reading rules (contract 0.6
  * §3), so koshei never builds a request narrator would reject as a non-retryable contract violation.
  */
-class Snapshot(val manifest: ObjectNode, val incidents: List<ObjectNode>, val searches: List<ObjectNode>) {
+class Snapshot(manifest: ObjectNode, incidents: List<ObjectNode>, searches: List<ObjectNode>) {
+    // Deep copies: the caller keeps no handle that could change a snapshot after its checks ran.
+    val manifest: ObjectNode = manifest.deepCopy()
+    val incidents: List<ObjectNode> = incidents.map { it.deepCopy() }
+    val searches: List<ObjectNode> = searches.map { it.deepCopy() }
+
     // "Verbatim" means tree-equal with field order kept, not byte-equal: a float in a future picasso line would be
     // re-rendered by Jackson. run-1 has none, and the canonical hash (Jcs) refuses numbers outright.
     init {
@@ -35,7 +41,13 @@ class Snapshot(val manifest: ObjectNode, val incidents: List<ObjectNode>, val se
         fun parse(manifestJson: String, incidentLines: List<String>, searchLines: List<String>): Snapshot =
             Snapshot(obj(manifestJson), incidentLines.map(::obj), searchLines.map(::obj))
 
-        private fun obj(json: String): ObjectNode =
-            mapper.readTree(json) as? ObjectNode ?: throw IllegalArgumentException("not a JSON object: ${json.take(60)}")
+        private fun obj(json: String): ObjectNode {
+            val node = try {
+                mapper.readTree(json)
+            } catch (e: JsonProcessingException) {
+                throw IllegalArgumentException("not valid JSON (${e.originalMessage}): ${json.take(60)}", e)
+            }
+            return node as? ObjectNode ?: throw IllegalArgumentException("not a JSON object: ${json.take(60)}")
+        }
     }
 }
