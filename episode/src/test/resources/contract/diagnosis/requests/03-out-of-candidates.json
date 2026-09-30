@@ -39,7 +39,8 @@
       "ref" : {
         "jobOrderId" : "SEQ-RELOCATE",
         "material" : "ENGINE-COVER-B",
-        "source" : "SEQ-IN-03.BIN-B",
+        "missingSource" : "SEQ-IN-03.BIN-A",
+        "alternative" : "SEQ-IN-03.BIN-B",
         "searchId" : "search-4"
       }
     },
@@ -49,7 +50,7 @@
       "ref" : null
     }
   ],
-  "candidatesVersion" : "sha256:a8242cd4a9e4a32251db2151eb939c8d8459e3f935f1ae1d0d455f33cae3f13d",
+  "candidatesVersion" : "sha256:9194b81be21a06655ccb8491bb72c0097ad9160c5e2caa3ff2b63d25f59137df",
   "unknowns" : [ ],
   "history" : [ ]
 }

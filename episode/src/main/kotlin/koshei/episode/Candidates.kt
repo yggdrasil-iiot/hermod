@@ -16,12 +16,12 @@ enum class OperatorDecision { CONFIRM_DONE, REWORK }
  */
 class Candidate private constructor(
     val kind: CandidateKind,
-    ref: Map<String, String>?,
+    ref: Map<String, String?>?,
     /** Already-encoded id segments (see [encodePart]); joined with `:` after the kind. */
     idParts: List<String>,
     sawSkillTypes: List<String>?,
 ) {
-    val ref: Map<String, String>? = ref?.let { LinkedHashMap(it) }
+    val ref: Map<String, String?>? = ref?.let { LinkedHashMap(it) }
     val sawSkillTypes: List<String>? = sawSkillTypes?.toList()
 
     val candidateId: String =
@@ -65,10 +65,17 @@ class Candidate private constructor(
             skills,
         )
 
-        fun chooseSource(jobOrderId: String, material: String, source: String, searchId: String) = Candidate(
+        /**
+         * [missingSource] is picasso's `source` (the slot that ran out); [alternative] is the place to pick instead.
+         * Only the alternative is id material; the missing slot is carried for the operator card.
+         */
+        fun chooseSource(jobOrderId: String, material: String, missingSource: String?, alternative: String, searchId: String) = Candidate(
             CandidateKind.CHOOSE_SOURCE,
-            linkedMapOf("jobOrderId" to jobOrderId, "material" to material, "source" to source, "searchId" to searchId),
-            listOf(jobOrderId, material, source).map(::encodePart),
+            linkedMapOf(
+                "jobOrderId" to jobOrderId, "material" to material, "missingSource" to missingSource,
+                "alternative" to alternative, "searchId" to searchId,
+            ),
+            listOf(jobOrderId, material, alternative).map(::encodePart),
             null,
         )
 
@@ -113,7 +120,7 @@ fun projectCandidates(snapshot: Snapshot, unknowns: List<Unknown>): List<Candida
                 val material = s.text("material")
                 val alts = s.get("alternatives")
                 if (jobOrderId != null && material != null && alts != null && alts.isArray) alts.filter { it.isTextual }.forEach {
-                    add(Candidate.chooseSource(jobOrderId, material, it.textValue(), searchId))
+                    add(Candidate.chooseSource(jobOrderId, material, s.text("source"), it.textValue(), searchId))
                 }
             }
             else -> Unit

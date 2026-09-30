@@ -14,7 +14,7 @@ Fixtures for the narrator diagnosis contract (narrator repo `docs/superpowers/sp
 |---|---|---|
 | `01-recommended.json` | incident-1, search-1 (FOUND) | `APPROVE_REMEDY` + `ESCALATE` |
 | `02-no-grounds.json` | search-2 (NONE) | `ESCALATE` only |
-| `03-out-of-candidates.json` | search-4 (SOURCE_MISSING, one alternative) | `CHOOSE_SOURCE` + `ESCALATE`; the response picks a place not in the list |
+| `03-out-of-candidates.json` | search-4 (SOURCE_MISSING, one alternative) | `CHOOSE_SOURCE` (`ref.missingSource` = SEQ-IN-03.BIN-A, `ref.alternative` = SEQ-IN-03.BIN-B) + `ESCALATE`; the response picks a place not in the list |
 | `04-unknown.json` | incident-6 (linkBroken) | `unknowns: LINK_BROKEN`; only `CONFIRM_DONE` + `ESCALATE` |
 
 Which lines form each example is **hand-chosen** (plan B1 has no merge rule yet). 01 pairs incident-1 — the failed
@@ -23,5 +23,8 @@ request shape, not a realistic merge.
 
 `sawSkillTypes` exists only on `APPROVE_REMEDY` candidates (the key is absent, not null, elsewhere). The key set is part
 of the `candidatesVersion` hash.
+
+`CHOOSE_SOURCE.ref.missingSource` is picasso's `source` (the slot that ran out); `ref.alternative` is the place to pick
+instead. picasso's search line uses `source` for the missing slot, so the candidate never reuses that name.
 
 `ground-truth.jsonl` from the handoff is a scoring key and is deliberately NOT copied here.

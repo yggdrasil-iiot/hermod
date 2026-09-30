@@ -115,7 +115,7 @@ class CandidatesTest {
         assertEquals(Candidate.approveRemedy("r", "j", listOf("x"), "s"), Candidate.approveRemedy("r", "j", listOf("x"), "s"))
         assertEquals(Candidate.approveRemedy("r", "j", listOf("x"), "s").hashCode(), Candidate.approveRemedy("r", "j", listOf("x"), "s").hashCode())
         assertNotEquals(Candidate.approveRemedy("r", "j", listOf("x"), "s1"), Candidate.approveRemedy("r", "j", listOf("x"), "s2"))
-        assertNotEquals<Any>(Candidate.ESCALATE, Candidate.chooseSource("j", "m", "s", "id"))
+        assertNotEquals<Any>(Candidate.ESCALATE, Candidate.chooseSource("j", "m", "s", "a", "id"))
         assertEquals(Candidate.ESCALATE, Candidate.ESCALATE)
     }
 
@@ -148,5 +148,30 @@ class CandidatesTest {
         assertEquals("ESCALATE", escalate.get("candidateId").textValue())
         assertEquals(true, escalate.get("ref").isNull)
         assertNull(escalate.get("sawSkillTypes"))
+    }
+
+    @Test fun `a missing source's ref names both the missing slot and the alternative`() {
+        val c = projectCandidates(PicassoRun1.snapshot(searchIds = listOf("search-4")), emptyList())
+            .single { it.kind == CandidateKind.CHOOSE_SOURCE }
+        assertEquals(
+            mapOf(
+                "jobOrderId" to "SEQ-RELOCATE", "material" to "ENGINE-COVER-B", "missingSource" to "SEQ-IN-03.BIN-A",
+                "alternative" to "SEQ-IN-03.BIN-B", "searchId" to "search-4",
+            ),
+            c.ref,
+        )
+        assertEquals(
+            listOf("jobOrderId", "material", "missingSource", "alternative", "searchId"),
+            c.toJson().get("ref").fieldNames().asSequence().toList(),
+        )
+        assertEquals("CHOOSE_SOURCE:SEQ-RELOCATE:ENGINE-COVER-B:SEQ-IN-03.BIN-B", c.candidateId)
+    }
+
+    @Test fun `a missing slot picasso left null stays null in the ref`() {
+        val line = edited(PicassoRun1.search("search-4")) { putNull("source") }
+        val c = projectCandidates(Snapshot.parse(PicassoRun1.manifest, emptyList(), listOf(line)), emptyList())
+            .single { it.kind == CandidateKind.CHOOSE_SOURCE }
+        assertEquals(null, c.ref!!["missingSource"])
+        assertTrue(c.toJson().get("ref").get("missingSource").isNull)
     }
 }
