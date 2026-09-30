@@ -38,7 +38,7 @@ class PolicyTest {
 
     @Test fun `expiresAt reads an ISO instant and rejects anything else`() {
         assertEquals(Instant.parse("2026-12-31T00:00:00Z"), Policies.valid { put("expiresAt", "2026-12-31T00:00:00Z") }.expiresAt)
-        Policies.errors { put("expiresAt", "next week") }.has("expiresAt")
+        Policies.errors { put("expiresAt", "next week") }.has("expiresAt: expected an ISO-8601 instant or null")
     }
 
     @Test fun `an unknown key is an error, never a silent default`() {
@@ -60,29 +60,55 @@ class PolicyTest {
     }
 
     @Test fun `the diagnosis budget must cover every attempt`() {
-        Policies.errors { obj("diagnosis").put("scheduleToCloseMs", 1_000_000) }.has("maxAttempts")
+        Policies.errors { obj("diagnosis").put("scheduleToCloseMs", 1_000_000) }
+            .has("diagnosis.scheduleToCloseMs (1000000) must cover maxAttempts × startToCloseMs")
     }
 
     @Test fun `the heartbeat must be shorter than one attempt`() {
-        Policies.errors { obj("diagnosis").put("heartbeatMs", 540_000) }.has("heartbeatMs")
+        Policies.errors { obj("diagnosis").put("heartbeatMs", 540_000) }.has("diagnosis.heartbeatMs (540000) must be < startToCloseMs")
+        assertEquals(539_999, Policies.valid { obj("diagnosis").put("heartbeatMs", 539_999) }.diagnosis.heartbeatMs)
     }
 
     @Test fun `the diagnosis budget must fit the episode`() {
-        Policies.errors { obj("diagnosis").put("scheduleToCloseMs", 4_000_000) }.has("episodeMs")
+        Policies.errors { obj("diagnosis").put("scheduleToCloseMs", 4_000_000) }
+            .has("diagnosis.scheduleToCloseMs (4000000) must be <= deadlines.episodeMs")
     }
 
     @Test fun `the unknown recheck must come before the unknown limit`() {
-        Policies.errors { obj("deadlines").put("unknownRecheckMs", 900_000) }.has("unknownRecheckMs")
+        Policies.errors { obj("deadlines").put("unknownRecheckMs", 900_000) }
+            .has("deadlines.unknownRecheckMs (900000) must be < deadlines.unknownMs")
     }
 
     @Test fun `state deadlines fit the episode but escalated retention may outlast it`() {
         Policies.errors { obj("deadlines").put("approvalMs", 4_000_000) }.has("deadlines.approvalMs must be <= deadlines.episodeMs")
-        Policies.valid()   // escalatedRetentionMs (86_400_000) > episodeMs (3_600_000) is fine
+        // escalatedRetentionMs (86_400_000) > episodeMs (3_600_000) is fine
+        assertEquals(86_400_000, Policies.valid().deadlines.escalatedRetentionMs)
     }
 
     @Test fun `the snapshot limit stays under the payload warning line`() {
-        Policies.errors { put("snapshotMaxBytes", 524_288) }.has("snapshotMaxBytes")
-        Policies.errors { put("snapshotMaxBytes", 0) }.has("snapshotMaxBytes")
+        Policies.errors { put("snapshotMaxBytes", 524_288) }.has("snapshotMaxBytes: must be < 524288")
+        Policies.errors { put("snapshotMaxBytes", 0) }.has("snapshotMaxBytes: must be >= 1")
+        assertEquals(524_287, Policies.valid { put("snapshotMaxBytes", 524_287) }.snapshotMaxBytes)
+    }
+
+    @Test fun `a root that is not an object is an error`() {
+        val errors = (parsePolicy(mapper.readTree("[1]")) as PolicyParse.Invalid).errors
+        errors.has("policy: expected an object")
+    }
+
+    @Test fun `agentLayerEnabled must be a boolean`() {
+        Policies.errors { put("agentLayerEnabled", "yes") }.has("agentLayerEnabled: expected true or false")
+    }
+
+    @Test fun `ESCALATE has no auto-approval rule`() {
+        Policies.errors { obj("autoApprove").putObject("ESCALATE").put("allowed", true).putArray("skills") }
+            .has("autoApprove.ESCALATE")
+    }
+
+    @Test fun `autoApprove is required and skills must be a list`() {
+        Policies.errors { remove("autoApprove") }.has("autoApprove: expected an object")
+        Policies.errors { (obj("autoApprove").get("APPROVE_REMEDY") as ObjectNode).put("skills", "pick_place") }
+            .has("autoApprove.APPROVE_REMEDY.skills: expected a list")
     }
 
     @Test fun `durations have a sane upper bound and the budget product cannot overflow`() {

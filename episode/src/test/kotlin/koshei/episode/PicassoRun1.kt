@@ -10,6 +10,7 @@ class PicassoRun(private val run: Int) {
     private val incidents: List<String> get() = res("incidents.jsonl").lines().filter { it.isNotBlank() }
     private val searches: List<String> get() = res("remedy-searches.jsonl").lines().filter { it.isNotBlank() }
     val searchCount: Int get() = searches.size
+    val incidentCount: Int get() = incidents.size
 
     fun incident(id: String): String = incidents.single { mapper.readTree(it).text("incidentId") == id }
     fun search(id: String): String = searches.single { mapper.readTree(it).text("searchId") == id }
@@ -18,5 +19,6 @@ class PicassoRun(private val run: Int) {
         Snapshot.parse(manifest, incidentIds.map(::incident), searchIds.map(::search))
 }
 
+// The file and this val keep their run-1 names on purpose: ~50 call sites read `PicassoRun1.x`, and renaming them is churn.
 /** Run 1, which the four contract fixtures and most unit tests use. */
 val PicassoRun1 = PicassoRun(1)

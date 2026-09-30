@@ -10,6 +10,9 @@ import kotlin.test.assertTrue
  * narrator's choice (from the corpus's synthetic procedures, not from answers); the first line of each list opened the
  * episode. Regenerate with `./gradlew :episode:test --tests 'koshei.episode.DiagnosisMeasurementFixturesTest'
  * -Dkoshei.updateFixtures=true` (that run fails on purpose; rerun without the property).
+ *
+ * Only R02, R09, R15, R16 and R17 have tests that pin a cause; the other cases are pinned only by the committed files,
+ * which catches drift, not wrong behaviour.
  */
 class DiagnosisMeasurementFixturesTest {
     private class Case(val id: String, val run: Int, val incidents: List<String> = emptyList(), val searches: List<String> = emptyList())
@@ -63,6 +66,8 @@ class DiagnosisMeasurementFixturesTest {
     @Test fun `R09 - the unobserved incident withholds the alternative source`() {
         assertEquals(listOf("ESCALATE"), ids("R09"))
         assertEquals(listOf("PROGRESS_UNOBSERVED"), whats("R09"))
+        // Cause, not just outcome: the same search without the unobserved incident (R06) does offer the alternative.
+        assertTrue("CHOOSE_SOURCE:SEQ-RELOCATE:ENGINE-COVER-B:SEQ-IN-03.BIN-B" in ids("R06"))
     }
 
     @Test fun `R15 - four pending units offer both decisions each`() {
@@ -77,6 +82,8 @@ class DiagnosisMeasurementFixturesTest {
         assertEquals(listOf("LINK_BROKEN"), whats("R16"))
         assertTrue(ids.none { it.endsWith(":REWORK") })
         assertEquals(5, ids.count { it.endsWith(":CONFIRM_DONE") })
+        // Cause, not just outcome: without the joined unknown line (R15) the same units do offer REWORK.
+        assertTrue(ids("R15").any { it.endsWith(":REWORK") })
     }
 
     @Test fun `R17 - only the undecided unit offers decisions`() {

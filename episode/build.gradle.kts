@@ -6,7 +6,7 @@ kotlin { jvmToolchain(21) }
 tasks.test {
     useJUnitPlatform()
     // `-Dkoshei.updateFixtures=true` regenerates the committed diagnosis-contract fixtures (requests and measurement)
-    // and then fails on purpose (see DiagnosisRequestFixturesTest); rerun without it to verify.
+    // and then fails on purpose (see ContractFixtures); rerun without it to verify.
     systemProperty("koshei.updateFixtures", System.getProperty("koshei.updateFixtures") ?: "false")
     systemProperty(
         "koshei.contractFixturesDir",

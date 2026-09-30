@@ -1,6 +1,10 @@
 package koshei.episode
 
-/** Bump when the projection rules change, so an approval taken on the old set reads as stale (design §9.3). */
+/**
+ * Bump when the projection rules change, so an approval taken on the old set reads as stale (design §9.3).
+ * A change to a candidate's JSON shape changes the hash by itself; bump only when the same input would yield different
+ * candidates.
+ */
 const val PROJECTION_VERSION = "1"
 
 /**

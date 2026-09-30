@@ -98,7 +98,8 @@ class Candidate private constructor(
 /**
  * Pure projection of picasso lines into candidates (design §9.1). ESCALATE is always present; with any unknown
  * (from the snapshot or passed by the caller) every execution-class candidate is withheld. Result ordered by id;
- * an id seen twice keeps its first occurrence. A line that lacks a field its candidate needs offers no candidate
+ * an id seen twice keeps its first occurrence — and so the first line's `ref`: two SOURCE_MISSING lines with the same job,
+ * material and alternative keep the first line's `missingSource` and `searchId`. A line that lacks a field its candidate needs offers no candidate
  * (fail-safe: fewer options, never an exception; ESCALATE remains).
  */
 fun projectCandidates(snapshot: Snapshot, unknowns: List<Unknown>): List<Candidate> {
