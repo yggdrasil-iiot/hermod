@@ -76,8 +76,13 @@ class DiagnosisResponse internal constructor(
 
 sealed interface ResponseParse {
     data class Valid(val response: DiagnosisResponse) : ResponseParse
-    /** [raw] is what arrived, so an unreadable answer can still be recorded verbatim (design §13): a fresh deep copy on each access. */
-    class Invalid(errors: List<String>, raw: JsonNode) : ResponseParse {
+    /**
+     * [raw] is what arrived, so an unreadable answer can still be recorded verbatim (design §13): a fresh deep copy on each
+     * access. [rawText] is the wire text when the response was read from a string ([parseDiagnosisResponse] (String)),
+     * whether it failed to parse or parsed and broke the contract; null when it was read from a tree. It is the only
+     * record of text that is not JSON (where [raw] is `null`) or that a tree would misstate (a duplicate key).
+     */
+    class Invalid(errors: List<String>, raw: JsonNode, val rawText: String? = null) : ResponseParse {
         val errors: List<String> = Collections.unmodifiableList(errors.toList())
         private val rawCopy: JsonNode = raw.deepCopy()
         val raw: JsonNode get() = rawCopy.deepCopy()
@@ -90,7 +95,8 @@ private val VERSION_KEYS = listOf("modelId", "promptVersion", "corpusVersion", "
 
 /**
  * Reads a response from its wire text through the module's strict mapper, then as [parseDiagnosisResponse] (JsonNode).
- * Text that is not one JSON value — including an object with a duplicate key — is Invalid with raw `null`.
+ * Text that is not one JSON value — including an object with a duplicate key — is Invalid with raw `null`. Every Invalid
+ * from this overload keeps the input in [ResponseParse.Invalid.rawText].
  *
  * The workflow must hand the activity result over as this raw string: a tree built by another mapper has already
  * silently kept only the last of duplicate keys, so a second `candidateId` could no longer be seen.
@@ -99,9 +105,12 @@ fun parseDiagnosisResponse(json: String): ResponseParse {
     val node = try {
         mapper.readTree(json)
     } catch (e: JsonProcessingException) {
-        return ResponseParse.Invalid(listOf("response: unreadable JSON: ${e.originalMessage}"), NullNode.instance)
+        return ResponseParse.Invalid(listOf("response: unreadable JSON: ${e.originalMessage}"), NullNode.instance, json)
     }
-    return parseDiagnosisResponse(node)
+    return when (val parse = parseDiagnosisResponse(node)) {
+        is ResponseParse.Valid -> parse
+        is ResponseParse.Invalid -> ResponseParse.Invalid(parse.errors, parse.raw, json)
+    }
 }
 
 /**

@@ -46,6 +46,28 @@ class DiagnosisVerdictsTest {
         assertEquals("MAYBE", failed.raw!!.get("outcome").textValue())
     }
 
+    @Test fun `an unreadable string keeps its wire text on the verdict`() {
+        val wire = Responses.forRequest(req01).toString()
+        val dup = "{\"candidateId\":\"ESCALATE\"," + wire.substring(1)
+        val v = judgeDiagnosis(req01, parseDiagnosisResponse(dup))
+        assertIs<DiagnosisVerdict.Escalate>(v)
+        assertEquals(DiagnosisEscalation.DIAGNOSIS_FAILED, v.reason)
+        assertNull(v.response)
+        assertEquals(dup, v.rawText)
+
+        val readable = judgeDiagnosis(req01, parseDiagnosisResponse(Responses.forRequest(req01, outcome = "NO_GROUNDS").toString()))
+        assertIs<DiagnosisVerdict.Escalate>(readable)
+        assertNull(readable.rawText, "rawText is only for an unreadable response")
+    }
+
+    @Test fun `an escalation never prints the payload`() {
+        val wire = Responses.forRequest(req01) { put("outcome", "MAYBE") }.toString()
+        val v = judgeDiagnosis(req01, parseDiagnosisResponse(wire))
+        assertIs<DiagnosisVerdict.Escalate>(v)
+        assertEquals("Escalate(DIAGNOSIS_FAILED, picked=null, detail=${v.detail})", v.toString())
+        assertFalse("결품 대응 절차" in v.toString())
+    }
+
     @Test fun `a recommendation without a reason is proposed but not clean`() {
         val v = judge(req01, Responses.forRequest(req01) { putNull("rationale") })
         assertIs<DiagnosisVerdict.Proposed>(v)
@@ -100,11 +122,12 @@ class DiagnosisVerdictsTest {
         assertEquals(DiagnosisEscalation.DIAGNOSIS_FAILED, escalation(v))
     }
 
-    @Test fun `RECOMMENDED without a verified citation is UNCITED - koshei re-checks contract rule 3`() {
+    @Test fun `RECOMMENDED without a verified citation breaks contract rule 3 - a failed diagnosis, not UNCITED`() {
         fun reason(edit: com.fasterxml.jackson.databind.node.ObjectNode.() -> Unit): DiagnosisVerdict.Escalate {
             val v = judge(req01, Responses.forRequest(req01, edit = edit))
             assertIs<DiagnosisVerdict.Escalate>(v)
-            assertEquals(DiagnosisEscalation.UNCITED, v.reason)
+            assertEquals(DiagnosisEscalation.DIAGNOSIS_FAILED, v.reason)
+            assertEquals(DiagnosisOutcome.RECOMMENDED, v.response!!.outcome)
             return v
         }
         val none = reason { putArray("citations") }

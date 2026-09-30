@@ -15,6 +15,10 @@ enum class DiagnosisEscalation {
  * The judge's verdict. Only [judgeDiagnosis] (and code in this module) can build one, so holding a [Proposed] means every
  * check passed. Both variants carry the response they were judged from, so the next layer can record versions,
  * rationale, card and citations without pairing the parse and the verdict again.
+ *
+ * Verdicts are in-memory values only and are never serialized across a Temporal payload boundary: their constructors are
+ * public at the JVM level, so a deserialized [Proposed] would bypass the judge. Persist the raw response (or
+ * [ResponseParse.Invalid.rawText]) and judge it again instead.
  */
 sealed interface DiagnosisVerdict {
     /** An offered candidate the transition function may propose; [clean] feeds `requireClean` (design §9.5). */
@@ -27,21 +31,26 @@ sealed interface DiagnosisVerdict {
 
     /**
      * [response] is null only when the response could not be read (DIAGNOSIS_FAILED from a [ResponseParse.Invalid]); then
-     * [raw] is what arrived, a fresh deep copy on each access, and it is null in every other case.
+     * [raw] is what arrived (a fresh deep copy on each access) and [rawText] is the wire text when it was read from a
+     * string. Both are null whenever [response] is not.
      *
      * [picked] is set only for OUT_OF_CANDIDATES: the text or id outside the list (null when there was no recommendation
      * marker). For UNKNOWN_BLOCKS_EXECUTION the blocked id is `response.candidateId`. The transition never branches on
-     * [picked]. [detail] explains a DIAGNOSIS_FAILED, a CANDIDATES_VERSION_MISMATCH, or an UNCITED that koshei found itself.
+     * [picked]. [detail] explains a DIAGNOSIS_FAILED or a CANDIDATES_VERSION_MISMATCH.
      */
     @ConsistentCopyVisibility
     data class Escalate internal constructor(
         val reason: DiagnosisEscalation,
         val response: DiagnosisResponse?,
         private val unreadable: JsonNode? = null,
+        val rawText: String? = null,
         val picked: String? = null,
         val detail: String? = null,
     ) : DiagnosisVerdict {
         val raw: JsonNode? get() = unreadable?.deepCopy()
+
+        /** Never the payload: an unreadable response must not be dumped into logs. */
+        override fun toString(): String = "Escalate($reason, picked=$picked, detail=$detail)"
     }
 }
 
@@ -55,8 +64,10 @@ sealed interface DiagnosisVerdict {
  * 4. NO_GROUNDS, UNCITED and OUT_OF_CANDIDATES escalate under their own names;
  * 5. RECOMMENDED without a candidate id (the reader rules this out) → DIAGNOSIS_FAILED, never a crash;
  * 6. RECOMMENDED `ESCALATE` → ESCALATE_RECOMMENDED;
- * 7. RECOMMENDED with no citation whose `verified` is the JSON boolean `true` → UNCITED. koshei re-checks contract §4
- *    rule 3 itself; the string `"true"`, `1` or a missing field is unverified;
+ * 7. RECOMMENDED with no citation whose `verified` is the JSON boolean `true` → DIAGNOSIS_FAILED. koshei re-checks
+ *    contract §4 rule 3 itself; the string `"true"`, `1` or a missing field is unverified. This is not UNCITED: narrator's
+ *    own UNCITED is a measured outcome, while a RECOMMENDED without a verified citation is narrator breaking its
+ *    contract (design §5.2, "응답이 계약에 맞지 않음 → DIAGNOSIS_FAILED");
  * 8. RECOMMENDED of an id koshei did not offer → OUT_OF_CANDIDATES (both judges agree). Ids match exactly: no trimming,
  *    no case folding;
  * 9. RECOMMENDED of an execution-class candidate while anything is unknown → UNKNOWN_BLOCKS_EXECUTION (a projection
@@ -67,7 +78,8 @@ sealed interface DiagnosisVerdict {
 fun judgeDiagnosis(request: DiagnosisRequest, parse: ResponseParse): DiagnosisVerdict {
     val response = when (parse) {
         is ResponseParse.Invalid -> return DiagnosisVerdict.Escalate(
-            DiagnosisEscalation.DIAGNOSIS_FAILED, null, unreadable = parse.raw, detail = parse.errors.joinToString("; "),
+            DiagnosisEscalation.DIAGNOSIS_FAILED, null, unreadable = parse.raw, rawText = parse.rawText,
+            detail = parse.errors.joinToString("; "),
         )
         is ResponseParse.Valid -> parse.response
     }
@@ -95,7 +107,7 @@ fun judgeDiagnosis(request: DiagnosisRequest, parse: ResponseParse): DiagnosisVe
                 ?: return escalate(DiagnosisEscalation.DIAGNOSIS_FAILED, detail = "RECOMMENDED without a candidate id")
             if (id == Candidate.ESCALATE_ID) return escalate(DiagnosisEscalation.ESCALATE_RECOMMENDED)
             if (response.citations.none { it.get("verified")?.let { v -> v.isBoolean && v.booleanValue() } == true })
-                return escalate(DiagnosisEscalation.UNCITED, detail = "RECOMMENDED without a verified citation (contract §4 rule 3)")
+                return escalate(DiagnosisEscalation.DIAGNOSIS_FAILED, detail = "RECOMMENDED without a verified citation (contract §4 rule 3)")
             val candidate = request.candidates.firstOrNull { it.candidateId == id }
             when {
                 candidate == null -> escalate(DiagnosisEscalation.OUT_OF_CANDIDATES, picked = id)

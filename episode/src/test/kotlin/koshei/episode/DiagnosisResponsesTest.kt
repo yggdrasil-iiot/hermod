@@ -159,7 +159,26 @@ class DiagnosisResponsesTest {
         assertIs<ResponseParse.Invalid>(r)
         r.errors.has("response: unreadable JSON")
         assertTrue(r.raw.isNull)
-        assertIs<ResponseParse.Invalid>(parseDiagnosisResponse("{\"episodeId\":"))
+        assertEquals(dup, r.rawText)
+        val truncated = "{\"episodeId\":"
+        val t = parseDiagnosisResponse(truncated)
+        assertIs<ResponseParse.Invalid>(t)
+        assertEquals(truncated, t.rawText)
+    }
+
+    @Test fun `the wire text is kept when a string parses but breaks the contract`() {
+        val wire = Responses.forRequest(req) { put("outcome", "MAYBE") }.toString()
+        val r = parseDiagnosisResponse(wire)
+        assertIs<ResponseParse.Invalid>(r)
+        r.errors.has("outcome: expected one of")
+        assertEquals(wire, r.rawText)
+        assertEquals(mapper.readTree(wire), r.raw)
+    }
+
+    @Test fun `a tree has no wire text`() {
+        val r = parseDiagnosisResponse(Responses.forRequest(req) { put("outcome", "MAYBE") })
+        assertIs<ResponseParse.Invalid>(r)
+        assertNull(r.rawText)
     }
 
     @Test fun `claim kinds are typed`() {
