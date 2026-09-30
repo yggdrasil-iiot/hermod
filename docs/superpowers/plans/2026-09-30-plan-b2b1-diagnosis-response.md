@@ -646,8 +646,7 @@ git commit -m "feat(episode): judge a diagnosis against the request it answers" 
 ### Task 3: 응답 넷을 복사해 판정한다
 
 narrator 가 요청 넷에 대한 응답 넷을 자기 저장소에 지었다(계약 §8):
-`C:\Users\Eisen\Desktop\Labs\[projects] narrator\tests\fixtures\contract\diagnosis\responses\` (2026-09-30 현재 narrator 에서
-아직 커밋 전이라 커밋 해시 대신 sha256 을 적는다). 기대 결과:
+`C:\Users\Eisen\Desktop\Labs\[projects] narrator\tests\fixtures\contract\diagnosis\responses\` (narrator 커밋 `c39a9b0`). 기대 결과:
 01 → `Proposed(APPROVE_REMEDY)`, 02 → `Escalate(NO_GROUNDS)`, 03 → `Escalate(OUT_OF_CANDIDATES)`, 04 → `Proposed(CONFIRM_DONE)`.
 
 **Files:**
@@ -659,10 +658,10 @@ narrator 가 요청 넷에 대한 응답 넷을 자기 저장소에 지었다(�
   그 사이 고친 것이니 멈추고 보고한다:
 
 ```
-f999cb72e955c4705030650a8c74c4ad237982937b49f076ce17034be9364297  01-recommended.json
-bfab4031687c22c3c2f18b7db97d6b18b883722a2b902c5300557a8205a2ffc0  02-no-grounds.json
-3fd2063542c32a0912ac2d6c3f98f9c3c69b53a969623d80a75d12e7904de280  03-out-of-candidates.json
-b79bd06141536e5dbea249ffb6b9d5885dcaa1e01634585fb65d6af909a0053a  04-unknown.json
+0a8dab6ee45772a458b492e0135a895909d31939686f2775789ff2ad87bd1afb  01-recommended.json
+c54908af974cb6cb43e3de0b08a8e4aa770c91af4d25ef1f8e8f314a234e78c4  02-no-grounds.json
+7ac91bf5dd768a06157b3d38cbc9ac266a1e042f9317a20acb90f041753dcb24  03-out-of-candidates.json
+3308db94df0ee6236a604da9b2104c26adc019490fa07ee77cc84cf37a32ed1c  04-unknown.json
 ```
 
 - [ ] **Step 2: 시험을 쓴다**
@@ -746,7 +745,7 @@ Expected: `BUILD SUCCESSFUL` (4 tests). 하나라도 FAIL 이면 **어느 쪽 �
 
 ```markdown
 - `responses/` — **owned by narrator**; byte copies of narrator's four response fixtures (narrator
-  `tests/fixtures/contract/diagnosis/responses/`, copied 2026-09-30 before narrator committed them; sha256 in plan B2b-1),
+  `tests/fixtures/contract/diagnosis/responses/`, narrator commit `c39a9b0`),
   checked by `DiagnosisResponseFixturesTest` against the requests above. Recopy when narrator changes them.
 ```
 
