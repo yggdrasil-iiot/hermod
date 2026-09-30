@@ -157,6 +157,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | DIAGNOSING | `RECOMMENDED` + 후보 밖 / `OUT_OF_CANDIDATES` | ESCALATED | `OUT_OF_CANDIDATES`, `picked` 기록(`null` 이어도 받는다 — 권고 표지가 없던 답), 재진단 없음. 전이는 `picked` 에 기대지 않는다 |
 | DIAGNOSING | `sawCandidatesVersion` 불일치 | ESCALATED | `CANDIDATES_VERSION_MISMATCH` |
 | DIAGNOSING | `RECOMMENDED(ESCALATE)` · `NO_GROUNDS` · `UNCITED` | ESCALATED | `ESCALATE_RECOMMENDED` · `NO_GROUNDS` · `UNCITED` |
+| DIAGNOSING | 응답이 계약에 맞지 않음(읽기 위반 · `contractVersion` · `episodeId` · `attempt` 가 요청과 다름) | ESCALATED | `DIAGNOSIS_FAILED`, 위반 목록과 응답 원문 기록 |
 | DIAGNOSING | 액티비티 기한 초과 / 비재시도 실패 | ESCALATED | `DIAGNOSIS_EXPIRED` / `DIAGNOSIS_FAILED` |
 | PROPOSED | 같은 candidateId 의 **실행(Dispatch) 횟수** ≥ `repeatedRemedyThreshold` | ESCALATED | `REPEATED_REMEDY`. 승인이 아니라 실행을 센다 — 사람 과업 종류는 승인 단계가 없기 때문이다 |
 | PROPOSED | 후보가 사람 과업 종류(`CHOOSE_SOURCE`, `OPERATOR_DECISION`) | REVALIDATING | 승인 단계 없음 — 과업을 받는 사람이 곧 결정한다. `approval.by = null`, 기록 `PERSON_TASK` |
