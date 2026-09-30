@@ -22,8 +22,10 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 | 하지 않는 것 | 누가 하나 |
 |---|---|
 | 안전 계통(긴급정지 등) | 루프 밖. 이 설계는 건드리지 않는다 |
-| 즉시 대응(수 초, 결정적, LLM·승인 없음) | picasso 쪽 결정적 기본 동작 층 (§19 대기) |
+| 즉시 대응(수 초, 결정적, LLM·승인 없음) | 앞 절반(멈추고 모른다고 말함, 운영자 보류, 자동 재실행 없음)은 picasso. 뒤 절반(수동 처리 전환, 현장 호출)은 라인 쪽 결정적 규칙, 주인 미정 (§19) |
 | 로봇에 직접 명령 | picasso. 바깥 루프는 picasso 승인 창구로 **이미 계산된 제안을 가리키기만** 한다 |
+| picasso 를 세우는 것(담는 쪽: 인스턴스, `pump()`, 승인면) | 배치 호스트. 아직 없다(§19 C). koshei 는 소비자다 (§2) |
+| 재할당(`reassign`) | picasso 배정 정책(picasso ADR 41). 바깥 루프는 부르지 않는다 (§8.4) |
 | 진단 내부(검색, 인용 검증, 모델 호출) | narrator + khala |
 | 세계 상태(로봇, 재고, 서열) 보관 | 원천 시스템. 바깥 루프는 참조 id 와 관측 시각만 가진다 (R15) |
 | 운영자가 절차를 그리는 것 | 하지 않는다. 절차는 플랫폼 코드, 현업은 정책 표(데이터)만 (R12) |
@@ -37,6 +39,10 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 2. **LLM 은 조치를 기술하지 않는다.** 바깥 루프가 계산해 넘긴 후보 중 하나를 가리키거나 ESCALATE 를 고른다. 대상과 값은
    선언과 관측에서만 온다. 후보에 없는 것을 가리키면 버린다.
 3. **안전 계통은 이 루프 밖이다.**
+4. **koshei 는 picasso 의 소비자다. 담는 쪽이 아니다.** 소비자는 picasso 의 대장·결과 통보를 읽고 승인을 시도한다. 담는 쪽은
+   picasso 를 제 프로세스에 세우고 `pump()` 를 돌리고 승인면을 낸다(picasso §6, §7.4). koshei 워커 안에 picasso 를 세우지 않는다 —
+   에이전트 층이 죽을 때 실행 보증도 같이 죽는다(picasso §6, R5). 담는 쪽은 아직 없고, 어디에 둘지는 배치 결정이다(§19 C).
+   승인 창구는 루프백에만 붙고 신원을 인증하지 않는다(picasso §7.5 · §15.3, picasso 2026-09-30 답).
 
 ---
 
@@ -94,7 +100,8 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 |---|---|---|
 | koshei 워커 (`:app`) | `koshei-episode-tq` (에피소드), `koshei-v0_1-tq` (자식 사가) | 두 큐 분리 |
 | narrator 워커 (Python) | `narrator-tq` | 동시 실행은 설정값(khala 브리지 한도 이하) |
-| 감시자 (`EpisodeWatcherMain`) | picasso 내보내기 디렉터리 → signalWithStart / signal | 커서는 Postgres. **운반만 한다** |
+| 감시자 (`EpisodeWatcherMain`) | 접수: picasso 내보내기 디렉터리(개발용, §19 C) → signalWithStart / signal · 근거: 담는 쪽이 나른 결과 통보 → `evidence` signal (§12) | 커서는 Postgres. **운반만 한다** |
+| 담는 쪽 (picasso 배치 호스트, **koshei 밖**, 아직 없음) | picasso 인스턴스와 `pump()`, 승인 창구 `POST /approvals`(루프백, 인증 없음), 결과 통보 `pending()` / `ack` | koshei 는 소비자(§2). 자리는 §19 C |
 | 제어면 (`:authoring-api`) | 127.0.0.1:18090 | 조회·결정 중계만. 정책 편집은 하지 않는다 (R14) |
 | 정책 편집 | git + CLI `policy validate` / `policy activate` | 런타임과 다른 프로세스·권한 (R14, 계획 D) |
 
@@ -113,7 +120,7 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 | REVALIDATING | `revalidate` 액티비티 | 액티비티 ScheduleToClose = `revalidateMs` | |
 | DISPATCH_PENDING | 실행 의도 `Record` 의 성공 확인 | 액티비티 ScheduleToClose = `recordMs` | |
 | DISPATCHED | `dispatch` 액티비티 또는 자식 사가 결과 | 액티비티 = `dispatchMs`, 자식 = 부모 쪽 타이머 `childMaxMs` | |
-| AWAITING_EVIDENCE | 완료 근거 signal | `evidenceMs` | |
+| AWAITING_EVIDENCE | 완료 근거 signal — 결과 통보(JobResponse)에서 온다, 대장 스캔이 아니다 (§12) | `evidenceMs` | |
 | UNKNOWN | 재조회 판정 또는 사람의 `confirm` | 재조회 주기 `unknownRecheckMs`, 상한 `unknownMs` | |
 | ESCALATED | 사람의 `close` (에이전트는 더 행동하지 않음) | `escalatedRetentionMs` | |
 | RESOLVED · SUPERSEDED · CLOSED | — | — | 종료 |
@@ -133,7 +140,7 @@ Dispatch, Revalidate)은 더 나오지 않는다. 합류 증상과 완료 근거
 | 종류 | 어디서 들어오나 | 해소 입력 (사건) | 해소 결과 |
 |---|---|---|---|
 | `UNKNOWN(PRECONDITION)` | REVALIDATING 이 전제를 판정 못 함, `revalidate` 실패 | 주기 재조회(`Revalidated`), 사람 `ConfirmedPrecondition(holds: Boolean)` | TRUE → 승인이 유효하면 곧바로 DISPATCH_PENDING(재조회를 한 번 더 돌지 않는다), 아니면 DIAGNOSING · FALSE → SUPERSEDED |
-| `UNKNOWN(OUTCOME)` | 완료 근거가 UNKNOWN, `dispatch` 결과를 모름(재시도 소진, `NO_PROPOSAL` §11) | 주기 재조회(`OutcomeRechecked`), 근거 signal(`EvidenceArrived`), 사람 `ConfirmedOutcome(DONE \| NOT_DONE)` | DONE → RESOLVED · NOT_DONE → DIAGNOSING(결과를 붙여) |
+| `UNKNOWN(OUTCOME)` | 완료 근거가 UNKNOWN, `dispatch` 결과를 모름(재시도 소진, `NO_PROPOSAL` §11) | 주기 재조회(`OutcomeRechecked`), 근거 signal(`EvidenceArrived`, 결과 통보), 사람 `ConfirmedOutcome(DONE \| NOT_DONE)`. `NO_PROPOSAL` 은 재시도로 풀지 않는다 | DONE → RESOLVED · NOT_DONE → DIAGNOSING(결과를 붙여) |
 
 **승인이 유효하다** = 기준 시각 + `approvalValidityMs` 가 지나지 않았다. 기준 시각은 승인 시각이고, 승인 단계가 없는 사람 과업
 종류는 제안 시각(PROPOSED 에 들어간 시각)이다. 후보 판은 DIAGNOSING 에서만 다시 계산되므로 승인 뒤에는 바뀌지 않는다. 유효하지
@@ -167,16 +174,17 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | AWAITING_APPROVAL | `decide(REJECT, reason)` 유효 | DIAGNOSING | `APPROVAL_REJECTED(reason)` |
 | AWAITING_APPROVAL | 기한 만료 | ESCALATED | `APPROVAL_EXPIRED` |
 | REVALIDATING | TRUE | DISPATCH_PENDING | 명령은 실행 의도 `Record` 하나 |
-| REVALIDATING | FALSE | SUPERSEDED | |
+| REVALIDATING | FALSE | SUPERSEDED | 낡은 `APPROVE_REMEDY` 권고(같은 (기체, 주문)에 더 새 탐색 줄, §8.3)도 FALSE 다 |
 | REVALIDATING | UNKNOWN / 액티비티 실패 | UNKNOWN(PRECONDITION) | |
 | DISPATCH_PENDING | `Recorded` | DISPATCHED | 명령 `Dispatch`. 기록 없는 조치는 구조적으로 없다 |
 | DISPATCH_PENDING | `RecordFailed` · `recordMs` 만료 | ESCALATED | `RECORD_FAILED`. 조치는 나가지 않았다 |
-| DISPATCHED | 수락(`delivered`) · 자식 사가 완료 | AWAITING_EVIDENCE | |
-| DISPATCHED | picasso 거절 열거값(`NO_PROPOSAL` 제외) · 자식 사가 실패(보상 끝남) | DIAGNOSING | `DISPATCH_REFUSED(enum)` / `CHILD_FAILED` |
-| DISPATCHED | `NO_PROPOSAL` · 재시도 소진 · 자식 사가 UNKNOWN 보고 | UNKNOWN(OUTCOME) | 나갔는지 모름 (§11) |
-| AWAITING_EVIDENCE | DONE | RESOLVED | |
-| AWAITING_EVIDENCE | NOT_DONE | DIAGNOSING | 결과를 붙여 |
-| AWAITING_EVIDENCE | UNKNOWN | UNKNOWN(OUTCOME) | |
+| DISPATCHED | 수락(`delivered`) · 자식 사가 완료 | AWAITING_EVIDENCE | `REMEDY_NOT_APPLIED` 는 수락이 아니다 — 승인이 아니다 (§8.4) |
+| DISPATCHED | picasso 거절 열거값(`NO_PROPOSAL` 제외) · 자식 사가 실패(보상 끝남) | DIAGNOSING | `DISPATCH_REFUSED(enum)` / `CHILD_FAILED`. `refusal` 열거값으로만 가르고 산문은 보지 않는다. `REFUSED_BY_GATE` 는 제안을 소모하지 않는다 (§8.4) |
+| DISPATCHED | 답의 `schemaVersion` 이 아는 판("2")이 아님 · 모르는 `refusal` 값 | ESCALATED | `DISPATCH_ANSWER_UNKNOWN`. 사람에게 (§8.4) |
+| DISPATCHED | `NO_PROPOSAL` · 재시도 소진 · 자식 사가 UNKNOWN 보고 | UNKNOWN(OUTCOME) | 나갔는지 모름 (§11). `NO_PROPOSAL` 은 「이미 소모됐을 수 있음」이고 재시도로 풀지 않는다 |
+| AWAITING_EVIDENCE | `EvidenceArrived` DONE | RESOLVED | 결과 통보의 칸을 `judgeEvidence` 가 판정 (§12) |
+| AWAITING_EVIDENCE | `EvidenceArrived` NOT_DONE | DIAGNOSING | 결과를 붙여 |
+| AWAITING_EVIDENCE | `EvidenceArrived` UNKNOWN | UNKNOWN(OUTCOME) | |
 | AWAITING_EVIDENCE | 기한 만료 | ESCALATED | `EVIDENCE_EXPIRED` |
 | AWAITING_EVIDENCE | 실행한 대상에 대한 `ConfirmedOutcome(DONE \| NOT_DONE)` | RESOLVED / DIAGNOSING | 사람의 현물 확인은 근거로 친다 (`EvidenceArrived` 와 같은 분기) |
 | DISPATCHED | 부모 쪽 `childMaxMs` 만료 | ESCALATED | `CHILD_OVERDUE`. 자식은 계속 돈다(ABANDON), 결과는 기록으로 받는다 |
@@ -197,7 +205,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 `APPROVAL_REJECTED(reason)` · `APPROVAL_EXPIRED` · `EVIDENCE_EXPIRED` · `EPISODE_EXPIRED` · `DIAGNOSIS_EXPIRED` · `DIAGNOSIS_FAILED` ·
 `NO_GROUNDS` · `UNCITED` · `ESCALATE_RECOMMENDED` · `OUT_OF_CANDIDATES` · `CANDIDATES_VERSION_MISMATCH` · `UNKNOWN_BLOCKS_EXECUTION` ·
 `UNKNOWN_UNRESOLVED` · `ATTEMPTS_EXHAUSTED` · `REPEATED_REMEDY` · `SNAPSHOT_TOO_LARGE` · `CANDIDATES_TOO_MANY` · `AGENT_LAYER_OFF` · `POLICY_MISSING` ·
-`POLICY_EXPIRED` · `TAKEN_OVER` · `DISPATCH_REFUSED(enum)` · `CHILD_FAILED` · `CHILD_OVERDUE` · `RECORD_FAILED`.
+`POLICY_EXPIRED` · `TAKEN_OVER` · `DISPATCH_REFUSED(enum)` · `DISPATCH_ANSWER_UNKNOWN` · `CHILD_FAILED` · `CHILD_OVERDUE` · `RECORD_FAILED`.
 알림 전용(전이 없음): `POLICY_REJECTED` (§8.2), `RECORD_LAG` (실행 의도가 아닌 기록의 실패, §8.5).
 
 - `UNCITED` 를 자동 재진단으로 바꾸는 조정은 khala 브리지 구조화 출력이 들어간 뒤로 미룬다. **2026-09-30 결정: 브리지 구조화 출력이 섰지만 `UNCITED` 는 계속 ESCALATED 다.** 재진단 한 번이 4~9분이라 라인 기한에
@@ -205,6 +213,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
   본 뒤 다시 정한다. 그 전에는 구독 한도 안내 문구가 답으로
   둔갑해 `UNCITED` 로 분류될 수 있다.
 - `POLICY_MISSING` 과 `POLICY_EXPIRED` 는 같게 동작하지만 같은 값으로 접지 않는다.
+- `DISPATCH_ANSWER_UNKNOWN` 은 `DISPATCH_REFUSED` 로 접지 않는다. 모르는 판·값으로 재진단하면 모르는 것을 아는 것처럼 다루게 된다.
 
 ---
 
@@ -222,7 +231,7 @@ sealed interface EpisodeEvent {
                                val decision: Decision, val by: Approver, val reason: RejectReason?) : EpisodeEvent
     data class Revalidated(val result: TriState) : EpisodeEvent                  // TRUE / FALSE / UNKNOWN (실패도 UNKNOWN)
     data class DispatchReturned(val result: DispatchResult) : EpisodeEvent        // 수락 / picasso 열거값 / 모름 / 자식 결과
-    data class EvidenceArrived(val eventId: String, val grade: EvidenceGrade, val outcome: TriOutcome) : EpisodeEvent
+    data class EvidenceArrived(val eventId: String, val grade: EvidenceGrade, val outcome: TriOutcome) : EpisodeEvent  // 결과 통보(JobResponse)에서, §12
     data class OutcomeRechecked(val outcome: TriOutcome) : EpisodeEvent           // UNKNOWN(OUTCOME) 주기 재조회 결과
     data class ConfirmedPrecondition(val subject: SubjectRef, val holds: Boolean, val by: Approver) : EpisodeEvent
     data class ConfirmedOutcome(val subject: SubjectRef, val outcome: KnownOutcome, val by: Approver) : EpisodeEvent  // DONE / NOT_DONE
@@ -356,17 +365,41 @@ false` 가 글자 그대로 있으면 마지막 유효 판으로 돌아가지 �
 마지막 이벤트가 아니라 **원천(picasso 조회)을 다시 읽는다.** 판정은 `:episode` 의 값 + 시간창 함수. 결과는 3값. 액티비티가
 재시도 예산 안에서 끝내 실패하면 UNKNOWN 으로 들어간다(모르면 안 한다).
 
+**`APPROVE_REMEDY` 의 낡음** (picasso 2026-09-30 답, picasso 변경 없이):
+
+| 항목 | 값 |
+|---|---|
+| 왜 따로 보나 | 승인 요청의 `sawSkillTypes` 는 조치 유형의 열만 대조한다. 같은 모양의 새 제안은 같은 것으로 지나간다 |
+| 규칙 | 후보는 자기를 만든 탐색 줄의 `searchId` 를 `ref` 에 든다(§9.2). 원천에 그 (기체, 주문)의 **더 새 탐색 줄**이 있으면 낡음 → FALSE → SUPERSEDED (§5.2). `searchId` 는 구동마다 되풀이되므로 같은 `runId` 안에서만 견준다 |
+| 보수 쪽으로 틀림 | 탐색 줄은 제안 표가 아니다. NONE · SOURCE_MISSING 은 서 있던 FOUND 제안을 지우지 않는다(지우는 것은 접수 뒤 `settle` 하나). FOUND 뒤에 NONE 이 적히면 제안이 서 있어도 낡음으로 본다. 받아들인다 |
+| FOUND 밖 후보 | picasso 쪽 낡음 검사가 없다. `resolve` · `release` 는 대상이 이미 그 상태가 아니면 `false` 뿐이라 「이미 누가 했다」와 「처음부터 아니었다」가 접힌다(`NO_PROPOSAL` 과 같은 접힘). koshei 는 둘 다 부르지 않는다(§8.4) |
+
+대장을 실시간으로 읽는 표면은 아직 없다 — 파일 내보내기는 시나리오 끝에 한 번이다. 증분 조회 `after` 는 picasso 변경 후보이고
+(§19 E), 실시간 읽기를 누가 담을지는 §19 C 다.
+
 ### 8.4 `dispatch` — 후보 종류별 대상
 
 | kind | dispatch 대상 | 수락의 뜻 | 완료 근거 |
 |---|---|---|---|
-| `APPROVE_REMEDY` | picasso 승인 창구 (제안 참조 + 멱등 열쇠) | picasso 가 제안을 소모하고 전달 | picasso 사건 대장 |
-| `CHOOSE_SOURCE` | 운영자 과업(주문을 고치는 사람에게 알림 + 과업 기록) | 과업 발행 | picasso 대장에서 주문 변경 관측 |
-| `OPERATOR_DECISION` | 운영자 과업 | 과업 발행 | picasso 대장에서 운영자 판단 관측 |
+| `APPROVE_REMEDY` | picasso 승인 창구 (제안 참조). 사람 승인이어도 선언이 있어야 한다(아래). 멱등 열쇠는 창구가 조용히 버리므로 기대지 않는다 (§11) | picasso 가 제안을 소모하고 전달. `REMEDY_NOT_APPLIED` 는 수락이 아니다 | 결과 통보(JobResponse), 담는 쪽이 나름 (§12). 사건 대장이 아니다 — 제대로 끝난 단위는 사건이 안 된다 |
+| `CHOOSE_SOURCE` | 운영자 과업(주문을 고치는 사람에게 알림 + 과업 기록). picasso 쪽 문 없음 — 주문을 고쳐 다시 넣는 것은 상류 몫, 관문이 그때 다시 판정 | 과업 발행 | 다시 넣은 주문의 결과 통보 (§12) |
+| `OPERATOR_DECISION` | 운영자 과업. koshei 는 `resolve` 를 부르지 않는다 | 과업 발행 | 사건 줄의 `resolution` 이 널이 아님(판단 났음, picasso 판 5). `REWORK` 면 이어서 결과 통보 |
 | `SAGA_ACTION` (계획 D) | koshei 자식 사가 | 자식 시작 | 자식 사가 결과 + 원천 재조회 |
 
 - picasso 응답의 `approverKind`(PERSON/AGENT), `delivered` 를 그대로 기록한다. koshei 의 POLICY 자동 승인은 picasso 에 AGENT 로 간다.
-- **멱등은 액티비티 안에서 지킨다(§11).** 매 시도의 첫 동작은 "이 열쇠로 이미 나간 결과 조회"다.
+- **멱등은 액티비티 안에서 지킨다(§11).** 자식 사가는 child workflow id 로 지킨다. `APPROVE_REMEDY` 는 열쇠로 결과를 조회할 표면이
+  없다 — 두 번 나감은 picasso 가 막고, 재시도의 `NO_PROPOSAL` 은 UNKNOWN(OUTCOME)이다.
+
+picasso 와의 경계 (picasso 2026-09-30 답):
+
+| 항목 | 규칙 |
+|---|---|
+| 거절 열거값을 전이 입력으로 | picasso 동의, 조건 넷. ① `refusal` 열거값으로만 가르고 산문으로 가르지 않는다 ② 답의 `schemaVersion`(지금 `"2"`)을 본다. 모르는 판·값이면 ESCALATED(`DISPATCH_ANSWER_UNKNOWN`) ③ `REFUSED_BY_GATE` 는 제안을 소모하지 않는다 ④ `NO_PROPOSAL` 은 「이미 소모됐을 수 있음」 → UNKNOWN(OUTCOME), 재시도로 풀지 않는다. 덧붙여 `REMEDY_NOT_APPLIED` 는 승인이 아니다 |
+| 선언 | 사람 승인도 창구를 지나면 선언이 있어야 한다. 없으면 `NOT_DECLARED` 로 온다(값 없는 문에서는 선언이 값의 출처). POLICY 자동 승인은 두 표(koshei 정책 ∧ picasso 자격)의 교집합이다(§10.3) |
+| 다른 길로 누르지 않음 | picasso 가 거절한 것을 다른 길(운영자 과업, `SAGA_ACTION`, 제어면)로 밀어 넣지 않는다 |
+| 운영자 판단의 문 | `Middleware.resolve(executionId, unitId, decision)` 는 프로세스 안에만 있고 승인자를 받지 않으며 누가 눌렀는지 남기지 않는다. 그래서 `OPERATOR_DECISION` 은 사람 과업으로 남고 koshei 는 `resolve` 를 부르지 않는다. 사람만 누른다는 선은 코드 검사가 아니라 문이 없어서 선다 |
+| 사건 줄의 운영자 판단 | `resolution` 이 널이 아니면 판단이 났다(`{decision, at, wallClockAt}`, 판 5). 누가 눌렀는지는 없다. `unresolved` · `verification` · `reachedEvidence` 는 봉인 시점 값이라 판단 뒤에 바뀌지 않는다 |
+| 재할당 | **이 설계는 `reassign` 을 부르지 않는다.** 재할당은 picasso 배정 정책이 부른다(picasso ADR 41) — 후보도 명령도 아니다. 사용자가 달리 정하기 전까지 특히 결과 통보에 `inDoubtUnits` 가 있거나, `physicalState` 가 OPERATOR_HOLD 인데 `blockedBy` 가 빈 실행에는 부르지 않는다. picasso 는 보류로 간 단위를 도는 단위로 보지 않아 그 실행의 재할당을 막지 않고, 사람이 뒤에 `REWORK` 를 내면 새 기체에서 돈다 |
 
 **`SAGA_ACTION` 과 자식 사가 (계획 D).** koshei 가 직접 하는 조치 유형(OT 쓰기, MES 반영 등)은 정책 표의 **조치 목록(action
 catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(선언과 관측의 경로), `requiresPerson`.
@@ -423,6 +456,7 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
 | `ESCALATE` | 사람에게 넘김 | 사람 | 아니오 | — (항상 포함) |
 
 탐색 결과가 `NONE` 이거나 `WITHHELD`(조치 열이 없음)면 그 탐색에서는 후보가 서지 않는다. 사람의 진단이 먼저다.
+picasso 가 든 다섯째 후보(막는 결함의 감수, 결과 통보의 `blockedBy` · `operatorRequired`)는 두지 않는다. `ESCALATE` 가 맡는다(§19 A).
 
 **unknowns 가 비어 있지 않으면** 실행 계열(`APPROVE_REMEDY`, `CHOOSE_SOURCE`, `OPERATOR_DECISION/REWORK`, `SAGA_ACTION`)을 넣지
 않는다. `OPERATOR_DECISION/CONFIRM_DONE` 은 남는다 — 사람의 현물 확인이 곧 해소 경로이기 때문이다. 권고 후보에서 뺀다고 사람이
@@ -441,7 +475,7 @@ v1 은 에피소드 전체에 적용한다. 전이 함수도 같은 조건을 �
 
 형식: **`<kind>:<재료1>:<재료2>:…`** — kind 접두사를 포함한다. 내용에서 결정적으로 만든다. 위치 번호를 쓰지 않는다(재진단 때 같은
 번호가 다른 후보를 가리키게 된다). picasso 의 `searchId` · `incidentId` 는 같은 시드의 다른 구동에서 되풀이되므로 **재료로 쓰지
-않는다**(추적용으로 `ref` 에만 둔다).
+않는다**(추적과 낡음 판정(§8.3)용으로 `ref` 에만 둔다).
 
 | kind | 재료 (순서 고정, 값 안의 `:` 는 퍼센트 인코딩) | 예 |
 |---|---|---|
@@ -506,6 +540,9 @@ koshei 가 진단 응답(계약 0.6 §4)과 자기 상태로 그린다. narrator
 | 신원 수준 | `identityAssurance` | PoC 동안 `SELF_ASSERTED` 표시 |
 
 `cause`(원인 후보와 확실성)는 기록에만 남기고 카드에는 싣지 않는다.
+
+카드 순서는 열려 있다(§19 D). picasso 는 안쪽 루프의 진단을 적어 두되 사람 진단 뒤에 대조 재료로만 보이기를 권한다. 그 전까지
+카드는 이 표 그대로다.
 
 **자동 승인은 "깨끗한" 권고에만.** 정책 `autoApprove.<kind>.requireClean` (기본 `true`)이 켜져 있으면, 다음을 모두 만족하는
 권고만 자동 승인한다. 하나라도 어기면 AWAITING_APPROVAL 로 보낸다.
@@ -595,12 +632,15 @@ R6 검증("끈 유형은 자동 실행 없이 사람 승인으로")과 맞춘 �
 
 - 멱등 열쇠 = `(에피소드 인스턴스 id, 시도 번호, 조치 유형)`, 워크플로 안에서 결정적으로 파생.
 - 중복 위험은 워크플로 재생이 아니라(재생은 액티비티를 다시 보내지 않는다) **`dispatch` 액티비티의 재시도**다 — picasso 가 이미
-  받았는데 응답 전에 워커가 죽은 경우. 그래서 **액티비티의 매 시도는 먼저 이 열쇠의 결과를 조회하고**, 있으면 그 결과를 돌려준다.
+  받았는데 응답 전에 워커가 죽은 경우. 열쇠는 koshei 쪽 기록과 자식 사가에만 쓴다. picasso 승인 창구에 실어도 소용이 없다(아래).
 - 자식 사가: child workflow id = 열쇠(Temporal 이 중복 시작을 막는다).
-- **외부 답 대기(§19):** picasso 의 두 번째 승인 응답 `NO_PROPOSAL` 이 "내가 이미 소모 / 남이 소모 / 처음부터 없음" 셋을 한 값으로
-  접는다면, 액티비티는 자기 요청이 나갔는지 판정할 수 없다. 그래서 답이 올 때까지 **`NO_PROPOSAL` 은 UNKNOWN(OUTCOME)으로 간다**
-  (§5.2). 모르면 다시 하지 않는다. 열쇠로 결과를 조회하는 표면 또는 거절 값 분리가 오면 이 규칙을 좁힌다. 그 전까지 시험은
-  "Mock picasso 가 열쇠 조회를 지원한다"는 가정 위에서 한다.
+- **picasso 2026-09-30 답:** 같은 제안이 두 번 나가는 일은 이미 막혀 있다(승인이 접수로 이어진 뒤 제안이 지워지고 창구는 구동 루프와
+  같은 자물쇠를 지난다, 둘째 시도는 `NO_PROPOSAL`). **모자란 것은 내 요청이 들어갔는지 아는 길이고 그 표면은 없다** — 승인 요청은 다섯
+  칸만 읽고 나머지는 조용히 버린다(멱등 열쇠를 실어도 버려진다), 승인의 대장이 없다, `approvedBy` 는 모듈 안에서만 보인다. 그래서
+  열쇠에 기대지 않고, **`NO_PROPOSAL` 은 「이미 소모됐을 수 있음」으로 UNKNOWN(OUTCOME)에 간다**(§5.2). 재시도로 풀지 않는다 — 모르면
+  다시 하지 않는다. 부분 추론(그 (기체, 주문)에 FOUND · WITHHELD 줄이 한 번도 없으면 선 적이 없음)은 대장이 시나리오 끝에 한 번 나오므로
+  쓰지 않는다. picasso §7.3 표가 `NO_PROPOSAL` 에 적은 「다시 읽고 다시 시도」는 따르지 않는다(picasso 도 문서 결함으로 올렸다). 값 분리
+  (`CONSUMED`)는 사용자 결정이다(§19 B). 시험의 Mock picasso 도 열쇠를 버리고 결과 조회를 내지 않는다(실물과 같게).
 
 ---
 
@@ -616,8 +656,17 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - `null` 과 `[]` 를 가른다(예: 결품 줄 `alternatives` 가 null = 셀에 못 물음, 빈 목록 = 자리가 없음).
 - 새 증상: `correlate(event, rules)` 로 병합 키 → `signalWithStart(ep:<key>, symptom)`. 애매하면 **묶지 않고** 새 에피소드를 열고
   서로 참조를 붙인다. LLM 에 묻지 않는다.
-- 완료 근거: dispatch 가 기록한 `(기체, 주문)` / `(실행, 단위)` → 에피소드 대응표로 찾아 `evidence` signal. 근거 등급과 3값 판정은
-  워크플로 안의 순수 함수가 한다. 사건 시각은 폴링 시각이다(`observedAt`).
+- 완료 근거: **사건 대장을 스캔해 찾지 않는다** — 제대로 끝난 단위는 사건이 안 된다. 완료 근거는 picasso 의 결과 통보(JobResponse)다:
+  `physicalState` · `requiredEvidence` · `reachedEvidence` · `completedUnits` · `unverifiedUnits` · `inDoubtUnits` · `operatorRequired` ·
+  `blockedBy`. picasso 가 상태가 바뀐 그 펌프 안에서 아웃박스에 넣고, 담는 쪽이 `pending()` 으로 꺼내 나르고 `ack(jobResponseId)` 로
+  닫는다. 담는 쪽이 상류에 나르는 결과 통보를 koshei 에도 나르고, 감시자는 그것을 `evidence` signal(`EvidenceArrived`)로 운반한다.
+  펌프 단위로 실시간이고 picasso §6 승격과 무관하다(picasso 2026-09-30 답). 나르는 모양은 담는 쪽과 함께 정한다(§19 C).
+- 결과 통보 → 에피소드: dispatch 가 기록한 `(기체, 주문)` / `(실행, 단위)` → 에피소드 대응표. 중복 제거 열쇠는 `jobResponseId`.
+  근거 등급과 3값 판정은 워크플로 안의 순수 함수 `judgeEvidence` 가 한다. `inDoubtUnits` · `unverifiedUnits` 가 비지 않았거나
+  `operatorRequired` 가 참이면 DONE 으로 접지 않는다. 사건 시각은 감시자가 받은 시각이다(`observedAt`).
+- **파일 내보내기는 결과 통보를 싣지 않는다.** 담는 쪽이 설 때까지 감시자는 개발용으로 파일 내보내기에서 접수만 한다. 그 길에서는
+  완료 근거가 오지 않아 AWAITING_EVIDENCE 가 `EVIDENCE_EXPIRED` 로 끝난다(모르면 끝내지 않는다). 근거 경로 시험은 Mock 담는 쪽이
+  결과 통보 모양으로 넣는다.
 
 ---
 
@@ -658,13 +707,13 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | 요건 | 우선 | 수단 (이 문서) | 검증 | 계획 | 의존 |
 |---|---|---|---|---|---|
 | R1 동시 재개 | P0 | 워크플로 id = 병합 키, signalWithStart, 순차 처리, 늦은 `decide` 는 값으로 거절 (§7.1, §7.2) | 승인 Update 와 기한 타이머 동시 발화 수천 회, 결과는 둘 중 하나, 섞임 0 | B | — |
-| R2 정확히 한 번 | P0 | 결정적 열쇠, 액티비티 매 시도 결과 조회, `NO_PROPOSAL` → UNKNOWN (§11) | dispatch 직후·완료 보고 전 워커 강제 종료, Mock 로봇 반영 1회 | C | picasso ★ |
+| R2 정확히 한 번 | P0 | 결정적 열쇠(koshei 기록·자식 사가), 두 번째 승인은 picasso 가 막음, `NO_PROPOSAL` → UNKNOWN · 재시도 없음 (§11) | dispatch 직후·완료 보고 전 워커 강제 종료, Mock 로봇 반영 1회 | C | picasso ★ |
 | R3 진행 중 버전 | P1 | getVersion, schemaVersion, 조치 목록 판 고정 (§7.5, §8.4) | 상태별로 멈춘 이력을 저장해 새 코드로 재생 + 실배포 후 정상 종료 | D | — |
-| R4 시간 예산 | P0 | 모든 상태 기한(§5.1), 만료 경로 하나(기본 동작 유지 + ESCALATED), ScheduleToClose | 승인 무응답·진단 지연 → ESCALATED, dispatch 0. 라인 정지 0 은 picasso 답 이후 | B | picasso, narrator(Mock) |
-| R5 에이전트 장애 | P0 | 시작 시 정책 읽기, `agentOff`, 인계 규칙, Mock 진단으로 LLM 없이 동작 (§8.1, §10.4) | narrator 워커 전멸 / Postgres 중단 / koshei 워커 전멸 / Temporal 중단 각각: dispatch 0, 복구 후 재개. 라인 가동은 picasso Mock 셀 | B (방송 CLI 는 D) | picasso |
+| R4 시간 예산 | P0 | 모든 상태 기한(§5.1), 만료 경로 하나(기본 동작 유지 + ESCALATED), ScheduleToClose | 승인 무응답·진단 지연 → ESCALATED, dispatch 0. 라인 정지 0 은 라인 쪽 결정적 규칙(수동 전환·호출)이 선 뒤 (§19) | B | picasso, 라인 쪽 규칙, narrator(Mock) |
+| R5 에이전트 장애 | P0 | 시작 시 정책 읽기, `agentOff`, 인계 규칙, Mock 진단으로 LLM 없이 동작, koshei 워커에 picasso 를 세우지 않음 (§2, §8.1, §10.4) | narrator 워커 전멸 / Postgres 중단 / koshei 워커 전멸 / Temporal 중단 각각: dispatch 0, 복구 후 재개. 라인 가동은 picasso Mock 셀 | B (방송 CLI 는 D) | picasso |
 | R6 배포 없이 대응 | P1 | 정책 표 판·감사·조치 유형별 on/off (§10) | 운영 중 조치 유형 하나 끔 → 이후 자동 실행 없이 사람 승인으로 | D | picasso(자격) |
-| R7 신호의 한계 | P0 | 원천 재조회, 값 + 시간창 판정, 감시자 중복 제거 (§8.3, §12) | 폴링보다 짧은 펄스, 순서 역전, 중복 주입 → 재확인·완료 판정 대조표 | C | picasso |
-| R8 확인 불가 | P0 | UNKNOWN 두 종류, 3값 타입, 실행 차단 코드 고정, 투영 제외 (§5.1, §6, §9.1) | dispatch 후 통신 절단 → 자동 재할당 0, 현물 확인 요청 1 | B (자식 사가 보상 0 은 D) | picasso |
+| R7 신호의 한계 | P0 | 원천 재조회, 값 + 시간창 판정, 감시자 중복 제거, 완료 근거는 결과 통보(대장 스캔 아님), 낡은 권고는 `searchId` 로 (§8.3, §12) | 폴링보다 짧은 펄스, 순서 역전, 중복 주입 → 재확인·완료 판정 대조표 | C | picasso, 담는 쪽(§19 C) |
+| R8 확인 불가 | P0 | UNKNOWN 두 종류, 3값 타입, 실행 차단 코드 고정, 투영 제외, `reassign` 부르지 않음 (§5.1, §6, §8.4, §9.1) | dispatch 후 통신 절단 → 자동 재할당 0, 현물 확인 요청 1 | B (자식 사가 보상 0 은 D) | picasso |
 | R9 모델 변경 관리 | P1 | 기록에 판 칸 다섯 (§13) | narrator 골든셋 재생 지표(유효 선택률, 후보 밖 비율, 확인 불가 중 실행 권고 비율 = 0) | D | narrator, khala |
 | R10 알림 | P1 | 병합 키, 병합 창, 애매하면 상호 참조, 상태 전이 때만 알림 (§5.1, §12) | 같은 원인 증상 3개 동시 주입 → 에피소드 1, 알림 1 | C | picasso |
 | R11 기록 | P1 | `episode_event` 추가 전용 (§13) | 임의 차대번호에서 에피소드와 근거 전체 역추적 | B(테이블)·D(항목 전체) | picasso, narrator |
@@ -692,7 +741,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 |---|---|---|---|
 | **A. publish 봉쇄** | `/api/publish` 끄기 설정, `Class.forName(…, false, …)`, 제어면 127.0.0.1 바인딩. 기존 게이트로 퇴행 확인 | — | — |
 | **B. 에피소드 코어** | `:episode`(전이·투영·식별자·판·정책 검증·판정 함수), `:episode-runtime` 구동부·타이머·Update·쿼리, Mock `diagnose`·Mock picasso(`revalidate`/`dispatch`), 파일 정책, `episode_event` 테이블, 제어면 경로, 고정 예제 요청 넷 | — (A 뒤에 하는 것은 순서 선호) | — (Mock 으로 진행) |
-| **C. 현장 연결** | 감시자(접수·근거·병합, drift 입력), 에피소드 모드에서 drift 자동 디스패치 끄기, 실제 picasso 조회·승인 창구 클라이언트, 멱등 결과 조회 | B | picasso(§19) |
+| **C. 현장 연결** | 감시자(접수·근거·병합, drift 입력), 에피소드 모드에서 drift 자동 디스패치 끄기, 실제 picasso 조회·승인 창구 클라이언트, 결과 통보 수신 | B | picasso · 담는 쪽 (§19) |
 | **D. 운영 관리 (P1)** | 정책 git+DB 포인터·CLI·`agentOff` 방송, `SAGA_ACTION`·조치 목록·자식 사가, 블록의 "모름" 보고, 기록 항목 전체·품질 연결, R3 재생 시험, D5 결함 | B | khala·narrator(판 칸) |
 
 ---
@@ -733,7 +782,8 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - **ESCALATED 를 종료로 두지 않음.** 사람에게 넘긴 뒤에도 이미 나간 조치의 결과와 근거가 들어온다. 닫아 버리면 그 기록을 받을 곳이
   사라진다. 대신 보존 기한으로 반드시 닫힌다.
 - **`abort` 없이 `takeover` + `close`.** "중단"의 두 뜻(에이전트를 멈춤 / 에피소드를 무효로 끝냄)을 두 입력으로 가른다.
-- **`NO_PROPOSAL` → UNKNOWN.** 나갔는지 모르면 다시 하지 않는다. picasso 답이 오면 좁힌다.
+- **`NO_PROPOSAL` → UNKNOWN.** 나갔는지 모르면 다시 하지 않는다. picasso 2026-09-30 답도 같다(나누기 전까지 「이미 소모됐을 수
+  있음」). `CONSUMED` 가 들어오면 좁힌다(§19 B).
 - **Update.** 동기 응답으로 승인자가 결과를 바로 받고, 값으로 돌린 거절이 이력에 남는다(§3.1).
 - **Python 액티비티 워커.** CLI 를 ProcessBuilder 로 부르는 안은 취소 시 자식 프로세스 정리, 표준출력 파싱, Windows 경로 문제가
   붙어 가장 취약하다. HTTP 는 표면과 운영이 하나 더 는다.
@@ -750,11 +800,12 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 
 ## 19. 열린 것
 
+**기다리는 것**
+
 | 무엇 | 기다리는 곳 | 막는 항목 |
 |---|---|---|
-| `NO_PROPOSAL` 세 경우 분리 또는 열쇠로 결과 조회 | picasso | R2 (그 전까지 `NO_PROPOSAL` → UNKNOWN) |
-| 결정적 기본 동작 층(즉시 대응) | picasso | R4 · R5 의 라인 정지 0 검증 |
-| 후보 범위, `unknowns.what` 열거값, 실시간 근거 | picasso | R7 · R8 세부 |
+| 결정적 기본 동작 층의 뒤 절반(슬롯을 수동 처리로 넘기는 상태·명령, 현장 호출, 반응 시간) | 라인 쪽 결정적 규칙, 주인 미정 (picasso 의 것이 아니고 에이전트 층과 뗀다) | R4 · R5 의 라인 정지 0 검증 |
+| `unknowns.what` 열거값 | picasso (2026-09-30 답에 없음) | R8 세부 |
 | khala 변경 여섯: 프롬프트 지문 결함과 `prompt_version`, 브리지 구조화 출력, `answer_context`, `numbers[].found_in`, `corpus_version`, `search_fingerprint` | khala | R9 · R11 판 칸, `UNCITED` 재진단 조정 |
 | 개발용 동시 한도 | khala · narrator | narrator 워커 동시 실행 설정 (벽 순서는 계약 0.5 에서 정해짐) |
 | 고정 예제의 응답 넷 | narrator | §17 계약 시험 |
@@ -763,4 +814,29 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 narrator 쪽 현황(2026-09-28): 진단 워커가 섰다 — 큐 `narrator-tq`, 액티비티 `diagnose`, `python -m diagnose.worker`
 (narrator 커밋 `f71ca2e`). 실물 Temporal 에 붙여 돌린 적은 아직 없다.
 
-계획 A 와 B 는 이 표의 어느 답도 기다리지 않는다.
+**picasso 2026-09-30 답으로 닫힌 것**
+
+| 물음 | 답 | 반영 |
+|---|---|---|
+| 바깥 루프의 자리 | 라이브러리 밖이 맞다(picasso §6). 다만 koshei 는 담는 쪽이 아니라 소비자 | §1, §2 4, §4.2 |
+| 후보 범위 | 다섯 — 편지의 넷 + 막는 결함의 감수. 우선순위 조정은 코드에 없다 | §9.1 (다섯째는 A) |
+| `CONFIRM_DONE` 의 근거 | `verification: MATCHED` 일 때만 | §9.1 (7c7febd) |
+| 권고를 후보 가리키기 + 본 후보 열로 | ADR 44 와 맞다. `sawSkillTypes` 는 같은 모양의 새 제안을 못 가른다 → `searchId` 낡음 규칙 | §8.3, §9.2 |
+| 실시간 완료 근거 | 결과 통보(JobResponse), 담는 쪽의 `pending()` / `ack`. 대장에도 파일 내보내기에도 없다 | §5.1, §5.2, §8.4, §12 |
+| `NO_PROPOSAL` 세 경우 · 열쇠로 결과 조회 | 두 번 나감은 이미 막힘. 내 요청의 결과를 아는 표면은 없고 열쇠는 버려진다 | §11 (값 분리는 B) |
+| 거절 열거값을 전이 입력으로 | 동의, 조건 넷 | §5.2, §5.3, §8.4 |
+| 운영자 보류는 사람만 | 코드 검사가 아니라 문이 없어서. `resolve` 는 승인자를 안 받는다. 판단은 사건 줄 `resolution`(판 5) | §8.4 |
+| 결정적 기본 동작 층 | 앞 절반(멈춤, 모른다고 말함, 운영자 보류)은 picasso 가 이미 한다. 뒤 절반은 라인 쪽. 재할당은 즉시 대응이 아니다 | §1, §15 R4, 위 표 |
+| 재할당 | 배정 정책이 부른다(ADR 41). 보류 단위가 있는 실행은 막히지 않는다 | §1, §8.4 |
+
+**사용자가 정할 것** (설계는 정하지 않는다. 오른쪽 칸이 그때까지의 동작)
+
+| # | 무엇 | 그 전까지 |
+|---|---|---|
+| A | 다섯째 후보 — 막는 결함을 감수하고 다음 단위로 갈지. 결과 통보의 `blockedBy` · `operatorRequired`(막힘 자체는 사건을 안 엶), 문은 `Middleware.release(executionId)` 로 프로세스 안에만 있다 | 후보로 내지 않는다. `ESCALATE` 가 맡는다 |
+| B | picasso 가 제안한 거절 `CONSUMED` — `settle` 이 (기체, 주문)마다 소모 기록(승인자 · 시각 · executionId · 나간 걸음과 값)을 남기고 서 있는 제안이 없을 때 돌려준다. 창구 스키마 판 2 → 3, ADR 44 개정. picasso ADR 9(소비자 존재 원칙)상 koshei 가 실제로 읽겠다고 해야 들어온다. 대가: 기록이 재시작에 진다, 남의 승인자 id 가 인증 없는 창구에서 보인다 | `NO_PROPOSAL` → UNKNOWN(OUTCOME) |
+| C | 담는 쪽의 자리. picasso 는 picasso 를 세우는 배치 호스트가 실시간 읽기와 승인 쓰기를 둘 다 담기를 권한다(koshei 는 아님). 배치 결정이다 | 개발용으로만 파일 내보내기 + 감시자. 실물 완료 근거 없음(§12) |
+| D | 카드 순서. picasso 의 WITHHELD 는 의도적 비자동화다 — 사람이 안쪽 루프의 진단을 먼저 보면 그것은 진단이 아니라 동의가 된다. picasso 는 안쪽 루프 진단을 적어 두되 사람 진단 뒤에 대조 재료로만 보이기를 권한다 | §9.5 그대로 |
+| E | picasso 쪽 변경 후보: ② `resolve` 가 승인자를 받아 AGENT 를 거절하고 누가 눌렀는지 남김(문을 여는 변경과 함께) ③ 보류 단위가 있는 실행의 재할당 막기 ④ 대장의 증분 조회 `after`. (① 은 B) | 셋 다 없다고 보고 짓는다 — `resolve` · `reassign` 을 부르지 않고(§8.4), 실시간 대장 읽기가 없다(§8.3) |
+
+계획 A 와 B 는 이 표들의 어느 답도 기다리지 않는다.
