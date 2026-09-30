@@ -45,12 +45,16 @@ class PolicyTable internal constructor(
     val snapshotMaxBytes: Long,
     /** Merge rules; their meaning is plan C's. v1 only checks that this is a list. */
     val correlation: List<JsonNode>,
-    /**
-     * The tree this table was parsed from (a private copy). Persist it and re-parse with [parsePolicy] to restore the
-     * table, e.g. across a Temporal continue-as-new.
-     */
-    val source: JsonNode,
+    source: JsonNode,
 ) {
+    private val sourceCopy: JsonNode = source.deepCopy()
+
+    /**
+     * The tree this table was parsed from, as a fresh copy on every read. Persist it and re-parse with [parsePolicy] to
+     * restore the table, e.g. across a Temporal continue-as-new.
+     */
+    val source: JsonNode get() = sourceCopy.deepCopy()
+
     override fun toString(): String = "PolicyTable($version)"
 }
 

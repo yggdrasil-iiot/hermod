@@ -48,7 +48,10 @@ sealed interface PolicyResolution {
  *   but suspends auto-approval (a person approves) and reports why;
  * - restrictive intent literally present in a rejected tree is still honoured: `agentLayerEnabled` present and anything
  *   but boolean `true` switches the layer off, a past `expiresAt` expires the policy (R5);
- * - the table in force is finally checked for expiry (`expiresAt <= now`) and for the agent-layer switch.
+ * - an `expiresAt` in a rejected tree that is not a readable instant is ignored: the read falls back like any other
+ *   rejection (last valid table, auto-approval suspended);
+ * - the table in force is finally checked for the agent-layer switch, then for expiry (`expiresAt <= now`) — the same
+ *   order as for a rejected tree.
  */
 fun resolvePolicy(read: PolicyRead, lastValid: PolicyTable?, now: Instant): PolicyResolution {
     var adopt: PolicyTable? = null
@@ -82,8 +85,9 @@ fun resolvePolicy(read: PolicyRead, lastValid: PolicyTable?, now: Instant): Poli
         }
     }
     if (inForce == null) return PolicyResolution.Off(PolicyOffReason.POLICY_MISSING, null, rejected, adopt)
+    // The off switch before expiry, in the same order as for a rejected tree above: an explicit switch is the stronger intent.
+    if (!inForce.agentLayerEnabled) return PolicyResolution.Off(PolicyOffReason.AGENT_LAYER_OFF, inForce, rejected, adopt)
     val expiresAt = inForce.expiresAt
     if (expiresAt != null && !now.isBefore(expiresAt)) return PolicyResolution.Off(PolicyOffReason.POLICY_EXPIRED, inForce, rejected, adopt)
-    if (!inForce.agentLayerEnabled) return PolicyResolution.Off(PolicyOffReason.AGENT_LAYER_OFF, inForce, rejected, adopt)
     return PolicyResolution.Active(inForce, autoApproveSuspended = rejected.isNotEmpty(), rejectedErrors = rejected, adopt = adopt)
 }
