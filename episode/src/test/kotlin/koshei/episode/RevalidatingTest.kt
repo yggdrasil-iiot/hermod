@@ -11,6 +11,7 @@ import koshei.episode.Episodes.search
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -138,7 +139,11 @@ class RevalidatingTest {
             assertEquals(Phase.AWAITING_APPROVAL, s.state.phase)
             assertNull(s.state.attempt!!.approval)
             assertTrue(s.commands.none { it is Command.RecordIntent })
-            assertTrue(s.records(RecordKind.APPROVAL).single().entry.payload.get("revoked").booleanValue())
+            val revoke = s.records(RecordKind.APPROVAL).single().entry.payload
+            assertEquals("REVOKED", revoke.get("result").textValue())
+            assertEquals("POLICY", revoke.get("by").textValue())
+            assertFalse(revoke.has("revoked"))
+            assertNull(s.state.attempt!!.validUntil)
             assertTrue(s.notices().any { it.kind == NoticeKind.APPROVAL_NEEDED })
             assertEquals("2026-09-30.1", s.records(RecordKind.APPROVAL).single().entry.payload.get("policyVersion").textValue())
         }

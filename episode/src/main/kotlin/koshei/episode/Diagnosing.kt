@@ -130,6 +130,9 @@ private fun Out.propose(proposed: DiagnosisVerdict.Proposed, policy: PolicyTable
     }
 }
 
+/** The `result` of every APPROVAL audit record. (Not [ApprovalResult]: that is the history's, which has EXPIRED and no REVOKED.) */
+internal enum class ApprovalRecordResult { APPROVED, REJECTED, REVOKED }
+
 /** Where a proposal goes (the PROPOSED record's `route`). */
 private enum class Route { REPEATED_REMEDY, PERSON_TASK, POLICY, AWAITING_APPROVAL }
 
@@ -162,9 +165,10 @@ internal fun Out.onAwaitingApproval(event: EpisodeEvent, policy: PolicyTable, no
                 // The operator's own words live here, in the audit record, and never in the history narrator reads.
                 record(RecordKind.APPROVAL) {
                     put("candidateId", attempt.candidate?.candidateId)
-                    put("result", ApprovalResult.REJECTED.name)
+                    put("result", ApprovalRecordResult.REJECTED.name)
                     put("reason", reason.name)
-                    put("by", event.by.id)
+                    put("by", ApprovalBy.PERSON.name)
+                    put("approver", event.by.id)
                     put("assurance", event.by.assurance.name)
                     put("note", event.note)
                     put("policyVersion", policy.version)
@@ -214,7 +218,7 @@ internal fun Out.enterRevalidating(approval: Approval?, policy: PolicyTable, now
     state = state.copy(attempt = attempt.copy(approval = approval, validUntil = basis.plusMillis(policy.deadlines.approvalValidityMs)))
     if (approval != null) record(RecordKind.APPROVAL) {
         put("candidateId", candidate.candidateId)
-        put("result", ApprovalResult.APPROVED.name)
+        put("result", ApprovalRecordResult.APPROVED.name)
         put("by", approval.by.name)
         put("approver", approval.approver?.id)
         put("assurance", approval.approver?.assurance?.name)

@@ -109,12 +109,11 @@ private fun Out.proceedToDispatch(policy: PolicyTable, now: Instant) {
     if (attempt.approval?.by == ApprovalBy.POLICY && !autoApproves(candidate, clean, policy)) {
         record(RecordKind.APPROVAL) {
             put("candidateId", candidate.candidateId)
-            put("result", "REVOKED")
+            put("result", ApprovalRecordResult.REVOKED.name)
             put("by", ApprovalBy.POLICY.name)
-            put("revoked", true)
             put("policyVersion", policy.version)
         }
-        state = state.copy(attempt = attempt.copy(approval = null))
+        state = state.copy(attempt = attempt.copy(approval = null, validUntil = null))
         return awaitApproval(candidate, policy, now)
     }
     // Fail-safe: if the unknowns cannot even be computed, treat something as unknown.

@@ -157,6 +157,10 @@ class EpisodeLifecycleTest {
     @Test fun `close is accepted only when the episode was already escalated before the event`() {
         val byTime = open().on(EpisodeEvent.Closed(OPERATOR, "x"), T0.plusMillis(3_600_000))
         assertEquals(Reply.REFUSED_NOT_ESCALATED, byTime.reply)
+        val refused = byTime.records(RecordKind.IGNORED).single().entry.payload
+        assertEquals("CORRELATING", refused.get("phaseAtReceipt").textValue())   // what the event met
+        assertEquals("ESCALATED", refused.get("phase").textValue())              // where the step left the episode
+        assertEquals("not escalated when received", refused.get("why").textValue())
         assertEquals(Phase.ESCALATED, byTime.state.phase)
         assertEquals(EscalationReason.EPISODE_EXPIRED, byTime.reason)
         val byRead = open().on(EpisodeEvent.Closed(OPERATOR, "x"), T0.plusSeconds(1), read = policy { put("agentLayerEnabled", false) })

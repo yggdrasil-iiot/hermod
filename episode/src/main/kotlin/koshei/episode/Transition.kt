@@ -90,7 +90,7 @@ fun transition(state: EpisodeState, event: EpisodeEvent, read: PolicyRead?, now:
     when {
         event is EpisodeEvent.SymptomJoined -> out.join(event)
         event is EpisodeEvent.Detected -> out.ignore(event, "already open")
-        event is EpisodeEvent.Closed && !wasEscalated -> out.ignore(event, "not escalated")
+        event is EpisodeEvent.Closed && !wasEscalated -> out.ignore(event, "not escalated when received")
         // The deadline check above has normally escalated already; an early-delivered EPISODE timer still counts.
         event is EpisodeEvent.DeadlineExpired && event.which == Timer.EPISODE && !wasEscalated ->
             if (out.state.phase != Phase.ESCALATED) out.escalate(now, Escalation(EscalationReason.EPISODE_EXPIRED))
@@ -162,6 +162,9 @@ internal class Out(var state: EpisodeState, private var opening: Boolean = true)
     val commands = mutableListOf<Command>()
     var reply: Reply? = null
 
+    /** The phase the event met, before any row of this step ran (an IGNORED record's `phase` is the one after). */
+    val phaseAtReceipt: Phase = state.phase
+
     fun nextSeq(): Long = (state.recordSeq + 1).also { state = state.copy(recordSeq = it) }
 
     fun record(kind: RecordKind, payload: ObjectNode.() -> Unit = {}) {
@@ -201,6 +204,7 @@ internal class Out(var state: EpisodeState, private var opening: Boolean = true)
 internal fun Out.ignore(event: EpisodeEvent, why: String) {
     record(RecordKind.IGNORED) {
         put("event", event::class.simpleName)
+        put("phaseAtReceipt", phaseAtReceipt.name)
         put("phase", state.phase.name)
         put("why", why)
         // A late diagnosis is still the model's answer: keep it verbatim (design §13).
