@@ -66,6 +66,19 @@ class CandidatesTest {
         assertEquals(listOf("ESCALATE"), ids(Snapshot.parse(PicassoRun1.manifest, listOf(decided), emptyList()), emptyList()))
     }
 
+    @Test fun `a held unit the equipment did not match offers no decision - a person checks it on site`() {
+        for (verification in listOf("NOT_REQUESTED", "MISMATCHED", null)) {
+            val line = edited(PicassoRun1.incident("incident-6")) {
+                if (verification == null) remove("verification") else put("verification", verification)
+            }
+            assertEquals(
+                listOf("ESCALATE"),
+                ids(Snapshot.parse(PicassoRun1.manifest, listOf(line), emptyList()), emptyList()),
+                "verification=$verification",
+            )
+        }
+    }
+
     @Test fun `several steps join with plus, and colons or percent signs in values are encoded`() {
         val line = edited(PicassoRun1.search("search-1")) {
             put("jobOrderId", "A:B%C")

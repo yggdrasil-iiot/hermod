@@ -135,9 +135,13 @@ fun projectCandidates(snapshot: Snapshot, unknowns: List<Unknown>): List<Candida
     for (i in snapshot.incidents) {
         val unresolved = i.get("unresolved")?.let { it.isBoolean && it.booleanValue() } ?: false
         val undecided = i.get("resolution")?.isNull ?: true
+        // Only a unit the equipment MATCHED has grounds for either decision: picasso's resolve raises the evidence
+        // only then, and deciding DONE on an unmatched unit risks a missing part. Otherwise a person checks on site
+        // (ESCALATE) — neither CONFIRM_DONE nor REWORK is offered.
+        val matched = i.text("verification") == "MATCHED"
         val executionId = i.text("executionId")
         val unitId = i.text("unitId")
-        if (unresolved && undecided && executionId != null && unitId != null)
+        if (unresolved && undecided && matched && executionId != null && unitId != null)
             OperatorDecision.entries.forEach { add(Candidate.operatorDecision(executionId, unitId, it)) }
     }
     val blocked = unknowns.isNotEmpty()

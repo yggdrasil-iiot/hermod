@@ -418,7 +418,7 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
 |---|---|---|---|---|
 | `APPROVE_REMEDY` | 탐색이 찾은 조치 승인 | 승인 창구. 자동 승인은 koshei 정책 ∧ picasso 자격 | 예 | 정책에 따름 |
 | `CHOOSE_SOURCE` | 결품 줄의 대체 위치 선택 | 주문을 고치는 사람 | 예 | 사람 과업 (승인 단계 없음) |
-| `OPERATOR_DECISION` | 보류 단위를 `CONFIRM_DONE` / `REWORK` | 사람만 | `REWORK` 만 예 | 사람 과업 (승인 단계 없음) |
+| `OPERATOR_DECISION` | 보류 단위를 `CONFIRM_DONE` / `REWORK` — 사건 줄의 `verification` 이 `MATCHED` 일 때만 세운다(picasso `resolve` 는 그때만 근거를 올린다; 아니면 현물 확인이 권고이고 둘 다 세우지 않는다, picasso 2026-09-30 답) | 사람만 | `REWORK` 만 예 | 사람 과업 (승인 단계 없음) |
 | `SAGA_ACTION` (계획 D) | 조치 목록의 koshei 조치 | 자식 사가 | 예 | `requiresPerson` |
 | `ESCALATE` | 사람에게 넘김 | 사람 | 아니오 | — (항상 포함) |
 
