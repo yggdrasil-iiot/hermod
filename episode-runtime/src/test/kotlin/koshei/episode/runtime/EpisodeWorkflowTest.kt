@@ -445,4 +445,29 @@ class EpisodeWorkflowTest {
         val payload = opened(next.instanceId).payload
         assertTrue("first-line" in payload, "a blank manifest on the late line falls back to the opened one: $payload")
     }
+
+    // --- B3c --------------------------------------------------------------------------------------------------------
+
+    @Test fun `the view carries the candidate, the candidates offered and the diagnosis that chose it`() {
+        acts.policyJson = TestPolicies.table(autoApprove = false)
+        val ep = open()
+        val waiting = ep.until { it.phase == "AWAITING_APPROVAL" }
+        val candidate = json.readTree(waiting.candidateJson!!)
+        assertEquals(waiting.candidateId, candidate["candidateId"].textValue())
+        assertEquals("APPROVE_REMEDY", candidate["kind"].textValue())
+        assertEquals(json.readTree(Picasso.search("search-1"))["searchId"].textValue(), candidate["ref"]["searchId"].textValue())
+        val candidates = json.readTree(waiting.candidatesJson!!)
+        assertTrue(candidates.any { it["candidateId"].textValue() == waiting.candidateId })
+        assertTrue(candidates.any { it["kind"].textValue() == "ESCALATE" })
+        val diagnosis = json.readTree(waiting.diagnosisJson!!)
+        assertEquals("RECOMMENDED", diagnosis["outcome"].textValue())
+        assertEquals(waiting.candidateId, diagnosis["candidateId"].textValue())
+    }
+
+    @Test fun `before a diagnosis the view has no candidate and no diagnosis`() {
+        val ep = open()
+        val v = ep.until { it.phase == "CORRELATING" }
+        assertNull(v.candidateJson)
+        assertNull(v.diagnosisJson)
+    }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import koshei.episode.Approver
+import koshei.episode.DiagnosisVerdict
 import koshei.episode.DispatchIntent
 import koshei.episode.DispatchResult
 import koshei.episode.EpisodeEvent
@@ -143,5 +144,13 @@ internal fun viewOf(state: EpisodeState): EpisodeView {
         historyJson = strictJson.createArrayNode().apply { state.history.forEach { add(it.toJson()) } }.toString(),
         unknownsJson = strictJson.createArrayNode().apply { unknowns.forEach { add(it) } }.toString(),
         symptoms = state.symptoms.size,
+        candidateJson = attempt?.candidate?.toJson()?.toString(),
+        candidatesJson = attempt?.request?.candidates?.let { cs -> strictJson.createArrayNode().apply { cs.forEach { add(it.toJson()) } }.toString() },
+        diagnosisJson = when (val v = attempt?.verdict) {
+            is DiagnosisVerdict.Proposed -> v.response.raw.toString()
+            // An unreadable answer is kept too (raw is NullNode for non-JSON), so the card can say it could not read it.
+            is DiagnosisVerdict.Escalate -> (v.response?.raw ?: v.raw)?.toString()
+            null -> null
+        },
     )
 }

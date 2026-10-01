@@ -92,6 +92,12 @@ data class EpisodeView(
     val historyJson: String = "[]",
     val unknownsJson: String = "[]",
     val symptoms: Int = 0,
+    /** The attempt's candidate as `Candidate.toJson()`: the card draws the proposal from kind and ref (§9.5). */
+    val candidateJson: String? = null,
+    /** The candidates the attempt's diagnosis request offered, each as `Candidate.toJson()` (§7.3). */
+    val candidatesJson: String? = null,
+    /** The attempt's narrator answer as received, when there is one (§7.3 current recommendation). Records may lag; this does not. */
+    val diagnosisJson: String? = null,
 )
 
 /** What the workflow returns when the episode ends. */
