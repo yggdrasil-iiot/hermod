@@ -12,6 +12,7 @@ dependencies {
     implementation(project(":compiler"))
     implementation(project(":opcua"))        // conformance: ModelValidator/SiteModel/CommandPolicy/CanonicalSetpoints
     implementation(project(":delegation"))   // conformance: DelegationPolicy/DelegationPolicyValidator
+    implementation(project(":episode-runtime"))   // the episode outer loop's worker (design §4.1)
     implementation(libs.temporal.sdk)
     implementation(libs.slf4j.simple)
     testImplementation(kotlin("test"))
@@ -23,10 +24,16 @@ application { mainClass.set("koshei.app.WorkerKt") }
 // (e.g. KOSHEI_PLUGIN_DIR / KOSHEI_DB_* set by the gate script) would NOT reach forked task JVMs and the
 // CLI-publish and worker could disagree on the plugin store dir / DB. Forward these from the live shell
 // env into every entrypoint task so the gate's exported env is authoritative. No-op when unset.
-val kosheiEnvKeys = listOf("KOSHEI_PLUGIN_DIR", "KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_WORKER_NAME", "KOSHEI_WORKFLOWS_DIR", "KOSHEI_WF_POLL_MS", "KOSHEI_FAULT_INJECT", "KOSHEI_OPCUA_URL", "KOSHEI_OPCUA_MODEL", "KOSHEI_OPCUA_SECURITY", "KOSHEI_OPCUA_USER", "KOSHEI_OPCUA_PASS", "KOSHEI_DELEGATION_POLICY", "KOSHEI_DELEGATION_URL", "KOSHEI_APPLY_MODE", "KOSHEI_MQTT_URL", "KOSHEI_SPB_GROUP", "KOSHEI_SPB_EDGE")
+val kosheiEnvKeys = listOf("KOSHEI_PLUGIN_DIR", "KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_WORKER_NAME", "KOSHEI_WORKFLOWS_DIR", "KOSHEI_WF_POLL_MS", "KOSHEI_FAULT_INJECT", "KOSHEI_OPCUA_URL", "KOSHEI_OPCUA_MODEL", "KOSHEI_OPCUA_SECURITY", "KOSHEI_OPCUA_USER", "KOSHEI_OPCUA_PASS", "KOSHEI_DELEGATION_POLICY", "KOSHEI_DELEGATION_URL", "KOSHEI_APPLY_MODE", "KOSHEI_MQTT_URL", "KOSHEI_SPB_GROUP", "KOSHEI_SPB_EDGE", "KOSHEI_EPISODE_POLICY", "KOSHEI_NARRATOR", "KOSHEI_PICASSO")
 fun JavaExec.forwardKosheiEnv() = kosheiEnvKeys.forEach { k -> System.getenv(k)?.let { environment(k, it) } }
 
-tasks.named<JavaExec>("run") { forwardKosheiEnv() }
+tasks.named<JavaExec>("run") {
+    forwardKosheiEnv()
+    // The run task's working directory is app/, so the default relative policy path would miss the repo's model/.
+    if (System.getenv("KOSHEI_EPISODE_POLICY") == null) {
+        environment("KOSHEI_EPISODE_POLICY", rootProject.file("model/episode-policy/active.yaml").absolutePath)
+    }
+}
 tasks.register<JavaExec>("starter") {
     group = "application"
     mainClass.set("koshei.app.StarterKt")

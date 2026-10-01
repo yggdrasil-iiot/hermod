@@ -5,6 +5,11 @@ import io.temporal.serviceclient.WorkflowServiceStubs
 import io.temporal.worker.WorkerFactory
 import io.temporal.worker.WorkerOptions
 import koshei.blocks.Db
+import koshei.episode.runtime.EPISODE_TASK_QUEUE
+import koshei.episode.runtime.EpisodeRuntimeConfig
+import koshei.episode.runtime.EpisodeStore
+import koshei.episode.runtime.EpisodeWorkers
+import koshei.episode.runtime.PicassoMode
 import koshei.registry.BlockIndex
 import koshei.registry.BlockStore
 import koshei.registry.WorkflowStore
@@ -61,6 +66,19 @@ fun main() {
     )
     worker.registerWorkflowImplementationTypes(SagaWorkflowImpl::class.java)
     worker.registerActivitiesImplementations(BlockActivitiesImpl(registry))
+
+    // The episode outer loop (design §4.1): its own queue, its own tables (created if absent, never dropped).
+    // Off unless KOSHEI_PICASSO names an approval window; today only the test Mock exists (design §19 C).
+    val episodeConfig = EpisodeRuntimeConfig.fromEnv(System.getenv())
+    if (episodeConfig.picasso == PicassoMode.OFF) {
+        println("[$workerName] episode worker off (KOSHEI_PICASSO unset)")
+    } else {
+        val episodeStore = EpisodeStore { Db.connect() }
+        episodeStore.ensureSchema()
+        EpisodeWorkers.register(factory, episodeConfig, episodeStore)
+        System.err.println("[$workerName] WARNING episode worker on $EPISODE_TASK_QUEUE with the TEST Mock picasso: remedies reach no robot (design §8.3, §11)")
+        println("[$workerName] episode worker on $EPISODE_TASK_QUEUE (narrator ${episodeConfig.narrator}, policy ${episodeConfig.policyPath})")
+    }
 
     // v0.3e: bind operator-composed workflow_defs from Postgres — at startup AND via a background poll —
     // so runs started by the control plane (RunController → start(workflowName="$name@$version", …))
