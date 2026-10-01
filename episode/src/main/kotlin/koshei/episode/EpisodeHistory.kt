@@ -1,5 +1,6 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import java.time.Instant
 
@@ -13,10 +14,25 @@ data class DiagnosisSummary(val outcome: DiagnosisOutcome, val candidateId: Stri
 /** [by] is null for EXPIRED; [reason] only for REJECTED. */
 data class ApprovalSummary(val result: ApprovalResult, val by: ApprovalBy?, val reason: RejectReason?, val at: Instant)
 
-/** Filled by plan B2b-2b. */
-data class DispatchSummary(val result: String, val idempotencyKey: String, val approverKind: String?, val delivered: Boolean?)
+/**
+ * [result]: `ACCEPTED` · `PERSON_TASK` · a picasso refusal value · `UNCERTAIN` · `ANSWER_UNKNOWN` (design §9.4).
+ * [approverKind] is what koshei sent the approval window. [delivered] is what picasso says actually went out — its
+ * answer's `steps` — and null when nothing was approved; kept as a private copy, each read a fresh copy.
+ */
+class DispatchSummary(val result: String, val idempotencyKey: String, val approverKind: String?, delivered: JsonNode?) {
+    private val deliveredCopy: JsonNode? = delivered?.deepCopy()
+    val delivered: JsonNode? get() = deliveredCopy?.deepCopy()
 
-/** Filled by plan B2b-2b. */
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is DispatchSummary && result == other.result && idempotencyKey == other.idempotencyKey &&
+            approverKind == other.approverKind && deliveredCopy == other.deliveredCopy)
+
+    override fun hashCode(): Int = listOf(result, idempotencyKey, approverKind, deliveredCopy).hashCode()
+
+    override fun toString(): String = "DispatchSummary($result, $idempotencyKey)"
+}
+
+/** [grade] E0..E3 (E3 = a person's on-site check); [outcome] `DONE` · `NOT_DONE` · `UNKNOWN`. */
 data class EvidenceSummary(val grade: String, val outcome: String)
 
 /**
@@ -51,7 +67,7 @@ data class HistoryEntry(
             put("result", dispatch.result)
             put("idempotencyKey", dispatch.idempotencyKey)
             put("approverKind", dispatch.approverKind)
-            if (dispatch.delivered == null) putNull("delivered") else put("delivered", dispatch.delivered)
+            set<JsonNode>("delivered", dispatch.delivered)
         }
         if (evidence == null) putNull("evidence") else putObject("evidence").apply {
             put("grade", evidence.grade)

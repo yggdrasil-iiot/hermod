@@ -27,7 +27,7 @@ enum class EscalationReason {
 data class Escalation(val reason: EscalationReason, val detail: String? = null)
 
 /** Why an attempt ended in a new diagnosis instead of a person (design §5.1, §5.2). Recorded, not an escalation. */
-enum class RediagnoseReason { APPROVAL_REJECTED, APPROVAL_LAPSED, PRECONDITION_BROKEN }
+enum class RediagnoseReason { APPROVAL_REJECTED, APPROVAL_LAPSED, PRECONDITION_BROKEN, NOT_DONE }
 
 /**
  * Why a person rejected a proposal (design §5.3 `APPROVAL_REJECTED(reason)`, contract 0.6 §3.4 "koshei 거절 열거값").
@@ -78,7 +78,7 @@ enum class Timer { STATE, RECHECK, EPISODE, RETENTION }
 /** What an Update handler returns (design §7.2): refusals are values, recorded, never exceptions. */
 enum class Reply { ACCEPTED, REFUSED_NOT_AWAITING, REFUSED_STALE, REFUSED_SUBJECT_NOT_UNKNOWN, REFUSED_NOT_ESCALATED, REFUSED_CLOSED }
 
-enum class NoticeKind { APPROVAL_NEEDED, CONFIRM_PRECONDITION, ESCALATED, POLICY_REJECTED }
+enum class NoticeKind { APPROVAL_NEEDED, CONFIRM_PRECONDITION, ESCALATED, POLICY_REJECTED, CONFIRM_OUTCOME }
 
 /** What goes to the operator channel (design §8.5). The card itself (§9.5) is drawn by the runtime from the state. */
 data class Notice(val kind: NoticeKind, val phase: Phase, val reason: EscalationReason? = null, val detail: String? = null)
@@ -86,6 +86,7 @@ data class Notice(val kind: NoticeKind, val phase: Phase, val reason: Escalation
 enum class RecordKind {
     OPENED, TRANSITION, SYMPTOM_JOINED, DIAGNOSIS_REQUESTED, DIAGNOSIS_RESULT, PROPOSED, APPROVAL, REDIAGNOSE,
     REVALIDATION, RECHECK, CONFIRMATION, POLICY_REJECTED, IGNORED, POLICY_ADOPTED, ATTEMPT_CLOSED,
+    DISPATCH_SENT, DISPATCH_RESULT, EVIDENCE, OUTCOME_CONFIRMED,
 }
 
 /** One append-only record (design §13). The payload is a private copy; each read is a fresh copy. */
@@ -95,6 +96,15 @@ class RecordEntry(val kind: RecordKind, payload: ObjectNode) {
     override fun toString(): String = "RecordEntry($kind, $payloadCopy)"
 }
 
-/** What the DISPATCH_PENDING intent record says will be dispatched (design §5.2, §11). */
+/**
+ * What the DISPATCH_PENDING intent record says will be dispatched (design §5.2, §11). [targetUnit] is the unit whose
+ * presence in a JobResponse's `completedUnits` counts as DONE (design §12). It is null for every kind today: picasso has
+ * not said how a JobResponse names the target's unit (design §19), so no JobResponse can complete an attempt yet.
+ */
 @ConsistentCopyVisibility
-data class DispatchIntent internal constructor(val candidate: Candidate, val idempotencyKey: String, val approval: Approval?)
+data class DispatchIntent internal constructor(
+    val candidate: Candidate,
+    val idempotencyKey: String,
+    val approval: Approval?,
+    val targetUnit: String? = null,
+)

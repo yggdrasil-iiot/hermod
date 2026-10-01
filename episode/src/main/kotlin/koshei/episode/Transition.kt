@@ -222,9 +222,15 @@ internal fun Out.ignore(event: EpisodeEvent, why: String) {
  * ESCALATED (design §5.1): cancels a diagnosis in flight unless the escalation IS the diagnosis result, closes the
  * attempt into the history, and starts the retention clock from now (not from the episode deadline).
  */
-internal fun Out.escalate(now: Instant, escalation: Escalation, approval: ApprovalSummary? = null, cancelDiagnosis: Boolean = true) {
+internal fun Out.escalate(
+    now: Instant,
+    escalation: Escalation,
+    approval: ApprovalSummary? = null,
+    cancelDiagnosis: Boolean = true,
+    closedAs: ClosedAs = ClosedAs.ESCALATED,
+) {
     if (cancelDiagnosis && state.phase == Phase.DIAGNOSING) commands += Command.CancelDiagnosis
-    closeAttempt(ClosedAs.ESCALATED, now, approval)
+    closeAttempt(closedAs, now, approval)
     enter(Phase.ESCALATED, now, escalation)
     commands += Command.SetTimer(Timer.RETENTION, escalatedUntil(now, state.policy), state.token)
     notify(NoticeKind.ESCALATED, escalation.reason, escalation.detail)
@@ -234,7 +240,7 @@ internal fun Out.escalate(now: Instant, escalation: Escalation, approval: Approv
 internal fun Out.closeAttempt(closedAs: ClosedAs, now: Instant, approval: ApprovalSummary? = null) {
     val a = state.attempt ?: return
     val approvalSummary = approval ?: a.approval?.let { ApprovalSummary(ApprovalResult.APPROVED, it.by, null, it.at) }
-    val entry = HistoryEntry(a.number, a.request.candidatesVersion, a.diagnosisSummary(), approvalSummary, null, null, closedAs, now)
+    val entry = HistoryEntry(a.number, a.request.candidatesVersion, a.diagnosisSummary(), approvalSummary, a.dispatch, a.evidence, closedAs, now)
     state = state.copy(attempt = null, history = state.history + entry)
     record(RecordKind.ATTEMPT_CLOSED) { setAll<ObjectNode>(entry.toJson()) }
 }
@@ -284,6 +290,7 @@ private fun EpisodeEvent.approver(): Approver? = when (this) {
     is EpisodeEvent.ConfirmedPrecondition -> by
     is EpisodeEvent.TakenOver -> by
     is EpisodeEvent.Closed -> by
+    is EpisodeEvent.ConfirmedOutcome -> by
     else -> null
 }
 
@@ -296,12 +303,12 @@ private fun rawJson(json: String): JsonNode = try {
 
 private fun EpisodeEvent.isUpdate(): Boolean =
     this is EpisodeEvent.ApprovalDecided || this is EpisodeEvent.ConfirmedPrecondition ||
-        this is EpisodeEvent.TakenOver || this is EpisodeEvent.Closed
+        this is EpisodeEvent.TakenOver || this is EpisodeEvent.Closed || this is EpisodeEvent.ConfirmedOutcome
 
 /** The value an Update gets when its event does not apply here (design §7.2). Signals get none. */
 private fun EpisodeEvent.refusal(): Reply? = when (this) {
     is EpisodeEvent.ApprovalDecided -> Reply.REFUSED_NOT_AWAITING
-    is EpisodeEvent.ConfirmedPrecondition -> Reply.REFUSED_SUBJECT_NOT_UNKNOWN
+    is EpisodeEvent.ConfirmedPrecondition, is EpisodeEvent.ConfirmedOutcome -> Reply.REFUSED_SUBJECT_NOT_UNKNOWN
     is EpisodeEvent.Closed -> Reply.REFUSED_NOT_ESCALATED
     else -> null
 }

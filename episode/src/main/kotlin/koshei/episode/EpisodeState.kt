@@ -20,6 +20,14 @@ data class Attempt internal constructor(
      * from the table in force then (design §5.1). Null before that. A later table can only shorten it.
      */
     val validUntil: Instant? = null,
+    /** The intent DISPATCH_PENDING recorded (under [intentSeq]). */
+    val intent: DispatchIntent? = null,
+    /** picasso's `executionId` from an APPROVED answer: what links a JobResponse to this attempt (design §12). */
+    val executionId: String? = null,
+    val dispatch: DispatchSummary? = null,
+    val evidence: EvidenceSummary? = null,
+    /** NO_PROPOSAL, REMEDY_NOT_APPLIED or an uncertain dispatch: a later DONE is "done, by whom unknown" (design §11). */
+    val authorUnknown: Boolean = false,
 ) {
     /** design §7.2: instance id + attempt number. */
     val proposalId: String get() = "${request.episodeId}#$number"
@@ -59,6 +67,11 @@ data class EpisodeState internal constructor(
     val autoApproveSuspended: Boolean,
     val lastRejected: List<String>,
     val recordSeq: Long,
+    /** The episode's own unknowns (design §9.1, §9.4), e.g. OUTCOME after NO_PROPOSAL; they reach the next diagnosis request. */
+    val episodeUnknowns: List<Unknown> = emptyList(),
+    /** JobResponses that arrived in DISPATCHED, before the answer; applied on entering AWAITING_EVIDENCE / UNKNOWN(OUTCOME). */
+    val bufferedEvidence: List<Evidence> = emptyList(),
+    val seenJobResponseIds: Set<String> = emptySet(),
 ) {
     /** Every symptom so far as a snapshot (design §9.0). Throws on a malformed manifest; callers escalate. */
     internal fun snapshot(): Snapshot = Snapshot(
@@ -67,6 +80,6 @@ data class EpisodeState internal constructor(
         symptoms.filter { it.kind == SymptomKind.SEARCH }.map { it.line },
     )
 
-    /** Unknowns right now (design §9.1), from every symptom so far. Plan B2b-2b adds episode-level ones and confirmations. */
-    internal fun currentUnknowns(): List<Unknown> = deriveUnknowns(snapshot())
+    /** Unknowns right now (design §9.1): from every symptom so far, plus the episode's own. A person's confirmations: plan B2b-2c. */
+    internal fun currentUnknowns(): List<Unknown> = deriveUnknowns(snapshot()) + episodeUnknowns
 }
