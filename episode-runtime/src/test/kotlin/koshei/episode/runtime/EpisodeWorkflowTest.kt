@@ -332,6 +332,7 @@ class EpisodeWorkflowTest {
         val detail = json.readTree(lag.first())["detail"].textValue()
         assertTrue("PROPOSED" in detail || "APPROVAL" in detail, "the notice names the failed record: $detail")
         assertTrue("store down for" in detail, "the notice names the application's cause: $detail")
+        assertTrue("message=" !in detail && "type=" !in detail, "the bare message, not the failure's toString: $detail")
         assertEquals("AWAITING_EVIDENCE", ep.view().phase, "the failed records did not hold the episode up")
     }
 
@@ -429,5 +430,14 @@ class EpisodeWorkflowTest {
         val payload = opened(next.instanceId).payload
         assertTrue("first-line" in payload, "the next run opened with the manifest this run opened with: $payload")
         assertTrue("start-arg" !in payload, "not with this run's start argument: $payload")
+    }
+
+    @Test fun `a late line with a blank manifest keeps the manifest the run opened with`() {
+        val gate = CountDownLatch(1)
+        acts.dispatchGate = gate
+        open(id = "ep:blank-late", symptom = searchSignal("search-1").copy(manifestJson = manifest("first-line")))
+        val next = forward("ep:blank-late", gate, searchSignal("search-2").copy(manifestJson = ""))
+        val payload = opened(next.instanceId).payload
+        assertTrue("first-line" in payload, "a blank manifest on the late line falls back to the opened one: $payload")
     }
 }

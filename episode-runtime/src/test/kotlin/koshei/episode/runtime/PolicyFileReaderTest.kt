@@ -42,6 +42,24 @@ class PolicyFileReaderTest {
         assertNotNull(read.reason)
     }
 
+    @Test fun `a file over 1 MiB is UNREADABLE before it is read`() {
+        val file = dir.resolve("active.yaml")
+        val frame = "version: \"\"\n"
+        Files.writeString(file, "version: \"" + "x".repeat(1024 * 1024 + 1 - frame.length) + "\"\n")
+        assertEquals(1024L * 1024 + 1, Files.size(file))
+        val read = PolicyFileReader(file).read()
+        assertEquals("UNREADABLE", read.kind, read.json?.take(40))
+        assertTrue("1048576" in read.reason!!, read.reason)
+    }
+
+    @Test fun `a table nested 100 deep is UNREADABLE`() {
+        val file = dir.resolve("active.yaml")
+        Files.writeString(file, "a: " + "{b: ".repeat(100) + "1" + "}".repeat(100) + "\n")
+        val read = PolicyFileReader(file).read()
+        assertEquals("UNREADABLE", read.kind, read.json?.take(40))
+        assertTrue("depth" in read.reason!!, read.reason)
+    }
+
     @Test fun `the file is read afresh on every call`() {
         val file = dir.resolve("active.yaml")
         val reader = PolicyFileReader(file)

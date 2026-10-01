@@ -52,7 +52,7 @@
 | 설계 | 이 계획의 코드 |
 |---|---|
 | §8.2 정책 원천은 파일 `model/episode-policy/active.yaml` 하나 | 경로는 `KOSHEI_EPISODE_POLICY`, 없으면 작업 디렉터리 기준 `model/episode-policy/active.yaml`. `:app:run` 은 저장소 뿌리의 절대경로를 넣어 준다. 파일이 없으면 `MISSING`, 읽거나 풀 수 없으면 `UNREADABLE`, 풀리면 JSON 글자로 `FOUND` |
-| §8.2 「B3 의 YAML 읽개는 중복 키를 거부해야 한다」 | Jackson 의 트리 읽기에 기대지 않는다. YAML 파서의 토큰을 직접 걸어 트리를 만든다. 중복 키, 앵커와 별칭(`&a` / `*a`: 별칭은 다른 값을 몰래 끌어오는 길이다), 둘째 문서(`---`), 빈 파일은 모두 `UNREADABLE` |
+| §8.2 「B3 의 YAML 읽개는 중복 키를 거부해야 한다」 | Jackson 의 트리 읽기에 기대지 않는다. 두 번 걷는다. 먼저 SnakeYAML 의 이벤트를 걸어 앵커와 별칭(`&a` / `*a`: 별칭은 다른 값을 몰래 끌어오는 길이다), 태그(`!!str`, `!foo`, 비특정 `!` 포함), `%YAML` · `%TAG` 지시문을 거부한다. Jackson 파서는 스칼라의 앵커를 드러내지 않기 때문이다. 다음에 Jackson 파서의 토큰을 직접 걸어 트리를 만들며 중복 키, 정규 JSON 꼴이 아닌 스칼라(`010` · `0x10` · `0b1` · `1_000` · `+1` · `1000.` · `.5`, `yes` · `on` · `off` · `True`: YAML 1.1 은 이들을 다른 값으로 읽는다), 둘째 문서(`---`), 빈 파일, 64 단을 넘는 중첩을 거부한다. 모두 `UNREADABLE`. 파일이 1 MiB 를 넘어도 읽기 전에 `UNREADABLE` |
 | §10.1 v1 은 자동 승인을 끈다 | 커밋하는 `active.yaml` 은 `autoApprove.APPROVE_REMEDY.allowed: false`. 값은 `:episode` 시험 표와 같다. 시험이 이 파일을 직접 읽어 유효한지와 자동 승인이 꺼졌는지를 지킨다 |
 | §13 `episode_event(episode_instance_id, seq, kind, payload jsonb, at)` 추가 전용, `schema.sql` 과 분리된 스크립트 | `episode-runtime/src/main/resources/episode-schema.sql`(`CREATE … IF NOT EXISTS`, 몇 번이든 돌려도 같다). `EpisodeStore.ensureSchema()` 가 워커 시작 때 돌린다. `at` 은 쓴 시각(DB `now()`)이다. 권한 회수는 스크립트 주석으로 적고 계획 D 에서 한다 |
 | §8.5 `record` 는 `(instance, seq)` 로 `ON CONFLICT DO NOTHING` | 같은 내용이면 조용히 넘긴다(재시도). 다른 내용이면 `RecordConflict` → 재시도하지 않는 실패. 실행 의도는 같은 seq 공간에 `kind = DISPATCH_INTENT` 로 쓴다 |
@@ -629,7 +629,7 @@ internal object StrictYaml {
 }
 ```
 
-`YAMLParser.isCurrentAlias()` 와 `getObjectId()` 가 2.17.2 에 있는 것은 리뷰에서 `javap` 로 확인했다. `an alias is refused` 의 기대 문구가 `anchor` 인 것은 문서에 앵커가 먼저 나오기 때문이다.
+`YAMLParser.isCurrentAlias()` 와 `getObjectId()` 가 2.17.2 에 있는 것은 리뷰에서 `javap` 로 확인했다. (정정, 청크 2 리뷰) 위 코드의 앵커 검사는 컬렉션에만 듣는다. Jackson 2.17.2 의 `getObjectId()` 는 스칼라에 대해 늘 `null` 이라 `a: &x 1` 이 통과했다. `an alias is refused` 가 통과한 것도 앵커를 먼저 만나서가 아니라 별칭 메시지에 우연히 `anchors` 라는 낱말이 들어 있었기 때문이다. 고친 코드는 SnakeYAML 이벤트를 먼저 걸어 앵커 · 별칭 · 태그 · 지시문을 거부하고, 시험은 `anchor &x` · `alias *x` 처럼 이름까지 본다. 앵커와 그 별칭이 함께 있으면 이벤트 순서상 앵커에서 거부된다.
 
 - [ ] **Step 5: `StrictYamlTest` 통과를 확인한다**
 
