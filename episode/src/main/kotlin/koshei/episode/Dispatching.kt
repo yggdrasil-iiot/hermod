@@ -169,7 +169,9 @@ internal fun Out.onDispatched(event: EpisodeEvent, policy: PolicyTable, now: Ins
 
 private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, result: DispatchResult, policy: PolicyTable, now: Instant) {
     val judgement = judgeDispatch(intent.candidate.kind, result)
-    // picasso counts execution ids per process, so one can come again after a restart: then nothing may link to it.
+    // An execution id can come again: picasso routes a later approval for the same jobOrderId to `revise()`, which keeps
+    // the same executionId (picasso Middleware.kt ~265) — normal operation, so a second remedy on one order never links to
+    // a JobResponse — and its counters restart with the process. Then nothing may link to it (fail closed).
     val reused = judgement is DispatchJudgement.Accepted && judgement.executionId in state.usedExecutionIds
     record(RecordKind.DISPATCH_RESULT) {
         put("judgement", judgement.label)

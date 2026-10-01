@@ -218,4 +218,44 @@ class DispatchReviewTest {
         assertNotEquals(s, Episodes.search("search-1", at = Episodes.T0.plusSeconds(1)))
         assertNotEquals(s, Episodes.search("search-2"))
     }
+
+    // ---- follow-up: ask a person when no JobResponse can complete the attempt ----
+
+    private fun Step.confirmNotices(): List<Notice> = notices().filter { it.kind == NoticeKind.CONFIRM_OUTCOME }
+
+    @Test fun `an accepted remedy no JobResponse can complete asks a person once`() {
+        val s = accepted()
+        assertEquals(Phase.AWAITING_EVIDENCE, s.state.phase)
+        assertEquals(listOf(Notice(NoticeKind.CONFIRM_OUTCOME, Phase.AWAITING_EVIDENCE, null, REMEDY)), s.confirmNotices())
+    }
+
+    @Test fun `an issued person task does not ask again`() {
+        val s = dispatched(incident("incident-6")).returned(DispatchResult.PersonTaskIssued)
+        assertEquals(Phase.AWAITING_EVIDENCE, s.state.phase)
+        assertTrue(s.notices().isEmpty())
+    }
+
+    @Test fun `a remedy with a target unit and its own execution is left to its JobResponses`() {
+        val s = withTarget(dispatched()).returned(DispatchResult.Answer(PicassoAnswers.approved()))
+        assertEquals(Phase.AWAITING_EVIDENCE, s.state.phase)
+        assertTrue(s.confirmNotices().isEmpty())
+    }
+
+    @Test fun `a reused execution id asks a person even with a target unit`() {
+        val a1 = accepted()
+        val diagnosing = notDone(a1)
+        val a2 = withTarget(
+            diagnosing.answer().let { it.revalidated(TriState.TRUE, it.state.enteredAt.plusSeconds(1)) }.recorded(),
+        ).returned(DispatchResult.Answer(PicassoAnswers.approved()))
+        assertNull(a2.state.attempt!!.executionId)
+        assertEquals(1, a2.confirmNotices().size)
+    }
+
+    @Test fun `a kept doubtful report moves to UNKNOWN(OUTCOME) with one notice, not two`() {
+        val d = dispatched()
+        val early = d.evidence(jobResponse("jr-1", inDoubt = listOf("u-1")), d.state.enteredAt.plusMillis(300))
+        val s = early.returned(DispatchResult.Answer(PicassoAnswers.approved()))
+        assertEquals(Phase.UNKNOWN_OUTCOME, s.state.phase)
+        assertEquals(listOf(Phase.UNKNOWN_OUTCOME), s.confirmNotices().map { it.phase })
+    }
 }

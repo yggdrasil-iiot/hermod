@@ -8,6 +8,14 @@ internal fun Out.enterAwaitingEvidence(policy: PolicyTable, now: Instant) {
     enter(Phase.AWAITING_EVIDENCE, now)
     stateTimer(now, policy.deadlines.evidenceMs)
     replayBuffered(policy, now)
+    // A remedy no JobResponse can complete (no target unit known, or its execution id was reused) ends only by a person
+    // or the deadline: say so. A person task needs no notice, the dispatch activity issued the task. After the replay, so
+    // a kept doubtful report that already moved the episode to UNKNOWN(OUTCOME) does not notify twice.
+    val attempt = state.attempt
+    val candidate = attempt?.candidate
+    if (state.phase == Phase.AWAITING_EVIDENCE && candidate?.kind == CandidateKind.APPROVE_REMEDY &&
+        (attempt.executionId == null || attempt.intent?.targetUnit == null))
+        notify(NoticeKind.CONFIRM_OUTCOME, detail = candidate.candidateId)
 }
 
 /**
@@ -37,7 +45,9 @@ internal fun Out.bufferEvidence(e: Evidence) {
 /**
  * Re-applies what DISPATCHED kept — an internal step, not a new signal, so the jobResponseId dedup does not apply (§6).
  * The reports arrived together, so a doubt in any linked one holds back every resolution of the batch: a clean report must
- * not resolve the attempt just because it happened to be replayed before the doubtful one (design §12 ②).
+ * not resolve the attempt just because it happened to be replayed before the doubtful one (design §12 ②). A kept batch is
+ * therefore stricter than a stream: if any linked kept report is in doubt, no kept report resolves — and since those
+ * reports are already marked seen, only a fresh report can resolve afterwards.
  */
 private fun Out.replayBuffered(policy: PolicyTable, now: Instant) {
     val buffered = state.bufferedEvidence
