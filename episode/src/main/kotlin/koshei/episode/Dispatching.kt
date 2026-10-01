@@ -79,3 +79,106 @@ internal fun judgePicassoAnswer(json: String): DispatchJudgement {
         else -> DispatchJudgement.AnswerUnknown("outcome $outcome")
     }
 }
+
+/** What koshei tells the approval window (picasso §7.1): AGENT for a POLICY approval, PERSON for a person's; none for a task. */
+internal fun approverKindOf(intent: DispatchIntent): String? = when {
+    intent.candidate.kind != CandidateKind.APPROVE_REMEDY -> null
+    intent.approval?.by == ApprovalBy.POLICY -> "AGENT"
+    else -> "PERSON"
+}
+
+/**
+ * DISPATCH_PENDING (design §5.2): only this attempt's intent `Recorded` may dispatch; any other record result escalates
+ * without dispatching. A JobResponse handled here came before this attempt's `Recorded` and never counts (§12).
+ */
+internal fun Out.onDispatchPending(event: EpisodeEvent, policy: PolicyTable, now: Instant) {
+    val expected = state.attempt?.intentSeq
+        ?: return escalate(now, Escalation(EscalationReason.RECORD_FAILED, "internal: no intent in DISPATCH_PENDING"))
+    when (event) {
+        is EpisodeEvent.Recorded ->
+            if (event.seq == expected) dispatch(policy, now)
+            else escalate(now, Escalation(EscalationReason.RECORD_FAILED, "Recorded(${event.seq}), expected $expected"))
+        is EpisodeEvent.RecordFailed -> escalate(
+            now,
+            Escalation(EscalationReason.RECORD_FAILED, if (event.seq == expected) event.message else "RecordFailed(${event.seq}), expected $expected"),
+        )
+        is EpisodeEvent.EvidenceArrived -> {
+            val e = event.evidence
+            if (e.jobResponseId in state.seenJobResponseIds) recordEvidence(e, counted = false, why = "duplicate jobResponseId")
+            else {
+                // Seen now, so a redelivered copy after the answer cannot count either.
+                state = state.copy(seenJobResponseIds = state.seenJobResponseIds + e.jobResponseId)
+                recordEvidence(e, counted = false, why = "before this attempt's Recorded")
+            }
+        }
+        else -> ignore(event, "dispatch pending")
+    }
+}
+
+/** `Recorded` → `Dispatch`, after the same gate as before the intent (design §6); counts the dispatch (REPEATED_REMEDY). */
+private fun Out.dispatch(policy: PolicyTable, now: Instant) {
+    if (!passesDispatchGate(policy, now)) return
+    val intent = state.attempt?.intent
+        ?: return escalate(now, Escalation(EscalationReason.RECORD_FAILED, "internal: no intent to dispatch"))
+    val id = intent.candidate.candidateId
+    val count = (state.dispatchCounts[id] ?: 0) + 1
+    state = state.copy(dispatchCounts = state.dispatchCounts + (id to count))
+    enter(Phase.DISPATCHED, now)
+    val approverKind = approverKindOf(intent)
+    record(RecordKind.DISPATCH_SENT) {
+        put("candidateId", id)
+        put("idempotencyKey", intent.idempotencyKey)
+        put("approverKind", approverKind)
+        put("count", count)
+    }
+    commands += Command.Dispatch(intent, approverKind, policy.deadlines.dispatchMs, state.token)
+}
+
+/** DISPATCHED (design §5.2): the answer decides; a JobResponse that comes first is kept for the next phase. */
+internal fun Out.onDispatched(event: EpisodeEvent, policy: PolicyTable, now: Instant) {
+    val attempt = state.attempt
+    val intent = attempt?.intent
+        ?: return escalate(now, Escalation(EscalationReason.DISPATCH_ANSWER_UNKNOWN, "internal: no intent in DISPATCHED"))
+    when {
+        event is EpisodeEvent.DispatchReturned && event.token != state.token -> ignore(event, "stale dispatch result")
+        event is EpisodeEvent.DispatchReturned -> onDispatchResult(attempt, intent, event.result, policy, now)
+        event is EpisodeEvent.EvidenceArrived -> bufferEvidence(event.evidence)
+        else -> ignore(event, "dispatched")
+    }
+}
+
+private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, result: DispatchResult, policy: PolicyTable, now: Instant) {
+    val judgement = judgeDispatch(intent.candidate.kind, result)
+    record(RecordKind.DISPATCH_RESULT) {
+        put("judgement", judgement::class.simpleName)
+        if (result is DispatchResult.Answer) put("answer", result.json)
+        if (result is DispatchResult.Uncertain) put("detail", result.message)
+    }
+    fun summary(value: String, delivered: JsonNode? = null) = DispatchSummary(value, intent.idempotencyKey, approverKindOf(intent), delivered)
+    when (judgement) {
+        is DispatchJudgement.Accepted -> {
+            state = state.copy(attempt = attempt.copy(executionId = judgement.executionId, dispatch = summary("ACCEPTED", judgement.delivered)))
+            enterAwaitingEvidence(policy, now)
+        }
+        DispatchJudgement.PersonTask -> {
+            state = state.copy(attempt = attempt.copy(dispatch = summary("PERSON_TASK")))
+            enterAwaitingEvidence(policy, now)
+        }
+        is DispatchJudgement.MayHaveLanded -> {
+            state = state.copy(attempt = attempt.copy(dispatch = summary(judgement.refusal), authorUnknown = true))
+            enterUnknownOutcome(policy, now, outcomeUnknown = true, detail = judgement.refusal)
+        }
+        is DispatchJudgement.Uncertain -> {
+            state = state.copy(attempt = attempt.copy(dispatch = summary("UNCERTAIN"), authorUnknown = true))
+            enterUnknownOutcome(policy, now, outcomeUnknown = true, detail = judgement.detail)
+        }
+        is DispatchJudgement.Refused -> {
+            state = state.copy(attempt = attempt.copy(dispatch = summary(judgement.refusal)))
+            escalate(now, Escalation(EscalationReason.DISPATCH_REFUSED, judgement.refusal))
+        }
+        is DispatchJudgement.AnswerUnknown -> {
+            state = state.copy(attempt = attempt.copy(dispatch = summary("ANSWER_UNKNOWN")))
+            escalate(now, Escalation(EscalationReason.DISPATCH_ANSWER_UNKNOWN, judgement.detail))
+        }
+    }
+}

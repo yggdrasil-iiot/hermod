@@ -86,24 +86,28 @@ private fun Out.recheckTimer(policy: PolicyTable, now: Instant) {
 }
 
 /**
- * The last gate before DISPATCH_PENDING. The approval (or, for a person task, the proposal) must still be valid
- * (design §5.1); a POLICY approval must still be one the table in force would give — the table may have turned
- * auto-approval off or been rejected meanwhile (R6, §8.2), and then a person approves instead; anything unknown right
- * now — including symptoms that joined after the diagnosis — blocks an execution-class candidate (§6, the second line
- * of defence after the projection). Then the execution intent is recorded; `Dispatch` follows only its `Recorded`
- * (plan B2b-2b, which repeats these checks there).
+ * The gate before the execution intent, and again before `Dispatch` (design §5.1, §6). The approval (or, for a person
+ * task, the proposal) must still be valid — both the window fixed when it was given and the window of the table in
+ * force; a POLICY approval must still be one the table in force would give — the table may have turned auto-approval
+ * off or been rejected meanwhile (R6, §8.2), and then a person approves instead; anything unknown right now — symptoms
+ * that joined after the diagnosis, the episode's own unknowns — blocks an execution-class candidate (§6, the second line
+ * of defence after the projection). Returns true when the attempt may go on; otherwise the episode has already moved
+ * (a new diagnosis, back to a person, or ESCALATED).
  */
-private fun Out.proceedToDispatch(policy: PolicyTable, now: Instant) {
+internal fun Out.passesDispatchGate(policy: PolicyTable, now: Instant): Boolean {
     val attempt = state.attempt
     val candidate = attempt?.candidate
     val basis = attempt?.approval?.at ?: attempt?.proposedAt
-    if (attempt == null || candidate == null || basis == null)
-        return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
+    if (attempt == null || candidate == null || basis == null) {
+        escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
+        return false
+    }
     // Valid only if both the window fixed when the approval was given and the window of the table in force now allow it.
     val fixedUntil = attempt.validUntil
     if (!approvalStillValid(basis, now, policy) || (fixedUntil != null && !now.isBefore(fixedUntil))) {
         val until = listOfNotNull(basis.plusMillis(policy.deadlines.approvalValidityMs), fixedUntil).min()
-        return rediagnose(RediagnoseReason.APPROVAL_LAPSED, policy, now, detail = "valid until $until")
+        rediagnose(RediagnoseReason.APPROVAL_LAPSED, policy, now, detail = "valid until $until")
+        return false
     }
     val clean = (attempt.verdict as? DiagnosisVerdict.Proposed)?.clean ?: false
     if (attempt.approval?.by == ApprovalBy.POLICY && !autoApproves(candidate, clean, policy)) {
@@ -114,15 +118,26 @@ private fun Out.proceedToDispatch(policy: PolicyTable, now: Instant) {
             put("policyVersion", policy.version)
         }
         state = state.copy(attempt = attempt.copy(approval = null, validUntil = null))
-        return awaitApproval(candidate, policy, now)
+        awaitApproval(candidate, policy, now)
+        return false
     }
     // Fail-safe: if the unknowns cannot even be computed, treat something as unknown.
     val somethingUnknown = try { state.currentUnknowns().isNotEmpty() } catch (e: Exception) { true }
-    if (candidate.executionClass && somethingUnknown)
-        return escalate(now, Escalation(EscalationReason.UNKNOWN_BLOCKS_EXECUTION, "unknown after the diagnosis: ${candidate.candidateId}"))
+    if (candidate.executionClass && somethingUnknown) {
+        escalate(now, Escalation(EscalationReason.UNKNOWN_BLOCKS_EXECUTION, "unknown after the diagnosis: ${candidate.candidateId}"))
+        return false
+    }
+    return true
+}
+
+/** REVALIDATING / UNKNOWN(PRECONDITION) → DISPATCH_PENDING: records the execution intent; `Dispatch` follows only its `Recorded`. */
+private fun Out.proceedToDispatch(policy: PolicyTable, now: Instant) {
+    if (!passesDispatchGate(policy, now)) return
+    val attempt = state.attempt ?: return
+    val candidate = attempt.candidate ?: return
     enter(Phase.DISPATCH_PENDING, now)
     val seq = nextSeq()
     val intent = DispatchIntent(candidate, "${state.instanceId}:${attempt.number}:${candidate.kind.name}", attempt.approval)
-    state = state.copy(attempt = attempt.copy(intentSeq = seq))
+    state = state.copy(attempt = attempt.copy(intentSeq = seq, intent = intent))
     commands += Command.RecordIntent(seq, intent, policy.deadlines.recordMs)
 }

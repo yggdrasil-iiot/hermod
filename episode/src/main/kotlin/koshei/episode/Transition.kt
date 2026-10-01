@@ -116,8 +116,10 @@ private fun Out.onPhase(event: EpisodeEvent, policy: PolicyTable, now: Instant) 
     Phase.AWAITING_APPROVAL -> onAwaitingApproval(event, policy, now)
     Phase.REVALIDATING -> onRevalidating(event, policy, now)
     Phase.UNKNOWN_PRECONDITION -> onUnknownPrecondition(event, policy, now)
-    // Plan B2b-2b: DISPATCH_PENDING, DISPATCHED, AWAITING_EVIDENCE, UNKNOWN_OUTCOME.
-    else -> ignore(event, "not handled in ${state.phase} yet")
+    Phase.DISPATCH_PENDING -> onDispatchPending(event, policy, now)
+    Phase.DISPATCHED -> onDispatched(event, policy, now)
+    Phase.AWAITING_EVIDENCE, Phase.UNKNOWN_OUTCOME -> onOutcome(event, policy, now)
+    Phase.ESCALATED, Phase.RESOLVED, Phase.SUPERSEDED, Phase.CLOSED -> ignore(event, "not an agent phase")
 }
 
 /** ESCALATED (design §5.1): the agent takes no action; a person closes it, or its retention does. */
@@ -209,6 +211,13 @@ internal fun Out.ignore(event: EpisodeEvent, why: String) {
         put("why", why)
         // A late diagnosis is still the model's answer: keep it verbatim (design §13).
         if (event is EpisodeEvent.DiagnosisReturned) put("json", event.json)
+        // So is a late dispatch result — what went out under this episode's name — and any JobResponse (§5.1, §13).
+        if (event is EpisodeEvent.DispatchReturned) when (val r = event.result) {
+            is DispatchResult.Answer -> put("answer", r.json)
+            is DispatchResult.Uncertain -> put("detail", r.message)
+            DispatchResult.PersonTaskIssued -> put("result", "PersonTaskIssued")
+        }
+        if (event is EpisodeEvent.EvidenceArrived) putObject("evidence").putEvidence(event.evidence)
         // Who sent an Update that did not apply (the PoC has no authentication, design §7.2).
         event.approver()?.let {
             put("by", it.id)
