@@ -60,3 +60,41 @@ internal fun Step.records(kind: RecordKind): List<Command.Record> = commands.fil
 internal fun Step.notices(): List<Notice> = commands.filterIsInstance<Command.Notify>().map { it.notice }
 
 internal val Step.reason: EscalationReason? get() = state.escalation?.reason
+
+/** picasso approval-window answers, shaped as picasso `ApprovalWire.encode` writes them (picasso main 584c6cd). */
+internal object PicassoAnswers {
+    const val EXECUTION = "exec-42"
+
+    fun approved(executionId: String = EXECUTION): String =
+        """{"schemaVersion":"2","contractSemver":"1.0.0","outcome":"APPROVED","executionId":"$executionId","steps":[{"skillType":"pick_place","parameters":{"slot":"B-03"}}]}"""
+
+    fun refused(refusal: String, schema: String = "2"): String =
+        """{"schemaVersion":"$schema","contractSemver":"1.0.0","outcome":"REFUSED","refusal":"$refusal","reason":"r"}"""
+}
+
+/** A JobResponse for the default execution: everything completed, nothing in doubt, unless told otherwise. */
+internal fun jobResponse(
+    id: String,
+    executionId: String? = PicassoAnswers.EXECUTION,
+    completed: List<String>? = listOf("u-1"),
+    inDoubt: List<String>? = emptyList(),
+    unverified: List<String>? = emptyList(),
+    operatorRequired: Boolean? = false,
+    at: Instant = Episodes.T0,
+): Evidence = Evidence(id, executionId, "DONE", "E2", completed, inDoubt, unverified, operatorRequired, at)
+
+/** DISPATCH_PENDING: auto-approved by the test table, revalidated TRUE one second later. */
+internal fun pending(first: Symptom = Episodes.search("search-1"), read: PolicyRead = Episodes.policy()): Step =
+    Episodes.open(first, read).expireState().answer().let { it.revalidated(TriState.TRUE, it.state.enteredAt.plusSeconds(1)) }
+
+/** The intent's `Recorded`, one second after DISPATCH_PENDING began unless [now] says otherwise. */
+internal fun Step.recorded(now: Instant = state.enteredAt.plusSeconds(1)): Step =
+    on(EpisodeEvent.Recorded(state.attempt!!.intentSeq!!), now)
+
+/** DISPATCHED: [pending] plus the intent's `Recorded`. */
+internal fun dispatched(first: Symptom = Episodes.search("search-1"), read: PolicyRead = Episodes.policy()): Step =
+    pending(first, read).recorded()
+
+/** The dispatch result for the current phase (the token its command carried). */
+internal fun Step.returned(result: DispatchResult, now: Instant = state.enteredAt.plusSeconds(2)): Step =
+    on(EpisodeEvent.DispatchReturned(result, state.token), now)
