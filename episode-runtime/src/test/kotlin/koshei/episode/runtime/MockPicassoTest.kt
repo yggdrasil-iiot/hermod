@@ -62,6 +62,38 @@ class MockPicassoTest {
 
     @Test fun `a candidate it cannot read is UNKNOWN`() = assertEquals("UNKNOWN", MockPicasso().revalidate("{not json"))
 
+    @Test fun `both person-task kinds are TRUE`() {
+        for (kind in listOf("CHOOSE_SOURCE", "OPERATOR_DECISION"))
+            assertEquals("TRUE", MockPicasso().revalidate("""{"candidateId":"$kind:x","kind":"$kind","ref":{}}"""), kind)
+    }
+
+    @Test fun `a candidate that is not an object, or names no kind it knows, is UNKNOWN - it does not act on what it cannot read`() {
+        val picasso = MockPicasso()
+        for (c in listOf("", "null", "[]", "\"APPROVE_REMEDY\"", "{}", """{"kind":""}""", """{"kind":"  "}""", """{"kind":7}""", """{"kind":"SOMETHING_NEW"}"""))
+            assertEquals("UNKNOWN", picasso.revalidate(c), c)
+    }
+
+    @Test fun `a remedy that does not name its robot and order is UNKNOWN`() {
+        val unnamed = listOf(
+            remedy(robot = ""), remedy(order = ""), remedy(robot = " "),
+            """{"kind":"APPROVE_REMEDY","ref":{"jobOrderId":"PATROL-1","searchId":"s"}}""",
+            """{"kind":"APPROVE_REMEDY","ref":{"robotId":7,"jobOrderId":"PATROL-1","searchId":"s"}}""",
+        )
+        for (c in unnamed) assertEquals("UNKNOWN", MockPicasso().revalidate(c), c)
+    }
+
+    @Test fun `a remedy that does not name its robot and order is never approved and consumes nothing`() {
+        val picasso = MockPicasso()
+        val unnamed = answer(picasso.approve(intent(remedy(robot = "")), "PERSON"))
+        assertRefusal(unnamed, "NO_PROPOSAL")
+        assertEquals("mock: no proposal for an unnamed robot/order", unnamed["reason"].textValue())
+        // Asked again: still NO_PROPOSAL, not REMEDY_NOT_APPLIED - nothing was consumed.
+        assertEquals("NO_PROPOSAL", answer(picasso.approve(intent(remedy(robot = "")), "PERSON"))["refusal"].textValue())
+        assertEquals("NO_PROPOSAL", answer(picasso.approve(intent(remedy(order = " ")), "PERSON"))["refusal"].textValue())
+        assertEquals("UNKNOWN", picasso.revalidate(remedy(robot = "")))
+        assertEquals("mock-exec-1", answer(picasso.approve(intent(remedy()), "PERSON"))["executionId"].textValue(), "no execution was counted")
+    }
+
     // The core's reader of these answers (judgePicassoAnswer) is internal to :episode and has no public entry point, so
     // each answer shape is held to the exact field set that reader needs (picasso ApprovalWire schema 2).
 

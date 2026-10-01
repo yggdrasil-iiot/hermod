@@ -88,6 +88,23 @@ class EpisodeStoreTest {
         assertNull(store.outcome("k1"))
     }
 
+    @Test fun `an unstorable value's message carries no part of the payload - it reaches notices and logs`() {
+        val payload = """{"operator":"secret-operator-id","note":"confidential","a":"\u0000"}"""   // the JSON escape: jsonb refuses it
+        val failures = listOf(
+            assertThrows<RecordUnstorable> { store.append("ep:a/r1", 1, "OPENED", payload) },
+            assertThrows<RecordUnstorable> { store.notice("ep:a/r1", payload) },
+            assertThrows<RecordUnstorable> { store.issueTask("ep:a/r1", "k1", payload) },
+            assertThrows<RecordUnstorable> { store.saveOutcome("ep:a/r1", "k2", DispatchOutcome("ANSWER", "{\"note\":\"confidential\u0000\"}")) },
+        )
+        for (e in failures) {
+            val m = e.message!!
+            assertFalse("secret-operator-id" in m || "confidential" in m, m)
+            assertFalse("Where" in m || "Detail" in m || "JSON data" in m, m)
+            assertTrue("SQLState 22" in m, m)
+            assertTrue(e.cause is SQLException, "the full exception stays the cause")
+        }
+    }
+
     @Test fun `a person task whose notice the database refuses leaves neither row`() {
         // The task row goes in first; the notice INSERT then fails in the database, inside the same transaction.
         assertThrows<RecordUnstorable> { store.issueTask("ep:a/r1", "ep:a/r1:1:CHOOSE_SOURCE", nul) }

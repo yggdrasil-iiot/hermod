@@ -1,5 +1,6 @@
 package koshei.episode.runtime
 
+import com.fasterxml.jackson.databind.JsonNode
 import io.temporal.failure.ApplicationFailure
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.assertThrows
@@ -14,7 +15,7 @@ import kotlin.test.assertTrue
 class EpisodeActivitiesImplTest {
     @TempDir lateinit var dir: Path
     private lateinit var store: EpisodeStore
-    private val picasso = MockPicasso()
+    private val picasso = CountingWindow(MockPicasso())
     private val acts by lazy { EpisodeActivitiesImpl(PolicyFileReader(dir.resolve("active.yaml")), store, picasso) }
 
     @BeforeEach fun up() { store = EpisodeDb.reset() }
@@ -59,6 +60,7 @@ class EpisodeActivitiesImplTest {
         val again = acts.dispatch("ep:a/r1", remedyIntent(), "PERSON")
         assertEquals(first, again)
         assertTrue("mock-exec-1" in first.answerJson!!)
+        assertEquals(1, picasso.approvals, "the stored answer is returned without asking picasso again")
     }
 
     @Test fun `a retry after the answer was lost meets picasso's consumption`() {
@@ -73,6 +75,7 @@ class EpisodeActivitiesImplTest {
         assertThrows<IllegalStateException> { acts.dispatch("ep:a/r1", remedyIntent(), "PERSON") }
         val retry = acts.dispatch("ep:a/r1", remedyIntent(), "PERSON")
         assertTrue("REMEDY_NOT_APPLIED" in retry.answerJson!!, retry.answerJson)
+        assertEquals(2, picasso.approvals, "nothing was stored, so the retry asked again")
     }
 
     @Test fun `a person task is issued once with its notice`() {
@@ -92,11 +95,32 @@ class EpisodeActivitiesImplTest {
     @Test fun `ESCALATE has no dispatch target and fails without retry`() {
         val e = assertThrows<ApplicationFailure> { acts.dispatch("ep:a/r1", taskIntent("ESCALATE"), null) }
         assertTrue(e.isNonRetryable)
+        assertEquals("NoDispatchTarget", e.type)
     }
 
     @Test fun `an intent without a key fails without retry`() {
         val e = assertThrows<ApplicationFailure> { acts.dispatch("ep:a/r1", """{"candidate":{"kind":"APPROVE_REMEDY"}}""", null) }
         assertTrue(e.isNonRetryable)
+        assertEquals("BadIntent", e.type)
+    }
+
+    @Test fun `an intent that is not JSON fails as BadIntent and writes nothing`() =
+        assertBadIntent("{not json")
+
+    @Test fun `an intent with a repeated key fails as BadIntent and writes nothing - never silently the last value`() =
+        assertBadIntent("""{"candidate":{"kind":"CHOOSE_SOURCE","ref":{}},"idempotencyKey":"k","idempotencyKey":"k2"}""")
+
+    private fun assertBadIntent(intent: String) {
+        val e = assertThrows<ApplicationFailure> { acts.dispatch("ep:a/r1", intent, null) }
+        assertTrue(e.isNonRetryable)
+        assertEquals("BadIntent", e.type)
+        assertEquals(0, dispatchRows(), "no episode_dispatch row")
+        assertEquals(emptyList(), store.notices("ep:a/r1"))
+        assertEquals(0, picasso.approvals)
+    }
+
+    private fun dispatchRows(): Int = EpisodeDb.connection().use { c ->
+        c.createStatement().use { s -> s.executeQuery("SELECT count(*) FROM episode_dispatch").use { rs -> rs.next(); rs.getInt(1) } }
     }
 
     @Test fun `revalidate asks picasso`() =
@@ -112,6 +136,16 @@ class EpisodeActivitiesImplTest {
         assertTrue(e.isNonRetryable)
         assertEquals("RecordUnstorable", e.type)
         assertEquals(emptyList(), store.notices("ep:a/r1"))
+    }
+
+    /** The approval window with every `approve` counted. */
+    private class CountingWindow(private val inner: ApprovalWindow) : ApprovalWindow by inner {
+        @Volatile var approvals = 0
+
+        override fun approve(intent: JsonNode, approverKind: String?): String {
+            approvals += 1
+            return inner.approve(intent, approverKind)
+        }
     }
 
     private companion object {

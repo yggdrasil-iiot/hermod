@@ -1,6 +1,7 @@
 package koshei.episode.runtime
 
 import com.fasterxml.jackson.databind.JsonNode
+import org.postgresql.util.PSQLException
 import java.sql.Connection
 import java.sql.SQLException
 
@@ -128,11 +129,18 @@ open class EpisodeStore(private val connect: () -> Connection) {
     /**
      * A data exception (SQLState class 22: NUL in jsonb, an invalid escape, a value out of range) is about the value,
      * so a retry fails the same way: it becomes [RecordUnstorable], which the activity reports as non-retryable.
+     *
+     * The message holds the SQLState and the server's primary message only. The server's Detail and Where quote the
+     * value (an operator's note, an approver's id), and this message travels into the RECORD_LAG notice and the log;
+     * the full exception stays the cause.
      */
     private inline fun <T> storable(what: String, block: () -> T): T = try {
         block()
     } catch (e: SQLException) {
-        if (e.sqlState?.startsWith("22") == true) throw RecordUnstorable("$what cannot be stored: ${e.message}", e)
+        if (e.sqlState?.startsWith("22") == true) {
+            val primary = (e as? PSQLException)?.serverErrorMessage?.message ?: e.sqlState
+            throw RecordUnstorable("$what cannot be stored (SQLState ${e.sqlState}): $primary", e)
+        }
         throw e
     }
 
