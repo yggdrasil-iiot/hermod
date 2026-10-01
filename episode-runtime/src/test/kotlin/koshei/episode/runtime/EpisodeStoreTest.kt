@@ -76,6 +76,17 @@ class EpisodeStoreTest {
         assertEquals(1, store.instances(1).size)
     }
 
+    @Test fun `an instance's notice count and record lag are its own`() {
+        store.append("ep:a/r1", 1, "OPENED", "{}")
+        store.notice("ep:a/r1", """{"kind":"APPROVAL_NEEDED"}""")
+        store.notice("ep:a/r1", """{"kind":"RECORD_LAG","phase":"AWAITING_APPROVAL","reason":null,"detail":"x"}""")
+        store.append("ep:b/r1", 1, "OPENED", "{}")
+        store.notice("ep:b/r1", """{"kind":"ESCALATED"}""")
+        val b = store.instances(10).single { it.instanceId == "ep:b/r1" }
+        assertEquals(1, b.notices)
+        assertFalse(b.recordLag, "an ESCALATED notice is not a record lag, and ep:a's lag is not ep:b's")
+    }
+
     @Test fun `notice rows carry their id and time, and the feed continues after an id`() {
         store.notice("ep:a/r1", """{"kind":"APPROVAL_NEEDED"}""")
         store.notice("ep:b/r1", """{"kind":"ESCALATED"}""")

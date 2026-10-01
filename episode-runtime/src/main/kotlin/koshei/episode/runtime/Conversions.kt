@@ -146,11 +146,8 @@ internal fun viewOf(state: EpisodeState): EpisodeView {
         symptoms = state.symptoms.size,
         candidateJson = attempt?.candidate?.toJson()?.toString(),
         candidatesJson = attempt?.request?.candidates?.let { cs -> strictJson.createArrayNode().apply { cs.forEach { add(it.toJson()) } }.toString() },
-        diagnosisJson = when (val v = attempt?.verdict) {
-            is DiagnosisVerdict.Proposed -> v.response.raw.toString()
-            // An unreadable answer is kept too (raw is NullNode for non-JSON), so the card can say it could not read it.
-            is DiagnosisVerdict.Escalate -> (v.response?.raw ?: v.raw)?.toString()
-            null -> null
-        },
+        // An escalating verdict closes the attempt in the same step, so its answer is read from the DIAGNOSIS_RESULT record.
+        diagnosisJson = (attempt?.verdict as? DiagnosisVerdict.Proposed)?.response?.raw?.toString(),
+        joinedAfterSnapshot = attempt?.let { state.symptoms.size - it.symptomCount },
     )
 }

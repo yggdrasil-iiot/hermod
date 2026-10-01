@@ -128,4 +128,132 @@ class OperatorCardsTest {
         assertTrue(card.responseUnreadable)
         assertFalse(card.rationaleMissing)
     }
+
+    // --- B3c chunk 1 review -----------------------------------------------------------------------------------------
+
+    private val noGrounds = response
+        .replace("\"outcome\":\"RECOMMENDED\",\"candidateId\":\"APPROVE_REMEDY:hum-02:PATROL-1:pick_place\"", "\"outcome\":\"NO_GROUNDS\",\"candidateId\":null")
+        .replace("\"rationale\":\"다시 한다 [출처: SOP-01, §5.1].\"", "\"rationale\":\"근거가 모자라다.\"")
+        .also { assertTrue("NO_GROUNDS" in it && "근거가 모자라다." in it, "the replacements took") }
+
+    /** A DIAGNOSIS_RESULT record as `Diagnosing.kt` writes it; [responseJson] is the JSON put under `response`. */
+    private fun result(seq: Long, attempt: Int, reason: String?, responseJson: String) = StoredEvent(
+        seq, "DIAGNOSIS_RESULT",
+        """{"attempt":$attempt,"verdict":"${if (reason == null) "PROPOSED" else "ESCALATE"}","candidateId":null,
+            "reason":${reason?.let { "\"$it\"" } ?: "null"},"clean":null,"detail":null,"response":$responseJson,"rawText":null}""",
+    )
+
+    /** An ESCALATED view after the attempt closed: no attempt, no candidate, no live diagnosis (the core's own shape). */
+    private fun escalated(reason: String = "NO_GROUNDS") = view("ESCALATED", candidate = null, diagnosis = null)
+        .copy(attempt = null, proposalId = null, candidatesVersion = null, escalationReason = reason)
+
+    @Test fun `an escalated card reads its diagnosis from the latest DIAGNOSIS_RESULT record`() {
+        val events = listOf(opened(1, "s-1"), requested(2, 1), result(3, 1, null, response), requested(4, 2), result(5, 2, "NO_GROUNDS", noGrounds))
+        val card = operatorCard(escalated(), events.reversed())
+        assertEquals("근거가 모자라다.", card.rationale)
+        assertTrue(card.diagnosisFromRecord)
+        assertEquals(listOf("절차", "금지"), card.guidance.map { it.label })
+        assertFalse(card.responseUnreadable)
+        assertNull(card.diagnosisRefused)
+        assertNull(card.decision)
+    }
+
+    @Test fun `a recorded answer the judge refused for its identity or candidates version is not shown as narration`() {
+        val otherEpisode = response.replace("\"episodeId\":\"ep:x/r1\"", "\"episodeId\":\"ep:other/r9\"")
+        assertTrue("ep:other/r9" in otherEpisode)
+        for ((reason, answer) in listOf("DIAGNOSIS_FAILED" to otherEpisode, "CANDIDATES_VERSION_MISMATCH" to response)) {
+            val card = operatorCard(escalated(reason), listOf(opened(1, "s-1"), requested(2, 1), result(3, 1, reason, answer)))
+            assertNull(card.rationale, reason)
+            assertTrue(card.guidance.isEmpty(), reason)
+            assertTrue(card.citations.isEmpty(), reason)
+            assertTrue(card.uncitedSentences.isEmpty(), reason)
+            assertFalse(card.rationaleMissing, reason)
+            assertFalse(card.responseUnreadable, reason)
+            assertEquals(reason, card.diagnosisRefused, reason)
+            assertEquals(listOf("s-1"), card.symptoms.map { it["searchId"].textValue() }, reason)
+        }
+    }
+
+    @Test fun `a recorded answer that cannot be read is said to be unreadable`() {
+        for (answer in listOf("null", """{"contractVersion":"0.6"}""")) {
+            val card = operatorCard(escalated("DIAGNOSIS_FAILED"), listOf(requested(1, 1), result(2, 1, "DIAGNOSIS_FAILED", answer)))
+            assertTrue(card.responseUnreadable, answer)
+            assertTrue(card.diagnosisFromRecord, answer)
+            assertNull(card.diagnosisRefused, answer)
+            assertTrue(card.guidance.isEmpty(), answer)
+        }
+        val missing = StoredEvent(2, "DIAGNOSIS_RESULT", """{"attempt":1,"verdict":"ESCALATE","reason":"DIAGNOSIS_FAILED"}""")
+        assertTrue(operatorCard(escalated("DIAGNOSIS_FAILED"), listOf(requested(1, 1), missing)).responseUnreadable)
+    }
+
+    @Test fun `the record is read only for an escalated card without a live diagnosis`() {
+        val events = listOf(requested(1, 1), result(2, 1, "NO_GROUNDS", noGrounds))
+        val diagnosing = operatorCard(view("DIAGNOSING", candidate = null, diagnosis = null).copy(attempt = 2), events)
+        assertNull(diagnosing.rationale)
+        assertFalse(diagnosing.diagnosisFromRecord)
+        val live = operatorCard(view("ESCALATED"), events)
+        assertEquals("다시 한다 [출처: SOP-01, §5.1].", live.rationale)
+        assertFalse(live.diagnosisFromRecord)
+    }
+
+    @Test fun `a withheld episode shows no proposal and reads no diagnosis from the record`() {
+        val events = listOf(opened(1, "s-1"), requested(2, 1), result(3, 1, "NO_GROUNDS", noGrounds))
+        val card = operatorCard(view("ESCALATED", diagnosis = null).copy(escalationReason = "WITHHELD_HUMAN_FIRST"), events)
+        assertNull(card.proposal)
+        assertNull(card.rationale)
+        assertFalse(card.diagnosisFromRecord)
+        assertNull(card.decision)
+        assertEquals(1, card.symptoms.size)
+    }
+
+    @Test fun `facts that have not landed yet are flagged`() {
+        val events = listOf(opened(1, "s-1"))
+        assertTrue(operatorCard(view("AWAITING_APPROVAL").copy(symptoms = 2), events).factsBehind)
+        assertFalse(operatorCard(view("AWAITING_APPROVAL").copy(symptoms = 1), events).factsBehind)
+    }
+
+    @Test fun `the live count of symptoms joined after the snapshot goes with the remedy precondition only`() {
+        val lagging = listOf(opened(1, "s-1"), requested(2, 1))   // the joined line's record has not landed
+        val card = operatorCard(view("UNKNOWN_PRECONDITION").copy(joinedAfterSnapshot = 1, symptoms = 2), lagging)
+        assertEquals(1, card.joinedAfterSnapshotCount)
+        assertTrue(card.joinedAfterSnapshot.isEmpty())
+        assertTrue(card.factsBehind)
+        assertNull(operatorCard(view("AWAITING_APPROVAL").copy(joinedAfterSnapshot = 1), lagging).joinedAfterSnapshotCount)
+        assertNull(operatorCard(view("UNKNOWN_PRECONDITION", candidate = source).copy(joinedAfterSnapshot = 1), lagging).joinedAfterSnapshotCount)
+    }
+
+    @Test fun `joined-after-snapshot counts from this attempt's diagnosis request, not another's`() {
+        val v = view("UNKNOWN_PRECONDITION").copy(attempt = 2, proposalId = "ep:x/r1#2")
+        val inOrder = listOf(opened(1, "s-1"), requested(2, 1), joined(3, "s-3"), requested(4, 2), joined(5, "s-5"))
+        assertEquals(listOf("s-5"), operatorCard(v, inOrder).joinedAfterSnapshot.map { it["searchId"].textValue() })
+        val reversed = listOf(opened(1, "s-1"), requested(2, 2), joined(3, "s-3"), requested(4, 1), joined(5, "s-5"))
+        assertEquals(listOf("s-3", "s-5"), operatorCard(v, reversed).joinedAfterSnapshot.map { it["searchId"].textValue() })
+    }
+
+    @Test fun `a blank ref value leaves no proposition and no confirm decision`() {
+        for (blank in listOf("  ", "")) {
+            val card = operatorCard(view("UNKNOWN_PRECONDITION", candidate = remedy.replace("\"searchId\":\"search-7\"", "\"searchId\":\"$blank\"")), emptyList())
+            assertNull(card.precondition, "'$blank'")
+            assertNull(card.decision, "'$blank'")
+        }
+    }
+
+    @Test fun `joined-after-snapshot is for a remedy precondition only, and holds joined lines only`() {
+        val events = listOf(requested(1, 1), opened(2, "s-x"), joined(3, "s-3"))   // an OPENED after the request is never "joined"
+        assertEquals(listOf("s-3"), operatorCard(view("UNKNOWN_PRECONDITION"), events).joinedAfterSnapshot.map { it["searchId"].textValue() })
+        assertTrue(operatorCard(view("UNKNOWN_PRECONDITION", candidate = source), events).joinedAfterSnapshot.isEmpty())
+        assertTrue(operatorCard(view("AWAITING_APPROVAL"), events).joinedAfterSnapshot.isEmpty())
+    }
+
+    @Test fun `symptoms are in seq order whatever order the records came in, and a line must be an object`() {
+        val events = listOf(joined(3, "s-3"), opened(1, "s-1"), joined(2, "s-2"),
+            StoredEvent(4, "SYMPTOM_JOINED", """{"eventId":"e-4","kind":"SEARCH","line":"not an object"}"""),
+            StoredEvent(5, "SYMPTOM_JOINED", """{"eventId":"e-5","kind":"SEARCH","line":null}"""))
+        assertEquals(listOf("s-1", "s-2", "s-3"), operatorCard(view("AWAITING_APPROVAL"), events).symptoms.map { it["searchId"].textValue() })
+    }
+
+    @Test fun `there is no decision without a proposal`() {
+        assertNull(operatorCard(view("AWAITING_APPROVAL", candidate = null), emptyList()).decision)
+        assertNull(operatorCard(view("UNKNOWN_PRECONDITION", candidate = null), emptyList()).decision)
+    }
 }

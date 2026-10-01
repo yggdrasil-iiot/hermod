@@ -1,6 +1,7 @@
 package koshei.episode.runtime
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.WorkflowExecutionStatus
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
@@ -495,5 +496,38 @@ class EpisodeWorkflowTest {
             card.precondition,
         )
         assertEquals("confirm", card.decision!!.update)
+    }
+
+    // --- B3c chunk 1 review -----------------------------------------------------------------------------------------
+
+    @Test fun `an escalated card shows the answer that escalated it, read from the record`() {
+        narrator.answer = { r ->
+            val answer = json.readTree(MockNarratorActivities().diagnose(r).text) as ObjectNode
+            answer.put("outcome", "NO_GROUNDS").putNull("candidateId")
+            answer.put("rationale", "no grounds in the bundle [mock-sop, 1]")
+            RawJson(answer.toString())
+        }
+        val ep = open()
+        val escalated = ep.until { it.phase == "ESCALATED" }
+        assertEquals("NO_GROUNDS", escalated.escalationReason)
+        assertNull(escalated.diagnosisJson, "the escalating verdict closed the attempt in the same step")
+        val events = settledRecords(escalated.instanceId) { r -> r.any { it.kind == "DIAGNOSIS_RESULT" } && r.any { it.isEscalation() } }
+            .map { StoredEvent(it.seq, it.kind, it.payload) }
+        val card = operatorCard(escalated, events)
+        assertEquals("no grounds in the bundle [mock-sop, 1]", card.rationale)
+        assertTrue(card.diagnosisFromRecord)
+        assertNull(card.diagnosisRefused)
+        assertEquals(false, card.responseUnreadable)
+        assertNull(card.decision)
+    }
+
+    @Test fun `the view counts the symptoms that joined after the attempt's snapshot`() {
+        acts.revalidation = "UNKNOWN"
+        val ep = open()
+        assertNull(ep.until { it.phase == "CORRELATING" }.joinedAfterSnapshot, "no attempt, no snapshot")
+        assertEquals(0, ep.until { it.phase == "UNKNOWN_PRECONDITION" }.joinedAfterSnapshot)
+        ep.symptom(searchSignal("search-2"))
+        val joined = ep.until { it.symptoms == 2 }
+        assertEquals(1, joined.joinedAfterSnapshot)
     }
 }

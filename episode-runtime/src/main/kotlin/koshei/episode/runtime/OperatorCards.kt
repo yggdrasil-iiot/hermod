@@ -2,6 +2,7 @@ package koshei.episode.runtime
 
 import com.fasterxml.jackson.databind.JsonNode
 import koshei.episode.ClaimKind
+import koshei.episode.DiagnosisEscalation
 import koshei.episode.DiagnosisResponse
 import koshei.episode.ResponseParse
 import koshei.episode.parseDiagnosisResponse
@@ -51,42 +52,78 @@ data class OperatorCard(
     val identityAssurance: String = "SELF_ASSERTED",
     /** The diagnosis could not be read as contract 0.6: the narrator fields are empty, the facts remain. */
     val responseUnreadable: Boolean = false,
+    /**
+     * The narrator fields (or [responseUnreadable], or [diagnosisRefused]) come from the last DIAGNOSIS_RESULT record, not
+     * the live view: an escalating verdict closes its attempt in the same step, so an ESCALATED view has no live answer.
+     */
+    val diagnosisFromRecord: Boolean = false,
+    /**
+     * The recorded answer was refused by the judge for who it is (another contract, episode or attempt — DIAGNOSIS_FAILED)
+     * or for the candidates it saw (CANDIDATES_VERSION_MISMATCH): it is not shown as narration, and this names the reason.
+     */
+    val diagnosisRefused: String? = null,
+    /** Fewer symptom records have landed than the live view counts: the facts on this card are behind (records lag, §8.5). */
+    val factsBehind: Boolean = false,
+    /** With [joinedAfterSnapshot]: the live count of symptoms joined after the snapshot; more than the lines shown means records lag. */
+    val joinedAfterSnapshotCount: Int? = null,
 )
 
-/** What the card shows of a narrator answer: none (withheld, or no answer yet), unreadable, or a contract 0.6 response. */
+/**
+ * What the card shows of a narrator answer: none (withheld, or no answer yet), unreadable, refused by the judge, or a
+ * contract 0.6 response.
+ */
 private sealed interface Narration {
     data object None : Narration
     data object Unreadable : Narration
+    data class Refused(val reason: String) : Narration
     data class Read(val response: DiagnosisResponse) : Narration
 }
 
+/**
+ * Judge reasons under which a recorded answer is not the narrator speaking about this episode's offer: a readable
+ * DIAGNOSIS_FAILED is an identity mismatch (contract, episode, attempt) or a contract breach, and a candidates-version
+ * mismatch answered another candidate list.
+ */
+private val REFUSED_ANSWERS = setOf(DiagnosisEscalation.DIAGNOSIS_FAILED.name, DiagnosisEscalation.CANDIDATES_VERSION_MISMATCH.name)
+
+private fun narrationOf(answer: JsonNode?, judged: String? = null): Narration =
+    when (val parse = answer?.let(::parseDiagnosisResponse)) {
+        is ResponseParse.Valid -> if (judged != null && judged in REFUSED_ANSWERS) Narration.Refused(judged) else Narration.Read(parse.response)
+        is ResponseParse.Invalid, null -> Narration.Unreadable
+    }
+
 fun operatorCard(view: EpisodeView, events: List<StoredEvent>): OperatorCard {
     val records = events.sortedBy { it.seq }.mapNotNull { e -> readOrNull(e.payloadJson)?.let { e to it } }
-    val proposal = view.candidateJson?.let(::readOrNull)?.let(::proposalOf)
+    // §9.5, §19 D: an episode withheld for a person shows the facts and the ESCALATE task only.
+    val withheld = view.escalationReason == "WITHHELD_HUMAN_FIRST"
+    val proposal = if (withheld) null else view.candidateJson?.let(::readOrNull)?.let(::proposalOf)
+    val live = view.diagnosisJson
+    val recorded = if (withheld || live != null || view.phase != "ESCALATED") null
+    else records.lastOrNull { (e, _) -> e.kind == "DIAGNOSIS_RESULT" }?.second
     val narration = when {
-        view.escalationReason == "WITHHELD_HUMAN_FIRST" -> Narration.None   // §9.5, §19 D: no diagnosis is shown
-        view.diagnosisJson == null -> Narration.None
-        else -> when (val parse = readOrNull(view.diagnosisJson)?.let(::parseDiagnosisResponse)) {
-            is ResponseParse.Valid -> Narration.Read(parse.response)
-            is ResponseParse.Invalid, null -> Narration.Unreadable
-        }
+        withheld -> Narration.None
+        live != null -> narrationOf(readOrNull(live))
+        recorded != null -> narrationOf(recorded.get("response"), recorded.get("reason")?.takeIf { it.isTextual }?.textValue())
+        else -> Narration.None
     }
     val response = (narration as? Narration.Read)?.response
     val claims = response?.unverifiedClaims.orEmpty()
     fun claimsOf(kind: ClaimKind) = claims.filter { it.kind == kind }
 
     val precondition = if (view.phase == "UNKNOWN_PRECONDITION") proposal?.let(::propositionOf) else null
-    val joinedAfterSnapshot = if (precondition != null && proposal?.kind == "APPROVE_REMEDY") {
+    val remedyPrecondition = precondition != null && proposal?.kind == "APPROVE_REMEDY"
+    val joinedAfterSnapshot = if (remedyPrecondition) {
         val requested = records.firstOrNull { (e, p) -> e.kind == "DIAGNOSIS_REQUESTED" && view.attempt != null && p.path("attempt").asInt() == view.attempt }
         if (requested == null) emptyList() else records
             .filter { (e, _) -> e.kind == "SYMPTOM_JOINED" && e.seq > requested.first.seq }
-            .mapNotNull { (_, p) -> p.get("line") }
+            .mapNotNull { (_, p) -> lineOf(p) }
     } else emptyList()
+    val symptoms = records.filter { (e, _) -> e.kind == "OPENED" || e.kind == "SYMPTOM_JOINED" }.mapNotNull { (_, p) -> lineOf(p) }
 
     val proposalId = view.proposalId
     val candidatesVersion = view.candidatesVersion
     val decision = when {
-        proposalId == null || candidatesVersion == null -> null
+        proposal == null || proposalId == null || candidatesVersion == null -> null
         view.phase == "AWAITING_APPROVAL" -> CardDecision("decide", proposalId, candidatesVersion, view.stateDeadlineMillis)
         view.phase == "UNKNOWN_PRECONDITION" && precondition != null -> CardDecision("confirm", proposalId, candidatesVersion, view.stateDeadlineMillis)
         else -> null
@@ -94,7 +131,7 @@ fun operatorCard(view: EpisodeView, events: List<StoredEvent>): OperatorCard {
 
     return OperatorCard(
         unknowns = readOrNull(view.unknownsJson)?.takeIf { it.isArray }?.toList().orEmpty(),
-        symptoms = records.filter { (e, _) -> e.kind == "OPENED" || e.kind == "SYMPTOM_JOINED" }.mapNotNull { (_, p) -> p.get("line") },
+        symptoms = symptoms,
         proposal = proposal,
         rationale = response?.rationale,
         rationaleMissing = response != null && response.rationale == null,
@@ -109,8 +146,15 @@ fun operatorCard(view: EpisodeView, events: List<StoredEvent>): OperatorCard {
         joinedAfterSnapshot = joinedAfterSnapshot,
         decision = decision,
         responseUnreadable = narration == Narration.Unreadable,
+        diagnosisFromRecord = recorded != null,
+        diagnosisRefused = (narration as? Narration.Refused)?.reason,
+        factsBehind = symptoms.size < view.symptoms,
+        joinedAfterSnapshotCount = if (remedyPrecondition) view.joinedAfterSnapshot else null,
     )
 }
+
+/** A record's `line`, only when it is the object a symptom line is. */
+private fun lineOf(payload: JsonNode): JsonNode? = payload.get("line")?.takeIf { it.isObject }
 
 /** A card never fails on what it reads: text that is not JSON (or has a duplicated key) is simply not there. */
 private fun readOrNull(text: String): JsonNode? = try {

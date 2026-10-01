@@ -98,8 +98,16 @@ data class EpisodeView(
     val candidateJson: String? = null,
     /** The candidates the attempt's diagnosis request offered, each as `Candidate.toJson()` (§7.3). */
     val candidatesJson: String? = null,
-    /** The attempt's narrator answer as received, when there is one (§7.3 current recommendation). Records may lag; this does not. */
+    /**
+     * The attempt's narrator answer as received, once it was proposed (§7.3 current recommendation). Records may lag; this
+     * does not. An answer that escalated is never here: its attempt closed in the same step, so it is read from the record.
+     */
     val diagnosisJson: String? = null,
+    /**
+     * How many symptoms joined after the attempt's snapshot (design §8.3), counted live: records may lag, this does not.
+     * Null when there is no attempt. The lines themselves are read from the records.
+     */
+    val joinedAfterSnapshot: Int? = null,
 )
 
 /** What the workflow returns when the episode ends. */
