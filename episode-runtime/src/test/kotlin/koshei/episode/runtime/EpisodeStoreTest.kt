@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -47,6 +48,51 @@ class EpisodeStoreTest {
         store.notice("ep:b/r1", """{"kind":"RECORD_LAG"}""")
         store.notice("ep:a/r1", """{"kind":"ESCALATED"}""")
         assertEquals(listOf("APPROVAL_NEEDED", "ESCALATED"), store.notices("ep:a/r1").map { it.substringAfter("\"kind\": \"").substringBefore('"') })
+    }
+
+    @Test fun `events carry the time they were written`() {
+        store.append("ep:a/r1", 1, "OPENED", "{}")
+        assertNotNull(store.events("ep:a/r1").single().at)
+    }
+
+    @Test fun `instances are listed newest activity first, with the last transition, the notice count and record lag`() {
+        store.append("ep:a/r1", 1, "OPENED", "{}")
+        store.append("ep:a/r1", 2, "TRANSITION", """{"from":"CORRELATING","to":"DIAGNOSING"}""")
+        store.append("ep:a/r1", 3, "TRANSITION", """{"from":"DIAGNOSING","to":"AWAITING_APPROVAL"}""")
+        store.notice("ep:a/r1", """{"kind":"APPROVAL_NEEDED"}""")
+        store.notice("ep:a/r1", """{"kind":"RECORD_LAG","phase":"AWAITING_APPROVAL","reason":null,"detail":"x"}""")
+        Thread.sleep(20)   // each autocommit statement takes its own now(); 20 ms keeps the two episodes apart
+        store.append("ep:b/r1", 1, "OPENED", "{}")
+        val list = store.instances(10)
+        assertEquals(listOf("ep:b/r1", "ep:a/r1"), list.map { it.instanceId })
+        val a = list.single { it.instanceId == "ep:a/r1" }
+        assertEquals("ep:a", a.workflowId)
+        assertEquals("AWAITING_APPROVAL", a.lastPhase)
+        assertEquals(2, a.notices)
+        assertTrue(a.recordLag)
+        val b = list.single { it.instanceId == "ep:b/r1" }
+        assertNull(b.lastPhase)
+        assertEquals(false, b.recordLag)
+        assertEquals(1, store.instances(1).size)
+    }
+
+    @Test fun `notice rows carry their id and time, and the feed continues after an id`() {
+        store.notice("ep:a/r1", """{"kind":"APPROVAL_NEEDED"}""")
+        store.notice("ep:b/r1", """{"kind":"ESCALATED"}""")
+        store.notice("ep:a/r1", """{"kind":"ESCALATED"}""")
+        val a = store.noticeRows("ep:a/r1")
+        assertEquals(2, a.size)
+        assertTrue(a[0].id < a[1].id)
+        assertTrue(a.all { it.instanceId == "ep:a/r1" })
+        val all = store.noticesAfter(0, 100)
+        assertEquals(3, all.size)
+        assertEquals(all.drop(1), store.noticesAfter(all[0].id, 100))
+        assertEquals(1, store.noticesAfter(0, 1).size)
+    }
+
+    @Test fun `the store is an episode reader`() {
+        val reader: EpisodeReader = store
+        assertTrue(reader.instances(5).isEmpty())
     }
 
     @Test fun `a dispatch outcome is kept verbatim and the first writer wins`() {

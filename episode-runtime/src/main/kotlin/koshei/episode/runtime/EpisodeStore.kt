@@ -3,10 +3,36 @@ package koshei.episode.runtime
 import com.fasterxml.jackson.databind.JsonNode
 import org.postgresql.util.PSQLException
 import java.sql.Connection
+import java.sql.ResultSet
 import java.sql.SQLException
+import java.time.Instant
 
-/** One stored record of an episode. [payloadJson] is the stored JSON value (jsonb's own spacing). */
-data class StoredEvent(val seq: Long, val kind: String, val payloadJson: String)
+/** One stored record of an episode. [payloadJson] is the stored JSON value (jsonb's own spacing). [at] is when it was written. */
+data class StoredEvent(val seq: Long, val kind: String, val payloadJson: String, val at: Instant? = null)
+
+/** One episode instance as the records show it (design §13): the control plane's list. */
+data class StoredInstance(
+    val instanceId: String,
+    val workflowId: String,
+    val openedAt: Instant,
+    val lastAt: Instant,
+    /** The `to` of the last TRANSITION record, or null before the first. Lags the live phase by any record lag. */
+    val lastPhase: String?,
+    val notices: Int,
+    /** A RECORD_LAG notice was raised: some record never landed, so [lastPhase] may be stale for good. */
+    val recordLag: Boolean,
+)
+
+/** One row of the operator channel (design §8.5). [noticeJson] is the notice as written, either shape. */
+data class StoredNotice(val id: Long, val instanceId: String, val noticeJson: String, val at: Instant)
+
+/** What the control plane may do with the episode tables: read (design §4.2, R14). */
+interface EpisodeReader {
+    fun events(instanceId: String): List<StoredEvent>
+    fun instances(limit: Int): List<StoredInstance>
+    fun noticeRows(instanceId: String): List<StoredNotice>
+    fun noticesAfter(afterId: Long, limit: Int): List<StoredNotice>
+}
 
 /** A different record already holds this (instance, seq): never overwritten, never retried. */
 class RecordConflict(message: String) : RuntimeException(message)
@@ -17,7 +43,7 @@ class RecordUnstorable(message: String, cause: Throwable) : RuntimeException(mes
 /**
  * The episode tables (design §8.5, §13). Plain JDBC, one connection per call. Open so tests can inject faults.
  */
-open class EpisodeStore(private val connect: () -> Connection) {
+open class EpisodeStore(private val connect: () -> Connection) : EpisodeReader {
 
     fun ensureSchema() {
         val sql = checkNotNull(javaClass.getResourceAsStream("/episode-schema.sql")) { "episode-schema.sql missing" }
@@ -57,12 +83,69 @@ open class EpisodeStore(private val connect: () -> Connection) {
         false
     }
 
-    fun events(instanceId: String): List<StoredEvent> = connect().use { c ->
-        c.prepareStatement("SELECT seq, kind, payload::text FROM episode_event WHERE episode_instance_id = ? ORDER BY seq").use { s ->
+    override fun events(instanceId: String): List<StoredEvent> = connect().use { c ->
+        c.prepareStatement("SELECT seq, kind, payload::text, at FROM episode_event WHERE episode_instance_id = ? ORDER BY seq").use { s ->
             s.setString(1, instanceId)
-            s.executeQuery().use { rs -> generateSequence { if (rs.next()) StoredEvent(rs.getLong(1), rs.getString(2), rs.getString(3)) else null }.toList() }
+            s.executeQuery().use { rs ->
+                generateSequence {
+                    if (rs.next()) StoredEvent(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant()) else null
+                }.toList()
+            }
         }
     }
+
+    /** Instances by their latest record, newest first (design §13: the audit table is the source of the list). */
+    override fun instances(limit: Int): List<StoredInstance> = connect().use { c ->
+        c.prepareStatement(
+            """
+            SELECT e.episode_instance_id, min(e.at), max(e.at),
+                   (SELECT t.payload->>'to' FROM episode_event t
+                     WHERE t.episode_instance_id = e.episode_instance_id AND t.kind = 'TRANSITION'
+                     ORDER BY t.seq DESC LIMIT 1),
+                   (SELECT count(*) FROM episode_notice n WHERE n.episode_instance_id = e.episode_instance_id),
+                   EXISTS (SELECT 1 FROM episode_notice n
+                            WHERE n.episode_instance_id = e.episode_instance_id AND n.notice->>'kind' = 'RECORD_LAG')
+              FROM episode_event e
+             GROUP BY e.episode_instance_id
+             ORDER BY max(e.at) DESC, e.episode_instance_id
+             LIMIT ?
+            """.trimIndent(),
+        ).use { s ->
+            s.setInt(1, limit)
+            s.executeQuery().use { rs ->
+                generateSequence {
+                    if (!rs.next()) null else {
+                        val id = rs.getString(1)
+                        StoredInstance(
+                            id, id.substringBeforeLast('/'), rs.getTimestamp(2).toInstant(), rs.getTimestamp(3).toInstant(),
+                            rs.getString(4), rs.getInt(5), rs.getBoolean(6),
+                        )
+                    }
+                }.toList()
+            }
+        }
+    }
+
+    override fun noticeRows(instanceId: String): List<StoredNotice> = connect().use { c ->
+        c.prepareStatement("SELECT id, episode_instance_id, notice::text, at FROM episode_notice WHERE episode_instance_id = ? ORDER BY id").use { s ->
+            s.setString(1, instanceId)
+            s.executeQuery().use(::noticeList)
+        }
+    }
+
+    /**
+     * The whole channel after [afterId], oldest first. bigserial ids are not commit-ordered: a reader re-reads an
+     * overlap (after = last id − 50) and drops ids it has seen (design §8.5).
+     */
+    override fun noticesAfter(afterId: Long, limit: Int): List<StoredNotice> = connect().use { c ->
+        c.prepareStatement("SELECT id, episode_instance_id, notice::text, at FROM episode_notice WHERE id > ? ORDER BY id LIMIT ?").use { s ->
+            s.setLong(1, afterId); s.setInt(2, limit)
+            s.executeQuery().use(::noticeList)
+        }
+    }
+
+    private fun noticeList(rs: ResultSet): List<StoredNotice> =
+        generateSequence { if (rs.next()) StoredNotice(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant()) else null }.toList()
 
     /** Appends one notice; [RecordUnstorable] when jsonb cannot hold it. */
     open fun notice(instanceId: String, noticeJson: String) = storable("episode_notice $instanceId") {
