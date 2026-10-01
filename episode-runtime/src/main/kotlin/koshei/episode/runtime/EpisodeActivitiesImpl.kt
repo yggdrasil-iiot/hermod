@@ -48,7 +48,7 @@ class EpisodeActivitiesImpl(
                 "APPROVE_REMEDY" -> store.saveOutcome(instanceId, key, DispatchOutcome("ANSWER", picasso.approve(intent, approverKind)))
                 "CHOOSE_SOURCE", "OPERATOR_DECISION" -> store.issueTask(instanceId, key, intentJson).also {
                     // Not the intent: it carries the approver's id.
-                    if (it.kind == "PERSON_TASK") log.info("episode person task {} {}", instanceId, key)
+                    log.info("episode person task {} {}", instanceId, key)
                 }
                 else -> throw ApplicationFailure.newNonRetryableFailure("no dispatch target for $kind", "NoDispatchTarget")
             }
