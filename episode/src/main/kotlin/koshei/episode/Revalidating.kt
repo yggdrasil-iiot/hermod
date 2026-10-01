@@ -127,6 +127,12 @@ internal fun Out.passesDispatchGate(policy: PolicyTable, now: Instant): Boolean 
         escalate(now, Escalation(EscalationReason.UNKNOWN_BLOCKS_EXECUTION, "unknown after the diagnosis: ${candidate.candidateId}"))
         return false
     }
+    // The table in force now may have a lower threshold than the one that proposed this attempt (design §5.2).
+    val dispatched = state.dispatchCounts[candidate.candidateId] ?: 0
+    if (dispatched >= policy.repeatedRemedyThreshold) {
+        escalate(now, Escalation(EscalationReason.REPEATED_REMEDY, "${candidate.candidateId} dispatched $dispatched times"))
+        return false
+    }
     return true
 }
 

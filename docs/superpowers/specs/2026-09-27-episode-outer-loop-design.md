@@ -907,7 +907,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | `PROPOSAL_CHANGED` 를 재진단 목록에 넣을지 — picasso 는 「다시 읽고 다시 시도」를 권한다(§7.3). 판 2 의 거절 값 열다섯은 picasso 코드로 확인했다(`584c6cd`, §8.4) | 사용자 결정 | 그 전까지 ESCALATED(`DISPATCH_REFUSED`) (§8.4 기본 갈래) |
 | 사건 줄 `resolution` 이 붙는 범위 — 「판단이 아직 안 실린 가장 최근 사건」이 판단한 (실행, 단위)의 사건과 늘 같은가 | picasso 에 물음 | `OPERATOR_DECISION` 의 근거로 `resolution` 을 쓰는 것 (§8.4) |
 | `NOT_DECLARED` 를 가르는 선언이 자격 선언과 같은 표인가 | picasso 에 물음 | §8.4 선언 행 |
-| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). 결과 통보의 어느 단위가 이 조치의 대상인가 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
+| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). 결과 통보의 어느 단위가 이 조치의 대상인가. 주의: picasso 의 `jobResponseId`(`resp-N`) · `executionId`(`exec-N`) 는 프로세스 안 셈이라 재시작하면 되풀이된다 — koshei 는 앞 시도가 쓴 `executionId` 가 다시 오면 잇지 않는다(fail-closed). 대상 단위를 잇기 전에 시도별 구분자(주문 판 등)가 필요하다 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
 | khala 변경 여섯: 프롬프트 지문 결함과 `prompt_version`, 브리지 구조화 출력, `answer_context`, `numbers[].found_in`, `corpus_version`, `search_fingerprint` | khala | R9 · R11 판 칸, `UNCITED` 재진단 조정 |
 | 개발용 동시 한도 | khala · narrator | narrator 워커 동시 실행 설정 (벽 순서는 계약 0.5 에서 정해짐) |
 | 고정 예제의 응답 넷 | narrator | §17 계약 시험 |

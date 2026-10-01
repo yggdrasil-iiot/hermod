@@ -72,6 +72,11 @@ data class EpisodeState internal constructor(
     /** JobResponses that arrived in DISPATCHED, before the answer; applied on entering AWAITING_EVIDENCE / UNKNOWN(OUTCOME). */
     val bufferedEvidence: List<Evidence> = emptyList(),
     val seenJobResponseIds: Set<String> = emptySet(),
+    /**
+     * Every `executionId` an APPROVED answer gave in this episode. picasso counts them per process, so an id can come
+     * again after a restart: an attempt whose id was used before links no JobResponse (a stale one could resolve it).
+     */
+    val usedExecutionIds: Set<String> = emptySet(),
 ) {
     /** Every symptom so far as a snapshot (design §9.0). Throws on a malformed manifest; callers escalate. */
     internal fun snapshot(): Snapshot = Snapshot(

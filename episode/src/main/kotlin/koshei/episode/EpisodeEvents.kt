@@ -124,5 +124,20 @@ class Evidence(
     val inDoubtUnits: List<String>? = inDoubtUnits?.toList()
     val unverifiedUnits: List<String>? = unverifiedUnits?.toList()
 
+    /** A value: two reports with every field equal are equal (a restored state must compare equal to the one it came from). */
+    override fun equals(other: Any?): Boolean {
+        if (other !is Evidence) return false
+        return jobResponseId == other.jobResponseId && executionId == other.executionId &&
+            physicalState == other.physicalState && reachedEvidence == other.reachedEvidence &&
+            completedUnits == other.completedUnits && inDoubtUnits == other.inDoubtUnits &&
+            unverifiedUnits == other.unverifiedUnits && operatorRequired == other.operatorRequired &&
+            receivedAt.compareTo(other.receivedAt) == 0
+    }
+
+    override fun hashCode(): Int = listOf(
+        jobResponseId, executionId, physicalState, reachedEvidence, completedUnits, inDoubtUnits, unverifiedUnits,
+        operatorRequired, receivedAt,
+    ).hashCode()
+
     override fun toString(): String = "Evidence($jobResponseId, $executionId)"
 }

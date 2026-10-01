@@ -218,12 +218,22 @@ internal fun Out.ignore(event: EpisodeEvent, why: String) {
             DispatchResult.PersonTaskIssued -> put("result", "PersonTaskIssued")
         }
         if (event is EpisodeEvent.EvidenceArrived) putObject("evidence").putEvidence(event.evidence)
+        // Which record an ignored record-result belongs to (the intent's `seq`).
+        if (event is EpisodeEvent.Recorded) put("seq", event.seq)
+        if (event is EpisodeEvent.RecordFailed) {
+            put("seq", event.seq)
+            put("message", event.message)
+        }
         // Who sent an Update that did not apply (the PoC has no authentication, design §7.2).
         event.approver()?.let {
             put("by", it.id)
             put("assurance", it.assurance.name)
         }
     }
+    // A JobResponse that could not count here is still seen: once a later attempt of this episode is waiting, a redelivered
+    // copy must be a duplicate, not a report about the new attempt (design §12).
+    if (event is EpisodeEvent.EvidenceArrived)
+        state = state.copy(seenJobResponseIds = state.seenJobResponseIds + event.evidence.jobResponseId)
     if (reply == null) reply = event.refusal()
 }
 
@@ -239,6 +249,11 @@ internal fun Out.escalate(
     closedAs: ClosedAs = ClosedAs.ESCALATED,
 ) {
     if (cancelDiagnosis && state.phase == Phase.DIAGNOSING) commands += Command.CancelDiagnosis
+    // JobResponses DISPATCHED kept for the answer will never be applied now: record each, then drop them.
+    if (state.bufferedEvidence.isNotEmpty()) {
+        state.bufferedEvidence.forEach { recordEvidence(it, counted = false, why = "kept, but the episode escalated") }
+        state = state.copy(bufferedEvidence = emptyList())
+    }
     closeAttempt(closedAs, now, approval)
     enter(Phase.ESCALATED, now, escalation)
     commands += Command.SetTimer(Timer.RETENTION, escalatedUntil(now, state.policy), state.token)

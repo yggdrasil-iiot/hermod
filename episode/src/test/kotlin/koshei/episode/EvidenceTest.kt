@@ -59,6 +59,7 @@ class EvidenceTest {
             jobResponse("c", operatorRequired = true),
             jobResponse("d", operatorRequired = null),
             jobResponse("e", inDoubt = null),
+            jobResponse("f", unverified = null),
         )
         for (e in cases) {
             val s = withTarget(accepted()).evidence(e)

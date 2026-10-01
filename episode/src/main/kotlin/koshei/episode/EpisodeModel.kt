@@ -63,6 +63,14 @@ class Symptom(val eventId: String, val kind: SymptomKind, line: ObjectNode, val 
         SymptomKind.SEARCH -> if (lineCopy.text("searchId").isNullOrBlank()) "search line without searchId" else null
     }
 
+    /** A value: same event, kind, line and time (a restored state must compare equal to the one it came from). */
+    override fun equals(other: Any?): Boolean {
+        if (other !is Symptom) return false
+        return eventId == other.eventId && kind == other.kind && lineCopy == other.lineCopy && observedAt.compareTo(other.observedAt) == 0
+    }
+
+    override fun hashCode(): Int = listOf(eventId, kind, lineCopy, observedAt).hashCode()
+
     override fun toString(): String = "Symptom($eventId, $kind)"
 }
 

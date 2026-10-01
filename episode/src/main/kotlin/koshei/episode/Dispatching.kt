@@ -21,20 +21,34 @@ private val MAY_HAVE_LANDED = setOf("NO_PROPOSAL", "REMEDY_NOT_APPLIED")
 
 /** What a dispatch result means for the episode (design §5.2 DISPATCHED rows). */
 internal sealed interface DispatchJudgement {
+    /** The word the audit record uses for this judgement (design §13); fixed, not a class name. */
+    val label: String
+
     /** picasso approved; [delivered] is its `steps`, what actually went out (picasso §7.3). */
     class Accepted(val executionId: String, delivered: JsonNode) : DispatchJudgement {
+        override val label: String get() = "ACCEPTED"
         val delivered: JsonNode = delivered.deepCopy()
     }
 
-    data object PersonTask : DispatchJudgement
+    data object PersonTask : DispatchJudgement {
+        override val label: String get() = "PERSON_TASK"
+    }
 
-    data class MayHaveLanded(val refusal: String) : DispatchJudgement
+    data class MayHaveLanded(val refusal: String) : DispatchJudgement {
+        override val label: String get() = "MAY_HAVE_LANDED"
+    }
 
-    data class Uncertain(val detail: String?) : DispatchJudgement
+    data class Uncertain(val detail: String?) : DispatchJudgement {
+        override val label: String get() = "UNCERTAIN"
+    }
 
-    data class Refused(val refusal: String) : DispatchJudgement
+    data class Refused(val refusal: String) : DispatchJudgement {
+        override val label: String get() = "REFUSED"
+    }
 
-    data class AnswerUnknown(val detail: String) : DispatchJudgement
+    data class AnswerUnknown(val detail: String) : DispatchJudgement {
+        override val label: String get() = "ANSWER_UNKNOWN"
+    }
 }
 
 /** A picasso answer only for APPROVE_REMEDY, an issued task only for the person-task kinds; anything else is not understood. */
@@ -118,13 +132,19 @@ internal fun Out.onDispatchPending(event: EpisodeEvent, policy: PolicyTable, now
 /** `Recorded` → `Dispatch`, after the same gate as before the intent (design §6); counts the dispatch (REPEATED_REMEDY). */
 private fun Out.dispatch(policy: PolicyTable, now: Instant) {
     if (!passesDispatchGate(policy, now)) return
-    val intent = state.attempt?.intent
+    val attempt = state.attempt
+    val intent = attempt?.intent
         ?: return escalate(now, Escalation(EscalationReason.RECORD_FAILED, "internal: no intent to dispatch"))
     val id = intent.candidate.candidateId
     val count = (state.dispatchCounts[id] ?: 0) + 1
-    state = state.copy(dispatchCounts = state.dispatchCounts + (id to count))
-    enter(Phase.DISPATCHED, now)
     val approverKind = approverKindOf(intent)
+    // From here on whether it went out is not known until the answer says so; an episode that ends first must not read
+    // as "never dispatched" in its history. The answer overwrites this.
+    state = state.copy(
+        dispatchCounts = state.dispatchCounts + (id to count),
+        attempt = attempt.copy(dispatch = DispatchSummary("UNCERTAIN", intent.idempotencyKey, approverKind, null)),
+    )
+    enter(Phase.DISPATCHED, now)
     record(RecordKind.DISPATCH_SENT) {
         put("candidateId", id)
         put("idempotencyKey", intent.idempotencyKey)
@@ -149,15 +169,21 @@ internal fun Out.onDispatched(event: EpisodeEvent, policy: PolicyTable, now: Ins
 
 private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, result: DispatchResult, policy: PolicyTable, now: Instant) {
     val judgement = judgeDispatch(intent.candidate.kind, result)
+    // picasso counts execution ids per process, so one can come again after a restart: then nothing may link to it.
+    val reused = judgement is DispatchJudgement.Accepted && judgement.executionId in state.usedExecutionIds
     record(RecordKind.DISPATCH_RESULT) {
-        put("judgement", judgement::class.simpleName)
+        put("judgement", judgement.label)
         if (result is DispatchResult.Answer) put("answer", result.json)
         if (result is DispatchResult.Uncertain) put("detail", result.message)
+        if (reused) put("executionIdReused", true)
     }
     fun summary(value: String, delivered: JsonNode? = null) = DispatchSummary(value, intent.idempotencyKey, approverKindOf(intent), delivered)
     when (judgement) {
         is DispatchJudgement.Accepted -> {
-            state = state.copy(attempt = attempt.copy(executionId = judgement.executionId, dispatch = summary("ACCEPTED", judgement.delivered)))
+            state = state.copy(
+                attempt = attempt.copy(executionId = if (reused) null else judgement.executionId, dispatch = summary("ACCEPTED", judgement.delivered)),
+                usedExecutionIds = state.usedExecutionIds + judgement.executionId,
+            )
             enterAwaitingEvidence(policy, now)
         }
         DispatchJudgement.PersonTask -> {

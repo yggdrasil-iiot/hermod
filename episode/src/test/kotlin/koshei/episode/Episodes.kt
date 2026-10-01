@@ -81,7 +81,8 @@ internal fun jobResponse(
     unverified: List<String>? = emptyList(),
     operatorRequired: Boolean? = false,
     at: Instant = Episodes.T0,
-): Evidence = Evidence(id, executionId, "DONE", "E2", completed, inDoubt, unverified, operatorRequired, at)
+    reached: String? = "E2",
+): Evidence = Evidence(id, executionId, "DONE", reached, completed, inDoubt, unverified, operatorRequired, at)
 
 /** DISPATCH_PENDING: auto-approved by the test table, revalidated TRUE one second later. */
 internal fun pending(first: Symptom = Episodes.search("search-1"), read: PolicyRead = Episodes.policy()): Step =

@@ -32,8 +32,11 @@ class DispatchSummary(val result: String, val idempotencyKey: String, val approv
     override fun toString(): String = "DispatchSummary($result, $idempotencyKey)"
 }
 
-/** [grade] E0..E3 (E3 = a person's on-site check); [outcome] `DONE` · `NOT_DONE` · `UNKNOWN`. */
-data class EvidenceSummary(val grade: String, val outcome: String)
+/**
+ * [grade] E0..E2 as picasso reported it, E3 for a person's on-site check; null when the JobResponse did not say — it is
+ * never filled in (design §12). [outcome] `DONE` · `NOT_DONE` · `UNKNOWN`.
+ */
+data class EvidenceSummary(val grade: String?, val outcome: String)
 
 /**
  * One closed attempt, as the diagnosis request's `history` carries it (contract 0.6 §3.4, design §9.4). All eight keys

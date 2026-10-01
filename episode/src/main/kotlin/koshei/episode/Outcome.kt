@@ -34,23 +34,38 @@ internal fun Out.bufferEvidence(e: Evidence) {
     recordEvidence(e, counted = false, why = "kept until the answer")
 }
 
-/** Re-applies what DISPATCHED kept — an internal step, not a new signal, so the jobResponseId dedup does not apply (§6). */
+/**
+ * Re-applies what DISPATCHED kept — an internal step, not a new signal, so the jobResponseId dedup does not apply (§6).
+ * The reports arrived together, so a doubt in any linked one holds back every resolution of the batch: a clean report must
+ * not resolve the attempt just because it happened to be replayed before the doubtful one (design §12 ②).
+ */
 private fun Out.replayBuffered(policy: PolicyTable, now: Instant) {
     val buffered = state.bufferedEvidence
     if (buffered.isEmpty()) return
+    val executionId = state.attempt?.executionId
+    val doubtInBatch = executionId != null && buffered.any { it.executionId == executionId && it.inDoubt() }
     state = state.copy(bufferedEvidence = emptyList())
     for (e in buffered) {
-        if (state.phase == Phase.AWAITING_EVIDENCE || state.phase == Phase.UNKNOWN_OUTCOME) takeEvidence(e, replayed = true, policy, now)
+        if (state.phase == Phase.AWAITING_EVIDENCE || state.phase == Phase.UNKNOWN_OUTCOME)
+            takeEvidence(e, replayed = true, policy, now, allowResolve = !doubtInBatch)
         else recordEvidence(e, counted = false, why = "kept, but the episode left for ${state.phase}")
     }
+}
+
+/** ② of design §12: in doubt, unverified, a person needed, or simply not reported. */
+private fun Evidence.inDoubt(): Boolean {
+    val doubt = inDoubtUnits
+    val unverified = unverifiedUnits
+    return doubt == null || unverified == null || operatorRequired != false || doubt.isNotEmpty() || unverified.isNotEmpty()
 }
 
 /**
  * One JobResponse, in the design §12 order: ① record only (duplicate, not this attempt's execution) → ② UNKNOWN (anything
  * in doubt or not reported) → ③ DONE (the target unit completed). A report that says DONE and UNKNOWN at once is
- * UNKNOWN. JobResponses never say NOT_DONE (④ — only a person does). Anything else is recorded (⑤).
+ * UNKNOWN. JobResponses never say NOT_DONE (④ — only a person does). Anything else is recorded (⑤). [allowResolve] is
+ * false while replaying a batch that holds a doubtful report: ③ then records instead of resolving.
  */
-internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTable, now: Instant) {
+internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTable, now: Instant, allowResolve: Boolean = true) {
     val attempt = state.attempt ?: return recordEvidence(e, counted = false, why = "no attempt in progress")
     if (!replayed) {
         if (e.jobResponseId in state.seenJobResponseIds) return recordEvidence(e, counted = false, why = "duplicate jobResponseId")
@@ -60,18 +75,16 @@ internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTabl
     if (attempt.executionId == null || e.executionId != attempt.executionId)
         return recordEvidence(e, counted = false, why = "not linked to this attempt's execution")
     // ② In doubt, unverified, a person needed, or simply not reported: UNKNOWN — never DONE, never folded into NOT_DONE.
-    val inDoubt = e.inDoubtUnits
-    val unverified = e.unverifiedUnits
-    if (inDoubt == null || unverified == null || e.operatorRequired != false || inDoubt.isNotEmpty() || unverified.isNotEmpty()) {
+    if (e.inDoubt()) {
         recordEvidence(e, counted = true, why = "in doubt")
-        val units = (inDoubt.orEmpty() + unverified.orEmpty()).distinct()
+        val units = (e.inDoubtUnits.orEmpty() + e.unverifiedUnits.orEmpty()).distinct()
         val subjects: List<Map<String, String?>> =
             if (units.isEmpty()) listOf(mapOf("executionId" to e.executionId))
             else units.map { mapOf("executionId" to e.executionId, "unitId" to it) }
         // Once per (subject, what): a repeated report does not grow the next request.
         val fresh = subjects.filterNot { s -> state.episodeUnknowns.any { it.subject == s && it.what == UnknownWhat.OUTCOME } }
         state = state.copy(
-            attempt = attempt.copy(evidence = EvidenceSummary(e.reachedEvidence ?: "E0", "UNKNOWN")),
+            attempt = attempt.copy(evidence = EvidenceSummary(e.reachedEvidence, "UNKNOWN")),
             episodeUnknowns = state.episodeUnknowns + fresh.map { Unknown(it, UnknownWhat.OUTCOME, e.receivedAt.toString(), "picasso") },
         )
         if (state.phase == Phase.AWAITING_EVIDENCE)
@@ -81,8 +94,9 @@ internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTabl
     // ③ DONE: the target unit completed.
     val unit = attempt.intent?.targetUnit
     if (unit != null && e.completedUnits?.contains(unit) == true) {
+        if (!allowResolve) return recordEvidence(e, counted = false, why = "not resolved: a kept report is in doubt")
         recordEvidence(e, counted = true, why = "target completed")
-        return resolve(EvidenceSummary(e.reachedEvidence ?: "E0", "DONE"), now)
+        return resolve(EvidenceSummary(e.reachedEvidence, "DONE"), now)
     }
     recordEvidence(e, counted = false, why = if (unit == null) "target unit not known (design §19)" else "target not completed yet")
 }
@@ -133,7 +147,7 @@ private fun ObjectNode.putStrings(key: String, values: List<String>?) {
 internal fun Out.onOutcome(event: EpisodeEvent, policy: PolicyTable, now: Instant) {
     val attempt = state.attempt
     val candidate = attempt?.candidate
-        ?: return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
+        ?: return escalate(now, Escalation(EscalationReason.DISPATCH_ANSWER_UNKNOWN, "internal: no proposed candidate"))
     when {
         event is EpisodeEvent.EvidenceArrived -> takeEvidence(event.evidence, replayed = false, policy, now)
         event is EpisodeEvent.ConfirmedOutcome && event.candidateId == candidate.candidateId && event.proposalId != attempt.proposalId -> {
