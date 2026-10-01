@@ -81,6 +81,13 @@ class EpisodeStoreTest {
         assertEquals(emptyList(), store.notices("ep:a/r1"))
     }
 
+    @Test fun `an answer the database cannot hold is unstorable and leaves no outcome`() {
+        // A raw NUL character (not the JSON escape): text refuses it too, so a retry would fail the same way forever.
+        val answer = "{\"outcome\":\"REFUSED\",\"reason\":\"a\u0000b\"}"
+        assertThrows<RecordUnstorable> { store.saveOutcome("ep:a/r1", "k1", DispatchOutcome("ANSWER", answer)) }
+        assertNull(store.outcome("k1"))
+    }
+
     @Test fun `a person task whose notice the database refuses leaves neither row`() {
         // The task row goes in first; the notice INSERT then fails in the database, inside the same transaction.
         assertThrows<RecordUnstorable> { store.issueTask("ep:a/r1", "ep:a/r1:1:CHOOSE_SOURCE", nul) }

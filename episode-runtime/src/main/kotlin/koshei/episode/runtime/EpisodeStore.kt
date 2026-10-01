@@ -83,9 +83,12 @@ open class EpisodeStore(private val connect: () -> Connection) {
         }
     }
 
-    /** Stores [outcome] unless the key already has one; returns whichever is stored (the first writer wins). */
+    /**
+     * Stores [outcome] unless the key already has one; returns whichever is stored (the first writer wins).
+     * [RecordUnstorable], with nothing stored, when the database cannot hold the answer (text refuses a raw NUL).
+     */
     open fun saveOutcome(instanceId: String, key: String, outcome: DispatchOutcome): DispatchOutcome {
-        connect().use { c -> insertOutcome(c, instanceId, key, outcome) }
+        storable("episode_dispatch $key") { connect().use { c -> insertOutcome(c, instanceId, key, outcome) } }
         return checkNotNull(outcome(key)) { "episode_dispatch $key vanished" }
     }
 
