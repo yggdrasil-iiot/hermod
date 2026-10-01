@@ -9,8 +9,12 @@ const val NARRATOR_TASK_QUEUE = "narrator-tq"
 // Everything below crosses a Temporal payload boundary: Kotlin data classes whose fields all have defaults (so any
 // Jackson converter can build them), plain strings and numbers, JSON as text. The core's own types never cross.
 
-/** signalWithStart's start input (design §7.1). [manifestJson] is the picasso export manifest the symptoms come from. */
-data class EpisodeStart(val manifestJson: String = "", val schemaVersion: Int = 1)
+/**
+ * signalWithStart's start input (design §7.1). [manifestJson] is the picasso export manifest the symptoms come from.
+ * [pending] are symptoms that reached the previous run after its episode had ended: the run continued as new with them,
+ * and the first one opens this run's episode.
+ */
+data class EpisodeStart(val manifestJson: String = "", val schemaVersion: Int = 1, val pending: List<SymptomSignal> = emptyList())
 
 /** `symptom` signal: one picasso export line (design §12). [kind] is `INCIDENT` or `SEARCH`. */
 data class SymptomSignal(val eventId: String = "", val kind: String = "", val lineJson: String = "", val observedAtMillis: Long = 0)

@@ -3,6 +3,7 @@ package koshei.episode.runtime
 import io.temporal.activity.ActivityCancellationType
 import io.temporal.activity.ActivityOptions
 import io.temporal.activity.LocalActivityOptions
+import io.temporal.api.enums.v1.TimeoutType
 import io.temporal.common.RetryOptions
 import io.temporal.failure.ActivityFailure
 import io.temporal.failure.TimeoutFailure
@@ -16,6 +17,7 @@ import io.temporal.workflow.UpdateValidatorMethod
 import io.temporal.workflow.Workflow
 import io.temporal.workflow.WorkflowInterface
 import io.temporal.workflow.WorkflowMethod
+import koshei.episode.Approver
 import koshei.episode.Command
 import koshei.episode.DiagnosisBudget
 import koshei.episode.DispatchResult
@@ -25,6 +27,7 @@ import koshei.episode.Phase
 import koshei.episode.PolicyRead
 import koshei.episode.Reply
 import koshei.episode.Step
+import koshei.episode.TriState
 import koshei.episode.startEpisode
 import koshei.episode.transition
 import koshei.runtime.RawJson
@@ -79,19 +82,26 @@ interface EpisodeWorkflow {
  * every command it returns is executed without blocking — activities and timers report back as events in [inbox].
  * Update handlers apply their event at once and return the core's reply; the core has no blocking call, so a handler
  * and the main loop never interleave inside one transition.
+ *
+ * The workflow never ends with work in flight: once the episode is over it keeps feeding what still arrives to the core
+ * (which only records it) until every activity has reported back and every record is written. A symptom among that
+ * belongs to a new episode, which the workflow then opens by continuing as new.
  */
 class EpisodeWorkflowImpl : EpisodeWorkflow {
+    /** One event for the main loop. [decision]: it wants a fresh policy read. [line]: the signal a joined symptom came from. */
+    private class Inbound(val event: EpisodeEvent, val decision: Boolean, val line: SymptomSignal? = null)
+
     private var state: EpisodeState? = null
-    /** Symptoms that arrived before the episode opened; the first opens it (signalWithStart may deliver it first). */
-    private val early = mutableListOf<SymptomSignal>()
-    /** Events waiting for the main loop, each with whether it is a decision point that wants a fresh policy read. */
-    private val inbox = ArrayDeque<Pair<EpisodeEvent, Boolean>>()
-    private var diagnosis: CancellationScope? = null
     /**
-     * Records and notices still in flight. Nothing waits for them during the episode (design §8.5), but the workflow
-     * waits for them before it returns: a workflow that ends abandons its activities, and the last step's records (the
-     * transition to RESOLVED or CLOSED) would be lost.
+     * Signals that arrived before the episode opened, in arrival order (signalWithStart may deliver the first symptom
+     * before [run] starts). The first symptom opens the episode; everything else follows into [inbox] in the same order.
      */
+    private val preOpen = mutableListOf<Inbound>()
+    private val inbox = ArrayDeque<Inbound>()
+    private var diagnosis: CancellationScope? = null
+    /** Diagnosis, revalidation, intent record and dispatch in flight; each reports back as exactly one event. */
+    private val pending = mutableListOf<Promise<Unit>>()
+    /** Records and notices in flight. Nothing waits for them during the episode (design §8.5); the end does. */
     private val unsettled = mutableListOf<Promise<Unit>>()
 
     private val local: EpisodeActivities = Workflow.newLocalActivityStub(
@@ -102,36 +112,54 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
             .build(),
     )
 
+    /**
+     * The opening read gets a longer budget: with no table yet, a failed read opens the episode as POLICY_MISSING, which
+     * escalates for good, while a failed read later only keeps the last table in force.
+     */
+    private val opening: EpisodeActivities = Workflow.newLocalActivityStub(
+        EpisodeActivities::class.java,
+        LocalActivityOptions.newBuilder()
+            .setScheduleToCloseTimeout(Duration.ofSeconds(60))
+            .setStartToCloseTimeout(Duration.ofSeconds(10))
+            .setRetryOptions(RetryOptions.newBuilder().setMaximumInterval(Duration.ofSeconds(10)).build())
+            .build(),
+    )
+
     override fun run(start: EpisodeStart): EpisodeResult {
-        Workflow.await { early.isNotEmpty() }
-        val first = early.removeAt(0)
-        apply(startEpisode(EpisodeEvent.Detected(instanceId(), start.manifestJson, first.toSymptom()), readPolicy(), now()))
-        early.forEach { enqueue(EpisodeEvent.SymptomJoined(it.toSymptom()), decision = false) }
-        early.clear()
+        // Symptoms the previous run could not take come first, before anything this run has received.
+        preOpen.addAll(0, start.pending.map(::joining))
+        Workflow.await { preOpen.any { it.line != null } }
+        val first = preOpen.first { it.line != null }
+        preOpen.remove(first)
+        val read = readPolicy(opening)
+        apply(startEpisode(EpisodeEvent.Detected(instanceId(), start.manifestJson, first.line!!.toSymptom()), read, now()))
+        // No yield since `state` was set, so nothing has reached the inbox ahead of these.
+        inbox.addAll(preOpen)
+        preOpen.clear()
+
+        val late = mutableListOf<SymptomSignal>()
         while (true) {
-            val current = state ?: break
-            if (current.phase.terminal) break
-            Workflow.await { inbox.isNotEmpty() || state?.phase?.terminal == true }
-            if (state?.phase?.terminal == true) break
-            val (event, decision) = inbox.removeFirst()
-            val phase = state?.phase
-            val read = if (decision && phase != null && phase != Phase.ESCALATED && !phase.terminal) readPolicy() else null
-            val latest = state ?: break
-            if (latest.phase.terminal) break
-            apply(transition(latest, event, read, now()))
+            Workflow.await { inbox.isNotEmpty() || (current().phase.terminal && settled()) }
+            val next = inbox.removeFirstOrNull() ?: break
+            val phase = current().phase
+            // After the end the core only records what arrives (IGNORED); a symptom among it starts a new episode.
+            if (phase.terminal && next.line != null) late += next.line
+            val read = if (next.decision && phase != Phase.ESCALATED && !phase.terminal) readPolicy(local) else null
+            // The read may have yielded to an Update, so the state is taken afresh.
+            apply(transition(current(), next.event, read, now()))
         }
-        Workflow.await { unsettled.all { it.isCompleted } }
-        val end = state
-        return EpisodeResult(end?.phase?.name ?: "CLOSED", end?.escalation?.reason?.name)
+        val end = current()
+        // A line the ended episode already had is a redelivery, not a new occurrence.
+        val fresh = late.filter { it.eventId !in end.seenEventIds }.distinctBy { it.eventId }
+        if (fresh.isNotEmpty()) Workflow.continueAsNew(EpisodeStart(start.manifestJson, start.schemaVersion, fresh))
+        return EpisodeResult(end.phase.name, end.escalation?.reason?.name)
     }
 
-    override fun symptom(signal: SymptomSignal) {
-        if (state == null) early += signal else enqueue(EpisodeEvent.SymptomJoined(signal.toSymptom()), decision = false)
-    }
+    override fun symptom(signal: SymptomSignal) = arrive(joining(signal))
 
-    override fun evidence(signal: EvidenceSignal) = enqueue(EpisodeEvent.EvidenceArrived(signal.toEvidence()), decision = false)
+    override fun evidence(signal: EvidenceSignal) = arrive(Inbound(EpisodeEvent.EvidenceArrived(signal.toEvidence()), decision = false))
 
-    override fun agentOff() = enqueue(EpisodeEvent.AgentOff, decision = false)
+    override fun agentOff() = arrive(Inbound(EpisodeEvent.AgentOff, decision = false))
 
     override fun validateDecide(request: DecideRequest) = request.validate()
     override fun decide(request: DecideRequest): String = update(request.toEvent())
@@ -140,26 +168,30 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
     override fun confirm(request: ConfirmRequest): String = update(request.toEvent())
 
     override fun validateTakeover(request: TakeoverRequest) = request.validate()
-    override fun takeover(request: TakeoverRequest): String = update(EpisodeEvent.TakenOver(koshei.episode.Approver(request.operatorId)))
+    override fun takeover(request: TakeoverRequest): String = update(EpisodeEvent.TakenOver(Approver(request.operatorId)))
 
     override fun validateClose(request: CloseRequest) = request.validate()
-    override fun close(request: CloseRequest): String =
-        update(EpisodeEvent.Closed(koshei.episode.Approver(request.operatorId), request.outcome))
+    override fun close(request: CloseRequest): String = update(EpisodeEvent.Closed(Approver(request.operatorId), request.outcome))
 
     override fun view(): EpisodeView = state?.let { viewOf(it) } ?: EpisodeView(instanceId = instanceId(), phase = "OPENING")
 
     /** An Update applies its event now and answers with the core's reply (design §7.2: refusals are values). */
     private fun update(event: EpisodeEvent): String {
         Workflow.await { state != null }
-        val current = state ?: return Reply.REFUSED_CLOSED.name
-        val step = transition(current, event, null, now())
+        val step = transition(current(), event, null, now())
         apply(step)
         return (step.reply ?: Reply.ACCEPTED).name
     }
 
-    private fun enqueue(event: EpisodeEvent, decision: Boolean) {
-        inbox.addLast(event to decision)
+    private fun joining(signal: SymptomSignal) = Inbound(EpisodeEvent.SymptomJoined(signal.toSymptom()), decision = false, line = signal)
+
+    private fun arrive(inbound: Inbound) {
+        if (state == null) preOpen += inbound else inbox.addLast(inbound)
     }
+
+    private fun current(): EpisodeState = checkNotNull(state) { "the episode is not open" }
+
+    private fun settled(): Boolean = pending.all { it.isCompleted } && unsettled.all { it.isCompleted }
 
     private fun apply(step: Step) {
         state = step.state
@@ -167,56 +199,83 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
     }
 
     private fun execute(command: Command) {
-        val id = instanceId()
         when (command) {
             is Command.Diagnose -> {
                 val narrator = narrator(command.budget)
                 val request = RawJson(command.request.toJson().toString())
                 val scope = Workflow.newCancellationScope(Runnable {
-                    Async.function { narrator.diagnose(request) }.handle { answer, failure ->
-                        enqueue(
-                            if (failure == null) EpisodeEvent.DiagnosisReturned(answer.text)
-                            else EpisodeEvent.DiagnosisFailed(expired(failure), failure.message),
-                            decision = true,
-                        )
-                    }
+                    report(
+                        Async.function { narrator.diagnose(request) },
+                        failed = { EpisodeEvent.DiagnosisFailed(expired(it), it.message) },
+                    ) { answer -> EpisodeEvent.DiagnosisReturned(checkNotNull(answer) { "narrator answered null" }.text) }
                 })
                 diagnosis = scope
                 scope.run()
             }
             Command.CancelDiagnosis -> diagnosis?.cancel()
-            is Command.Revalidate -> Async.function { activities(command.timeoutMs).revalidate(command.candidate.toJson().toString()) }
-                .handle { result, failure -> enqueue(EpisodeEvent.Revalidated(triState(if (failure == null) result else null), command.token), decision = true) }
+            is Command.Revalidate -> report(
+                Async.function { activities(command.timeoutMs).revalidate(command.candidate.toJson().toString()) },
+                failed = { EpisodeEvent.Revalidated(TriState.UNKNOWN, command.token) },
+            ) { result -> EpisodeEvent.Revalidated(triState(result), command.token) }
             is Command.SetTimer -> {
+                // Timers are never cancelled: one that outlives its phase is expected, and the core ignores it by its token.
                 val delay = maxOf(1L, command.at.toEpochMilli() - Workflow.currentTimeMillis())
-                Workflow.newTimer(Duration.ofMillis(delay)).thenApply { enqueue(EpisodeEvent.DeadlineExpired(command.which, command.token), decision = true) }
+                Workflow.newTimer(Duration.ofMillis(delay)).thenApply {
+                    inbox.addLast(Inbound(EpisodeEvent.DeadlineExpired(command.which, command.token), decision = true))
+                }
             }
-            is Command.Notify -> settle(Async.procedure { activities(30_000).sendNotice(id, noticeJson(command.notice)) }.handle { _, _ -> })
-            is Command.Record -> settle(
-                Async.procedure {
-                    activities(30_000).record(id, command.seq, command.entry.kind.name, command.entry.payload.toString())
-                }.handle { _, _ -> },
-            )
-            is Command.RecordIntent -> Async.procedure { activities(command.timeoutMs).recordIntent(id, command.seq, intentJson(command.intent)) }
-                .handle { _, failure ->
-                    enqueue(if (failure == null) EpisodeEvent.Recorded(command.seq) else EpisodeEvent.RecordFailed(command.seq, failure.message), decision = true)
-                }
-            is Command.Dispatch -> Async.function { activities(command.timeoutMs).dispatch(intentJson(command.intent), command.approverKind) }
-                .handle { outcome, failure ->
-                    val result = if (failure == null) outcome.toResult() else DispatchResult.Uncertain(failure.message)
-                    enqueue(EpisodeEvent.DispatchReturned(result, command.token), decision = true)
-                }
+            // TODO(B3b): a record or notice that keeps failing raises RECORD_LAG. Records run concurrently, so they can
+            //  land out of seq order; the store orders them by (instance, seq).
+            is Command.Notify -> {
+                val id = instanceId()
+                keep(unsettled, Async.procedure { activities(30_000).sendNotice(id, noticeJson(command.notice)) }.handle { _, _ -> })
+            }
+            is Command.Record -> {
+                val id = instanceId()
+                val payload = command.entry.payload.toString()
+                keep(unsettled, Async.procedure { activities(30_000).record(id, command.seq, command.entry.kind.name, payload) }.handle { _, _ -> })
+            }
+            is Command.RecordIntent -> {
+                val id = instanceId()
+                report(
+                    Async.procedure { activities(command.timeoutMs).recordIntent(id, command.seq, intentJson(command.intent)) },
+                    failed = { EpisodeEvent.RecordFailed(command.seq, it.message) },
+                ) { EpisodeEvent.Recorded(command.seq) }
+            }
+            is Command.Dispatch -> report(
+                Async.function { activities(command.timeoutMs).dispatch(intentJson(command.intent), command.approverKind) },
+                failed = { EpisodeEvent.DispatchReturned(DispatchResult.Uncertain(it.message), command.token) },
+            ) { outcome -> EpisodeEvent.DispatchReturned(checkNotNull(outcome) { "dispatch answered null" }.toResult(), command.token) }
         }
     }
 
-    /** Keeps a fire-and-forget activity until it settles (its failure is already swallowed by `handle`). */
-    private fun settle(promise: Promise<Unit>) {
-        unsettled.removeAll { it.isCompleted }
-        unsettled += promise
+    /**
+     * Turns an activity's outcome into exactly one event for the main loop: [done] for a value, [failed] for a failure —
+     * and [failed] too when [done] throws (a null answer, say). An exception escaping a `handle` callback would be
+     * swallowed by the SDK and the event lost, leaving the episode waiting for ever.
+     */
+    private fun <T> report(promise: Promise<T>, failed: (RuntimeException) -> EpisodeEvent, done: (T?) -> EpisodeEvent) {
+        keep(
+            pending,
+            promise.handle { value, failure ->
+                val event = try {
+                    if (failure == null) done(value) else failed(failure)
+                } catch (e: RuntimeException) {
+                    failed(e)
+                }
+                inbox.addLast(Inbound(event, decision = true))
+            },
+        )
     }
 
-    private fun readPolicy(): PolicyRead = try {
-        local.readPolicy().toRead()
+    private fun keep(list: MutableList<Promise<Unit>>, promise: Promise<Unit>) {
+        list.removeAll { it.isCompleted }
+        list += promise
+    }
+
+    /** A read that fails, or returns nothing, is unreadable: the core keeps the last valid table (design §8.2). */
+    private fun readPolicy(stub: EpisodeActivities): PolicyRead = try {
+        stub.readPolicy()?.toRead() ?: PolicyRead.Unreadable("readPolicy returned nothing")
     } catch (e: ActivityFailure) {
         PolicyRead.Unreadable("readPolicy failed: ${e.message}")
     }
@@ -242,9 +301,11 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
             .build(),
     )
 
-    private fun expired(failure: RuntimeException): Boolean = (failure as? ActivityFailure)?.cause is TimeoutFailure
+    /** Only the whole budget running out is DIAGNOSIS_EXPIRED; a heartbeat or StartToClose timeout is a failure. */
+    private fun expired(failure: RuntimeException): Boolean =
+        ((failure as? ActivityFailure)?.cause as? TimeoutFailure)?.timeoutType == TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE
 
-    private fun instanceId(): String = "${Workflow.getInfo().workflowId}/${Workflow.getInfo().runId}"
+    private fun instanceId(): String = Workflow.getInfo().let { "${it.workflowId}/${it.runId}" }
 
     private fun now(): Instant = Instant.ofEpochMilli(Workflow.currentTimeMillis())
 }

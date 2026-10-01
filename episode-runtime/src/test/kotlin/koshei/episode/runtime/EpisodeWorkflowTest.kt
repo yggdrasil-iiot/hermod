@@ -1,6 +1,10 @@
 package koshei.episode.runtime
 
 import io.temporal.activity.Activity
+import io.temporal.api.common.v1.WorkflowExecution
+import io.temporal.api.enums.v1.WorkflowExecutionStatus
+import io.temporal.api.enums.v1.WorkflowIdReusePolicy
+import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
 import io.temporal.client.ActivityCompletionException
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
@@ -14,8 +18,10 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.assertThrows
 import java.time.Duration
+import java.util.concurrent.CountDownLatch
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -25,26 +31,33 @@ class EpisodeWorkflowTest {
     private val acts = FakeEpisodeActivities()
     private val narrator = ProgrammableNarrator()
 
-    @BeforeEach fun up() {
-        env = TestWorkflowEnvironment.newInstance(
-            TestEnvironmentOptions.newBuilder().setWorkflowClientOptions(DataConverterSupport.clientOptions()).build(),
-        )
-        env.newWorker(EPISODE_TASK_QUEUE).apply {
+    /** An environment with both workers registered, not yet started. */
+    private fun environment(): TestWorkflowEnvironment = TestWorkflowEnvironment.newInstance(
+        TestEnvironmentOptions.newBuilder().setWorkflowClientOptions(DataConverterSupport.clientOptions()).build(),
+    ).apply {
+        newWorker(EPISODE_TASK_QUEUE).apply {
             registerWorkflowImplementationTypes(EpisodeWorkflowImpl::class.java)
             registerActivitiesImplementations(acts)
         }
-        env.newWorker(NARRATOR_TASK_QUEUE).registerActivitiesImplementations(narrator)
+        newWorker(NARRATOR_TASK_QUEUE).registerActivitiesImplementations(narrator)
+    }
+
+    @BeforeEach fun up() {
+        env = environment()
         env.start()
         client = env.workflowClient
     }
 
     @AfterEach fun down() = env.close()
 
+    private fun options(id: String): WorkflowOptions = WorkflowOptions.newBuilder()
+        .setTaskQueue(EPISODE_TASK_QUEUE)
+        .setWorkflowId(id)
+        .setWorkflowIdReusePolicy(WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
+        .build()
+
     private fun open(id: String = "ep:test", symptom: SymptomSignal = searchSignal("search-1")): EpisodeWorkflow {
-        val stub = client.newWorkflowStub(
-            EpisodeWorkflow::class.java,
-            WorkflowOptions.newBuilder().setTaskQueue(EPISODE_TASK_QUEUE).setWorkflowId(id).build(),
-        )
+        val stub = client.newWorkflowStub(EpisodeWorkflow::class.java, options(id))
         WorkflowStub.fromTyped(stub).signalWithStart("symptom", arrayOf(symptom), arrayOf(EpisodeStart(Picasso.manifest)))
         return stub
     }
@@ -62,6 +75,26 @@ class EpisodeWorkflowTest {
     }
 
     private fun EpisodeWorkflow.result(): EpisodeResult = WorkflowStub.fromTyped(this).getResult(EpisodeResult::class.java)
+
+    /** Polls in wall-clock time (activities run on worker threads, outside test time) until [probe] yields a value. */
+    private fun <T : Any> eventually(seconds: Int = 20, probe: () -> T?): T {
+        repeat(seconds * 10) {
+            probe()?.let { return it }
+            Thread.sleep(100)
+        }
+        return probe() ?: fail("not reached within ${seconds}s; records ${acts.records}")
+    }
+
+    /** One instance's records in seq order. */
+    private fun records(instanceId: String): List<Rec> =
+        synchronized(acts.records) { acts.records.filter { it.instanceId == instanceId } }.sortedBy { it.seq }
+
+    /** One instance's records once they are gap-free from seq 1 (records run concurrently) and [done] holds on them. */
+    private fun settledRecords(instanceId: String, done: (List<Rec>) -> Boolean): List<Rec> = eventually {
+        records(instanceId).takeIf { r -> r.map { it.seq } == (1L..r.size.toLong()).toList() && done(r) }
+    }
+
+    private fun Rec.isEscalation(): Boolean = kind == "TRANSITION" && "\"to\":\"ESCALATED\"" in payload
 
     @Test fun `an episode runs through the mock narrator to a person's DONE`() {
         val ep = open()
@@ -98,21 +131,26 @@ class EpisodeWorkflowTest {
 
     @Test fun `a malformed Update is rejected by the validator, not by the episode`() {
         val ep = open()
-        ep.until { it.phase == "CORRELATING" }
+        val correlating = ep.until { it.phase == "CORRELATING" }
         assertThrows<WorkflowUpdateException> { ep.decide(DecideRequest(operatorId = "")) }
         assertThrows<WorkflowUpdateException> { ep.confirm(ConfirmRequest("MAYBE", operatorId = "op-1")) }
         assertEquals("CORRELATING", ep.view().phase)
+        // Had either reached the core, it would have been recorded IGNORED before the records of this valid Update.
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        val recs = settledRecords(correlating.instanceId) { r -> r.any { it.isEscalation() } }
+        assertTrue(recs.none { it.kind == "IGNORED" }, "the rejected Updates never reached the core: $recs")
     }
 
     @Test fun `takeover cancels a diagnosis in flight`() {
+        acts.policyJson = TestPolicies.table(autoApprove = true, heartbeatMs = 2_000)
         narrator.block = true
         val ep = open()
         ep.until { it.phase == "DIAGNOSING" }
         assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
         assertEquals("TAKEN_OVER", ep.view().escalationReason)
         // The activity learns of the cancellation only from a heartbeat reply, and the SDK sends heartbeats at most every
-        // 0.8 × heartbeatTimeout of wall-clock time (24 s for the policy's 30 s) — time skipping does not shorten it.
-        repeat(300) { if (!narrator.cancelled) Thread.sleep(200) }
+        // 0.8 × heartbeatTimeout of wall-clock time (1.6 s for this table's 2 s) — time skipping does not shorten it.
+        repeat(50) { if (!narrator.cancelled) Thread.sleep(200) }
         assertTrue(narrator.cancelled, "the diagnose activity saw the cancellation")
     }
 
@@ -141,15 +179,158 @@ class EpisodeWorkflowTest {
         env.sleep(Duration.ofHours(25))
         assertEquals(EpisodeResult("CLOSED", "POLICY_MISSING"), ep.result())
     }
+
+    // --- B3a review -------------------------------------------------------------------------------------------------
+
+    @Test fun `the workflow drains work in flight - a dispatch answer that comes after close is still recorded`() {
+        val gate = CountDownLatch(1)
+        acts.dispatchGate = gate
+        val ep = open()
+        ep.until { it.phase == "DISPATCHED" }
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
+        gate.countDown()
+        assertEquals(EpisodeResult("CLOSED", "TAKEN_OVER"), ep.result())
+        // The workflow ended only after the answer was taken in and its record written.
+        val dispatch = acts.calls.indexOf("dispatch:AGENT")
+        assertTrue(acts.calls.lastIndexOf("record:IGNORED") > dispatch, "IGNORED recorded after the dispatch: ${acts.calls}")
+        assertTrue(acts.records.any { it.kind == "IGNORED" && "exec-42" in it.payload }, "the late answer is kept: ${acts.records}")
+    }
+
+    @Test fun `a symptom after the workflow has ended starts a new run on the same id`() {
+        val ep = open(id = "ep:later")
+        val first = ep.until { it.phase == "CORRELATING" }.instanceId
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
+        assertEquals(EpisodeResult("CLOSED", "TAKEN_OVER"), ep.result())
+        open(id = "ep:later", symptom = searchSignal("search-2"))
+        val next = client.newWorkflowStub(EpisodeWorkflow::class.java, "ep:later").until { it.instanceId != first && it.phase != "OPENING" }
+        assertTrue(next.instanceId.startsWith("ep:later/"))
+        assertEquals(1, next.symptoms)
+    }
+
+    @Test fun `a symptom that arrives while the ended run drains continues the workflow as new with a new episode`() {
+        val gate = CountDownLatch(1)
+        acts.dispatchGate = gate
+        val ep = open(id = "ep:again")
+        val first = ep.until { it.phase == "DISPATCHED" }.instanceId
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
+        ep.symptom(searchSignal("search-2"))   // the run is still draining: the dispatch is in flight
+        gate.countDown()
+        val next = client.newWorkflowStub(EpisodeWorkflow::class.java, "ep:again").until { it.instanceId != first && it.phase != "OPENING" }
+        assertTrue(next.instanceId.startsWith("ep:again/"))
+        assertEquals(1, next.symptoms)
+        val status = env.workflowServiceStubs.blockingStub().describeWorkflowExecution(
+            DescribeWorkflowExecutionRequest.newBuilder()
+                .setNamespace(env.namespace)
+                .setExecution(WorkflowExecution.newBuilder().setWorkflowId("ep:again").setRunId(first.substringAfterLast('/')))
+                .build(),
+        ).workflowExecutionInfo.status
+        assertEquals(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW, status)
+        assertTrue(records(first).any { it.kind == "IGNORED" && "SymptomJoined" in it.payload }, "the ended episode recorded it: ${records(first)}")
+        eventually { records(next.instanceId).firstOrNull { it.kind == "OPENED" && "search:search-2" in it.payload } }
+    }
+
+    @Test fun `a null narrator answer is a failed diagnosis, not a lost event`() {
+        narrator.answer = { null }
+        val ep = open()
+        assertEquals("DIAGNOSIS_FAILED", ep.until { it.phase == "ESCALATED" }.escalationReason)
+    }
+
+    @Test fun `a null dispatch outcome is an unknown outcome, not a lost event`() {
+        acts.dispatchOutcome = null
+        val ep = open()
+        ep.until { it.phase == "UNKNOWN_OUTCOME" }
+    }
+
+    @Test fun `a dispatch that keeps failing is an unknown outcome`() {
+        acts.dispatchError = IllegalStateException("approval window unreachable")
+        val ep = open()
+        ep.until { it.phase == "UNKNOWN_OUTCOME" }
+        assertEquals(3, acts.calls.count { it.startsWith("dispatch:") })
+    }
+
+    @Test fun `evidence in AWAITING_EVIDENCE is recorded and, with no target unit known, does not resolve`() {
+        val ep = open()
+        val waiting = ep.until { it.phase == "AWAITING_EVIDENCE" }
+        ep.evidence(EvidenceSignal("jr-1", "exec-42", "IDLE", "E2", listOf("u-1"), emptyList(), emptyList(), false, 0))
+        val rec = eventually { records(waiting.instanceId).firstOrNull { it.kind == "EVIDENCE" && "jr-1" in it.payload } }
+        assertTrue("target unit not known" in rec.payload, rec.payload)
+        assertEquals("AWAITING_EVIDENCE", ep.view().phase)
+    }
+
+    @Test fun `a symptom joined after the start counts in the view`() {
+        val ep = open()
+        ep.until { it.phase == "CORRELATING" }
+        ep.symptom(searchSignal("search-2"))
+        assertEquals(2, ep.until { it.symptoms == 2 }.symptoms)
+    }
+
+    @Test fun `an unknown precondition waits for a person, whose confirmation dispatches`() {
+        acts.revalidation = "UNKNOWN"
+        val ep = open()
+        val unknown = ep.until { it.phase == "UNKNOWN_PRECONDITION" }
+        val confirm = ConfirmRequest("PRECONDITION", unknown.candidateId!!, unknown.proposalId!!, true, operatorId = "op-1")
+        assertEquals("ACCEPTED", ep.confirm(confirm))
+        ep.until { it.phase == "AWAITING_EVIDENCE" }
+        val intent = acts.calls.indexOfFirst { it.startsWith("intent:") }
+        assertTrue(intent in 0 until acts.calls.indexOf("dispatch:AGENT"), "${acts.calls}")
+    }
+
+    @Test fun `a failing policy read mid-episode keeps the last table in force and suspends auto-approval`() {
+        acts.policyFault = { it >= 2 }   // the opening read succeeds, every later one throws
+        val ep = open()
+        val waiting = ep.until { it.phase == "AWAITING_APPROVAL" }
+        assertNull(waiting.escalationReason)
+        eventually { records(waiting.instanceId).firstOrNull { it.kind == "POLICY_REJECTED" } }
+    }
+
+    @Test fun `the opening policy read outlasts a short outage instead of escalating for good`() {
+        acts.policyFault = { it <= 3 }
+        val ep = open()
+        assertNull(ep.until { it.phase == "AWAITING_EVIDENCE" }.escalationReason)
+    }
+
+    @Test fun `a heartbeat timeout is a failed diagnosis, not an expired one`() {
+        acts.policyJson = TestPolicies.table(autoApprove = true, heartbeatMs = 2_000)
+        narrator.stallMs = 5_000
+        val ep = open()
+        assertEquals("DIAGNOSIS_FAILED", ep.until { it.phase == "ESCALATED" }.escalationReason)
+    }
+
+    @Test fun `signals that arrive before the episode opens keep their arrival order`() {
+        env.close()
+        env = environment()   // not started yet: every signal below reaches the workflow in its first task
+        client = env.workflowClient
+        val ep = client.newWorkflowStub(EpisodeWorkflow::class.java, options("ep:early"))
+        WorkflowStub.fromTyped(ep).signalWithStart("evidence", arrayOf(EvidenceSignal("jr-0")), arrayOf(EpisodeStart(Picasso.manifest)))
+        ep.symptom(searchSignal("search-1"))
+        ep.symptom(searchSignal("search-2"))
+        ep.agentOff()
+        env.start()
+        val escalated = ep.until { it.phase == "ESCALATED" }
+        assertEquals("AGENT_LAYER_OFF", escalated.escalationReason)
+        assertEquals(2, escalated.symptoms)
+        val recs = settledRecords(escalated.instanceId) { r -> r.any { it.isEscalation() } && r.any { it.kind == "SYMPTOM_JOINED" } }
+        val evidence = recs.first { it.kind == "IGNORED" && "EvidenceArrived" in it.payload }.seq
+        val joined = recs.first { it.kind == "SYMPTOM_JOINED" }.seq
+        val off = recs.first { it.isEscalation() }.seq
+        assertTrue(evidence < joined && joined < off, "arrival order evidence, search-2, agentOff: $recs")
+    }
 }
 
-/** The mock narrator unless told otherwise: [answer] replaces it, [block] heartbeats until cancelled. */
+/**
+ * The mock narrator unless told otherwise: [answer] replaces it, [block] heartbeats until cancelled, [stallMs] sleeps
+ * that long without a heartbeat first.
+ */
 internal class ProgrammableNarrator : NarratorActivities {
-    @Volatile var answer: ((RawJson) -> RawJson)? = null
+    @Volatile var answer: ((RawJson) -> RawJson?)? = null
     @Volatile var block = false
     @Volatile var cancelled = false
+    @Volatile var stallMs = 0L
 
-    override fun diagnose(request: RawJson): RawJson {
+    override fun diagnose(request: RawJson): RawJson? {
         if (block) {
             val ctx = Activity.getExecutionContext()
             try {
@@ -162,6 +343,8 @@ internal class ProgrammableNarrator : NarratorActivities {
                 throw e
             }
         }
-        return answer?.invoke(request) ?: MockNarratorActivities().diagnose(request)
+        if (stallMs > 0) Thread.sleep(stallMs)
+        val programmed = answer
+        return if (programmed != null) programmed(request) else MockNarratorActivities().diagnose(request)
     }
 }

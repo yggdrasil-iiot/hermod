@@ -16,6 +16,9 @@ import java.util.Optional
  * Jackson round trip. The episode workflow talks to narrator's Python `diagnose` activity this way — the request keeps
  * its key order and explicit nulls (narrator contract 0.6 §2), and a duplicated key in the answer is still there to be
  * caught (episode `parseDiagnosisResponse(String)`).
+ *
+ * Recognised only as a top-level payload (an activity argument or result): nested inside another object it goes through
+ * Jackson like any other field.
  */
 data class RawJson(val text: String = "")
 

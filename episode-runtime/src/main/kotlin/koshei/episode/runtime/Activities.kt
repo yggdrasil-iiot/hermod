@@ -7,17 +7,18 @@ import koshei.runtime.RawJson
 
 /**
  * koshei-side activities of the episode workflow (design §8). Names are explicit: they must not collide with the saga's
- * activities on a shared worker, and they are part of the workflow history.
+ * activities on a shared worker, and they are part of the workflow history. Results are nullable because a payload can
+ * carry null whatever an implementation declares; the workflow reads a null result as a failure.
  */
 @ActivityInterface
 interface EpisodeActivities {
     /** design §8.2: the active policy table as JSON text. Run as a local activity. */
     @ActivityMethod(name = "episodeReadPolicy")
-    fun readPolicy(): PolicyReadResult
+    fun readPolicy(): PolicyReadResult?
 
     /** design §8.3: re-read the source; `TRUE`, `FALSE` or `UNKNOWN`. */
     @ActivityMethod(name = "episodeRevalidate")
-    fun revalidate(candidateJson: String): String
+    fun revalidate(candidateJson: String): String?
 
     /** design §8.5, §13: one append-only record, idempotent on (instance, seq). */
     @ActivityMethod(name = "episodeRecord")
@@ -27,9 +28,15 @@ interface EpisodeActivities {
     @ActivityMethod(name = "episodeRecordIntent")
     fun recordIntent(instanceId: String, seq: Long, intentJson: String)
 
-    /** design §8.4: the approval window (APPROVE_REMEDY) or an operator task (the person-task kinds). */
+    /**
+     * design §8.4: the approval window (APPROVE_REMEDY) or an operator task (the person-task kinds).
+     *
+     * Obligation for the implementation (plan B3b): it MUST be idempotent on the intent's `idempotencyKey`. Temporal
+     * retries this activity, and a retry sends again — the approval window must recognise the key, and a person task
+     * must not be issued twice.
+     */
     @ActivityMethod(name = "episodeDispatch")
-    fun dispatch(intentJson: String, approverKind: String?): DispatchOutcome
+    fun dispatch(intentJson: String, approverKind: String?): DispatchOutcome?
 
     /** design §8.5: the operator channel. A failure never blocks a transition. */
     @ActivityMethod(name = "episodeNotify")
@@ -40,7 +47,7 @@ interface EpisodeActivities {
 @ActivityInterface
 interface NarratorActivities {
     @ActivityMethod(name = "diagnose")
-    fun diagnose(request: RawJson): RawJson
+    fun diagnose(request: RawJson): RawJson?
 }
 
 /**
