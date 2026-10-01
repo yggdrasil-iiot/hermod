@@ -114,9 +114,13 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
   실물 승인 창구 클라이언트는 §19 C 뒤다.
 - `KOSHEI_NARRATOR`: `mock`(기본)이면 koshei 워커가 `MockNarratorActivities` 를 `narrator-tq` 에 등록한다. `remote` 면 등록하지 않고
   narrator 의 Python 워커가 그 큐를 맡는다. 둘이 한 큐를 함께 폴링하면 어느 쪽이 답할지 모르므로 하나만 켠다.
-- `KOSHEI_EPISODE_POLICY`: 정책 파일 경로(§8.2).
+- `KOSHEI_NARRATOR` · `KOSHEI_PICASSO` 에 모르는 값이 있으면 사가 워커까지 워커 전체가 시작 때 멈춘다(빨리 실패). 설정을 잘못 적어
+  에피소드 쪽만 조용히 다르게 도는 일이 없게 한다.
+- `KOSHEI_EPISODE_POLICY`: 정책 파일 경로(§8.2). 에피소드 워커가 켜졌는데 그 파일이 없으면 시작 때 경고를 남긴다 — 기본값은 작업
+  디렉터리 기준 상대경로이고, 파일이 없으면 모든 에피소드가 `POLICY_MISSING` 이다.
 - picasso 창구는 `ApprovalWindow`(`revalidate`, `approve`)로 액티비티에 들어간다. 한 인스턴스를 동시에 도는 액티비티들이 함께 쓰므로
-  구현은 스레드 안전해야 하고, `approve` 가 받는 의도 노드는 읽기 전용이다. 지금 구현은 `MockPicasso` 하나다.
+  구현은 스레드 안전해야 하고, `approve` 가 받는 의도 노드는 읽기 전용이다. 지금 구현은 `MockPicasso` 하나다. `register` 도 창구를
+  이 인터페이스로 받고, 무엇을 만들지는 `PicassoMode` 가 고른다.
 
 ---
 
@@ -335,7 +339,9 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 - 워크플로 id = **병합 키**(`ep:<correlationKey>`). 시작은 `signalWithStart` 만. 같은 키로 두 번째 시작은 구조적으로 불가능하다
   (R1, R10). 닫힌 에피소드 뒤의 새 증상은 새 실행으로 연다(id 재사용 정책 `ALLOW_DUPLICATE`). ESCALATED 는 열려 있으므로 그동안
   같은 키의 새 증상은 그 에피소드에 기록으로 붙는다(§5.2).
-- 에피소드 인스턴스 id(기록용) = 워크플로 id + Temporal runId.
+- 에피소드 인스턴스 id(기록용) = 워크플로 id + `originalExecutionRunId`(시작 사건에 적힌 run id). 보통은 runId 와 같다. 다른 것은
+  reset 한 run 하나뿐이다 — reset 한 run 은 바탕 run 의 id 를 그대로 이어 쓴다(§7.5). continue-as-new 한 run 은 새 id 를 받으므로
+  새 인스턴스다. 사슬의 첫 run id(`firstExecutionRunId`)는 이어진 run 들이 함께 쓰므로 쓰지 않는다.
 - 입력: 첫 증상 참조, 관측 시각, **상태 스키마 판**(`schemaVersion`).
 - **시작하자마자 `readPolicy`** 를 부른다. 꺼짐·없음·만료면 바로 ESCALATED. 감시자는 판정하지 않는다.
 - DETECTED 의 발생원은 감시자(picasso 내보내기) 하나다. drift 감지를 발생원으로 붙이는 것은 계획 C 에서 감시자의 두 번째 입력
@@ -349,6 +355,8 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 - 알려진 한계: 열린 에피소드에 합류하는 증상의 manifest 는 읽지 않는다.
 - **B3c 메모:** 이전 run 의 결과를 `getResult` 로 기다리면 continue-as-new 사슬을 따라가 다음 에피소드의 결과를 받는다. runId 를
   고정해 기다리거나 `CONTINUED_AS_NEW` 를 끝으로 본다.
+- **B3c 메모:** 지금 run 의 runId 를 인스턴스 id 에서 끌어내지 않는다. reset 한 run 에서는 둘이 다르다. runId 가 필요하면
+  Temporal 에 묻는다(describe).
 
 ### 7.2 사람과 감시자의 입력
 
@@ -391,11 +399,16 @@ Temporal execution timeout 으로 두면 강제 종료라 ESCALATED 가 **상태
 사람 승인 뒤 인수와 종료, continue-as-new 한 첫 run, 끝내 실패한 기록과 `RECORD_LAG`. 재생 워커는 운영과 같은 koshei 변환기
 (`DataConverterSupport.clientOptions()`)를 단다. 기본 변환기로는 narrator 의 `RawJson` 답을 읽지 못해 진단이 실패로 바뀌고 명령이
 갈린다(대조군). 변환기도 결정성의 일부다.
-- 인스턴스 id 가 runId 를 담고(§7.1) 코어가 narrator 답의 `episodeId` 를 그것과 견준다. 그래서 재생은 그 run 의 실제 runId 로
-  돌려야 한다. SDK 1.25.1 의 재생기는 모든 이력을 `run_id_in_replay` 로 돌리므로, 시험이 시작 사건의 runId 를 넣어 준다. 워커는
-  늘 run 자신의 id 로 재생하므로 운영에서는 생기지 않는다.
-- 같은 까닭으로 Temporal **reset** 은 쓰지 않는다. reset 한 run 은 새 runId 로 앞 이력을 재생하므로, 진단 답이 있는 이력이면 그
-  자리에서 갈릴 것이다(시험으로 밟지는 않음). 운영자는 `takeover` → `close` 를 쓴다.
+- 코어는 narrator 답의 `episodeId` 를 인스턴스 id 와 견준다. 인스턴스 id 가 지금 run 의 runId 를 담았다면, 다른 run id 로 같은
+  이력을 재생할 때 첫 진단 답에서 갈린다(비결정성 오류, 끝없이 재시도된다). 그래서 인스턴스 id 는 시작 사건의
+  `originalExecutionRunId` 를 쓴다(§7.1). SDK 1.25.1 의 재생기는 모든 이력을 `run_id_in_replay` 로 돌리는데, 재생 시험은 이력을
+  받은 그대로 넘기고 통과한다.
+- Temporal **reset** 한 run 은 같은 인스턴스를 잇는다. 바탕 run 의 사건을 새 run id 로 재생해도 인스턴스 id 가 같으므로 갈리지
+  않는다.
+  - 바탕 run 이 reset 지점 뒤에 쓴 기록은 같은 (인스턴스, seq) 에 다른 내용이면 `RecordConflict` 로 돌아오고, `RECORD_LAG` 를 한 번
+    알린다.
+  - `dispatch` 의 멱등 열쇠도 같으므로 바탕 run 이 저장한 결과가 그대로 돌아온다. 둘째 조치는 나가지 않는다.
+  - 운영자의 길은 여전히 `takeover` → `close` 다.
 - R3 의 재생 시험(상태별로 멈춘 이력을 커밋해 두고 판마다 재생)은 계획 D 다. 첫 배포부터는 명령 순서를 바꿀 때마다
   `Workflow.getVersion` 을 건다.
 

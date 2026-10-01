@@ -340,7 +340,14 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
     private fun expired(failure: RuntimeException): Boolean =
         ((failure as? ActivityFailure)?.cause as? TimeoutFailure)?.timeoutType == TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE
 
-    private fun instanceId(): String = Workflow.getInfo().let { "${it.workflowId}/${it.runId}" }
+    /**
+     * The episode instance (design §7.1): the workflow id and the run that opened the episode, read from the started
+     * event. A reset run continues the same instance — it replays its base run's events, narrator's answers naming the
+     * base instance among them, under a new run id, which would diverge at the first diagnosis. Continue-as-new starts a
+     * new run with a new original run id, so a new instance; the chain's first run id would not do, as every continued
+     * run shares it. It is not always the current run's id, so the current run id is never derived from it.
+     */
+    private fun instanceId(): String = Workflow.getInfo().let { "${it.workflowId}/${it.originalExecutionRunId.ifEmpty { it.runId }}" }
 
     private fun now(): Instant = Instant.ofEpochMilli(Workflow.currentTimeMillis())
 }

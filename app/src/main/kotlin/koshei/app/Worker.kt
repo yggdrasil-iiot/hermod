@@ -20,6 +20,7 @@ import koshei.runtime.RuntimeAssembly
 import koshei.runtime.SagaWorkflowImpl
 import koshei.runtime.WorkflowDefLoader
 import java.io.File
+import java.nio.file.Files
 
 const val TASK_QUEUE = "koshei-v0_1-tq"
 
@@ -71,12 +72,19 @@ fun main() {
     // Off unless KOSHEI_PICASSO names an approval window; today only the test Mock exists (design §19 C).
     val episodeConfig = EpisodeRuntimeConfig.fromEnv(System.getenv())
     if (episodeConfig.picasso == PicassoMode.OFF) {
-        println("[$workerName] episode worker off (KOSHEI_PICASSO unset)")
+        println("[$workerName] episode worker off (KOSHEI_PICASSO unset or off)")
     } else {
         val episodeStore = EpisodeStore { Db.connect() }
         episodeStore.ensureSchema()
         EpisodeWorkers.register(factory, episodeConfig, episodeStore)
-        System.err.println("[$workerName] WARNING episode worker on $EPISODE_TASK_QUEUE with the TEST Mock picasso: remedies reach no robot (design §8.3, §11)")
+        if (episodeConfig.picasso == PicassoMode.MOCK) {
+            System.err.println("[$workerName] WARNING episode worker on $EPISODE_TASK_QUEUE with the TEST Mock picasso: remedies reach no robot (design §8.3, §11)")
+        }
+        // The default path is relative to the working directory. A missing file is read as MISSING on every decision, so
+        // every episode escalates POLICY_MISSING (design §8.2): say so once here rather than leave it to the first episode.
+        if (!Files.exists(episodeConfig.policyPath)) {
+            System.err.println("[$workerName] WARNING episode policy ${episodeConfig.policyPath.toAbsolutePath()} does not exist: every episode will escalate POLICY_MISSING (set KOSHEI_EPISODE_POLICY)")
+        }
         println("[$workerName] episode worker on $EPISODE_TASK_QUEUE (narrator ${episodeConfig.narrator}, policy ${episodeConfig.policyPath})")
     }
 

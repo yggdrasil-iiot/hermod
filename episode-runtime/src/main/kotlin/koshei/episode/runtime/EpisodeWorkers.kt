@@ -33,9 +33,13 @@ data class EpisodeRuntimeConfig(val policyPath: Path, val narrator: NarratorMode
     }
 }
 
-/** Registers the episode workflow and its activities (design §4.1, §4.2). The caller starts the factory. */
+/**
+ * Registers the episode workflow and its activities (design §4.1, §4.2). The caller starts the factory. [config]'s
+ * [PicassoMode] decides whether anything is registered; [picasso] is the window used when it is (the Mock by default,
+ * the only one until §19 C).
+ */
 object EpisodeWorkers {
-    fun register(factory: WorkerFactory, config: EpisodeRuntimeConfig, store: EpisodeStore, picasso: MockPicasso = MockPicasso()) {
+    fun register(factory: WorkerFactory, config: EpisodeRuntimeConfig, store: EpisodeStore, picasso: ApprovalWindow = MockPicasso()) {
         if (config.picasso == PicassoMode.OFF) return
         factory.newWorker(
             EPISODE_TASK_QUEUE,

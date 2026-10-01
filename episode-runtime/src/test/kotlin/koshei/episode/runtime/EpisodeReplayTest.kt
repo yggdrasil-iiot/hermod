@@ -1,6 +1,5 @@
 package koshei.episode.runtime
 
-import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.client.WorkflowClient
 import io.temporal.common.WorkflowExecutionHistory
 import io.temporal.testing.TestWorkflowEnvironment
@@ -13,19 +12,11 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * A fetched history as the replayer should run it: as the run it came from. The replayer otherwise runs every history
- * as run `run_id_in_replay` (SDK 1.25.1, `internal.common.WorkflowExecutionHistory.getWorkflowExecution`), while the
- * episode's instance id is `workflowId/runId` and the core checks narrator's answer against it: the replay would
- * diverge at the first diagnosis for a reason no worker ever meets (a worker replays a run under its own id).
- * The run id is the started event's `originalExecutionRunId`, which is the run's own id.
+ * Histories replayed as fetched. The replayer runs each as run `run_id_in_replay` (SDK 1.25.1), as a reset run replays
+ * its base run's events under a new run id: the episode's instance id must not depend on the run id the code runs under
+ * (it is the started event's original execution run id, design §7.1), or the core's check of narrator's `episodeId`
+ * diverges at the first diagnosis.
  */
-private class RunHistory(fetched: WorkflowExecutionHistory) :
-    io.temporal.internal.common.WorkflowExecutionHistory(fetched.history, fetched.workflowExecution.workflowId) {
-    private val runId = fetched.events.first().workflowExecutionStartedEventAttributes.originalExecutionRunId
-
-    override fun getWorkflowExecution(): WorkflowExecution = super.getWorkflowExecution().toBuilder().setRunId(runId).build()
-}
-
 class EpisodeReplayTest {
     private val acts = FakeEpisodeActivities()
     private val narrator = ProgrammableNarrator()
@@ -41,16 +32,16 @@ class EpisodeReplayTest {
     @AfterEach fun down() = env.close()
 
     /** (a) Auto-approval to a person's DONE: diagnosis (a RawJson payload), revalidation, intent, dispatch, confirm. */
-    private fun happyPath(): RunHistory {
+    private fun happyPath(): WorkflowExecutionHistory {
         val ep = client.openEpisode(id = "rp:a")
         val waiting = ep.until(env) { it.phase == "AWAITING_EVIDENCE" }
         ep.confirm(ConfirmRequest("OUTCOME", waiting.candidateId!!, waiting.proposalId!!, true, operatorId = "op-1"))
         ep.result()
-        return RunHistory(client.fetchHistory("rp:a"))
+        return client.fetchHistory("rp:a")
     }
 
     /** (b) Policy v1: a person approves; then takeover and close. */
-    private fun personApproves(): RunHistory {
+    private fun personApproves(): WorkflowExecutionHistory {
         acts.policyJson = TestPolicies.table(autoApprove = false)
         try {
             val ep = client.openEpisode(id = "rp:b")
@@ -63,11 +54,11 @@ class EpisodeReplayTest {
         } finally {
             acts.policyJson = TestPolicies.table(autoApprove = true)
         }
-        return RunHistory(client.fetchHistory("rp:b"))
+        return client.fetchHistory("rp:b")
     }
 
     /** (c) The first run of a workflow continued as new for a symptom that came while it drained. */
-    private fun continuedRun(): RunHistory {
+    private fun continuedRun(): WorkflowExecutionHistory {
         val gate = CountDownLatch(1)
         acts.dispatchGate = gate
         val ep = client.openEpisode(id = "rp:c")
@@ -78,11 +69,11 @@ class EpisodeReplayTest {
         gate.countDown()
         acts.dispatchGate = null
         client.newWorkflowStub(EpisodeWorkflow::class.java, "rp:c").until(env) { it.instanceId != first && it.phase != "OPENING" }
-        return RunHistory(client.fetchHistory("rp:c", first.substringAfterLast('/')))
+        return client.fetchHistory("rp:c", first.substringAfterLast('/'))
     }
 
     /** (d) A record that keeps failing: one RECORD_LAG notice, then a person's DONE. */
-    private fun recordLag(): RunHistory {
+    private fun recordLag(): WorkflowExecutionHistory {
         acts.recordFault = { it == "PROPOSED" }
         try {
             val ep = client.openEpisode(id = "rp:d")
@@ -95,7 +86,7 @@ class EpisodeReplayTest {
         } finally {
             acts.recordFault = { false }
         }
-        return RunHistory(client.fetchHistory("rp:d"))
+        return client.fetchHistory("rp:d")
     }
 
     @Test fun `every scenario's history replays on today's code with koshei's converter`() {
@@ -110,8 +101,8 @@ class EpisodeReplayTest {
     }
 
     /**
-     * Run under its own id (see [RunHistory]), the history fails here only because the default converter cannot read
-     * narrator's RawJson answer: the diagnosis fails in replay where it returned live, and the commands diverge.
+     * The history fails here only because the default converter cannot read narrator's RawJson answer: the diagnosis
+     * fails in replay where it returned live, and the commands diverge.
      */
     @Test fun `the default converter cannot replay them - the converter is part of determinism`() {
         val history = happyPath()

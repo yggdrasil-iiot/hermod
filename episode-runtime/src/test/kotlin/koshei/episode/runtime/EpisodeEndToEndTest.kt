@@ -98,9 +98,14 @@ class EpisodeEndToEndTest {
         val b = client.openEpisode(id = "ep:b", symptom = searchSignal("search-2"))
         assertEquals("AGENT_LAYER_OFF", b.until(e) { it.phase == "ESCALATED" }.escalationReason)
         eventually { store.notices(b.view().instanceId).takeIf { n -> n.any { "AGENT_LAYER_OFF" in it } } }
-        // A's next decision reads the file again.
-        a.decide(DecideRequest(waiting.proposalId!!, waiting.candidatesVersion!!, true, "op-1"))
+        // The person's approval is judged on the table in force (an Update reads no policy: EpisodeWorkflowImpl.update); the next event of
+        // the main loop — the revalidation's result — reads the file again and finds the agent layer off.
+        assertEquals("ACCEPTED", a.decide(DecideRequest(waiting.proposalId!!, waiting.candidatesVersion!!, true, "op-1")))
         assertEquals("AGENT_LAYER_OFF", a.until(e) { it.phase == "ESCALATED" }.escalationReason)
+        // An approval given after the switch never reaches picasso.
+        val events = stored(waiting.instanceId) { r -> r.any { it.kind == "TRANSITION" && "AGENT_LAYER_OFF" in it.payloadJson } }
+        val dispatched = events.filter { it.kind == EpisodeActivitiesImpl.INTENT_KIND || it.kind == "DISPATCH_RESULT" }
+        assertTrue(dispatched.isEmpty(), "nothing is dispatched after the switch: ${events.map { it.kind }}")
     }
 
     @Test fun `a repeated switch in the file is unreadable - with no valid table yet, the episode is POLICY_MISSING`() {

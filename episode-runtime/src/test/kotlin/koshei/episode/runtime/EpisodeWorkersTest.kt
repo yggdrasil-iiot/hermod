@@ -1,5 +1,6 @@
 package koshei.episode.runtime
 
+import com.fasterxml.jackson.databind.JsonNode
 import org.junit.jupiter.api.assertThrows
 import java.nio.file.Path
 import kotlin.test.Test
@@ -21,6 +22,22 @@ class EpisodeWorkersTest {
         try {
             EpisodeWorkers.register(env.workerFactory, EpisodeRuntimeConfig.fromEnv(emptyMap()), EpisodeStore { error("no DB needed") })
             kotlin.test.assertNull(env.workerFactory.tryGetWorker(EPISODE_TASK_QUEUE))
+            kotlin.test.assertNull(env.workerFactory.tryGetWorker(NARRATOR_TASK_QUEUE))
+        } finally {
+            env.close()
+        }
+    }
+
+    @Test fun `a remote narrator leaves narrator-tq to narrator's own worker, and the episode worker takes any approval window`() {
+        val env = episodeEnvironment { }
+        val window = object : ApprovalWindow {
+            override fun revalidate(candidateJson: String) = "UNKNOWN"
+            override fun approve(intent: JsonNode, approverKind: String?) = error("not called")
+        }
+        try {
+            val config = EpisodeRuntimeConfig.fromEnv(mapOf("KOSHEI_PICASSO" to "mock", "KOSHEI_NARRATOR" to "remote"))
+            EpisodeWorkers.register(env.workerFactory, config, EpisodeStore { error("no DB needed") }, window)
+            kotlin.test.assertNotNull(env.workerFactory.tryGetWorker(EPISODE_TASK_QUEUE))
             kotlin.test.assertNull(env.workerFactory.tryGetWorker(NARRATOR_TASK_QUEUE))
         } finally {
             env.close()

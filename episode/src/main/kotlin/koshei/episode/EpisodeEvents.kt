@@ -4,7 +4,7 @@ import java.time.Instant
 
 /** What the runtime feeds into [transition] (design §6). Plan B2b-2b adds the dispatch and evidence events. */
 sealed interface EpisodeEvent {
-    /** The first symptom, delivered by signalWithStart. [instanceId] = workflow id + runId (design §7.1). */
+    /** The first symptom, delivered by signalWithStart. [instanceId] = workflow id + original execution run id (design §7.1). */
     data class Detected(val instanceId: String, val manifestJson: String, val symptom: Symptom) : EpisodeEvent
 
     data class SymptomJoined(val symptom: Symptom) : EpisodeEvent

@@ -17,6 +17,7 @@ import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -185,13 +186,17 @@ class EpisodeWorkflowTest {
         val next = client.newWorkflowStub(EpisodeWorkflow::class.java, "ep:again").until { it.instanceId != first && it.phase != "OPENING" }
         assertTrue(next.instanceId.startsWith("ep:again/"))
         assertEquals(1, next.symptoms)
-        val status = env.workflowServiceStubs.blockingStub().describeWorkflowExecution(
+        fun describe(runId: String) = env.workflowServiceStubs.blockingStub().describeWorkflowExecution(
             DescribeWorkflowExecutionRequest.newBuilder()
                 .setNamespace(env.namespace)
-                .setExecution(WorkflowExecution.newBuilder().setWorkflowId("ep:again").setRunId(first.substringAfterLast('/')))
+                .setExecution(WorkflowExecution.newBuilder().setWorkflowId("ep:again").setRunId(runId))
                 .build(),
-        ).workflowExecutionInfo.status
-        assertEquals(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW, status)
+        ).workflowExecutionInfo
+        assertEquals(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW, describe(first.substringAfterLast('/')).status)
+        // A continued run is a new episode instance, named by its own run (design §7.1). The chain's first run id is shared
+        // by every run of the chain and would fold two episodes' records into one instance.
+        assertEquals("ep:again/${describe("").execution.runId}", next.instanceId)
+        assertNotEquals(first, next.instanceId)
         assertTrue(records(first).any { it.kind == "IGNORED" && "SymptomJoined" in it.payload }, "the ended episode recorded it: ${records(first)}")
         eventually { records(next.instanceId).firstOrNull { it.kind == "OPENED" && "search:search-2" in it.payload } }
     }
