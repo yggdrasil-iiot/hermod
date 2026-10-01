@@ -470,4 +470,30 @@ class EpisodeWorkflowTest {
         assertNull(v.candidateJson)
         assertNull(v.diagnosisJson)
     }
+
+    @Test fun `the card is drawn from the view and records the core actually wrote`() {
+        acts.policyJson = TestPolicies.table(autoApprove = false)
+        val ep = open()
+        val waiting = ep.until { it.phase == "AWAITING_APPROVAL" }
+        val events = settledRecords(waiting.instanceId) { r -> r.any { it.kind == "PROPOSED" } }.map { StoredEvent(it.seq, it.kind, it.payload) }
+        val card = operatorCard(waiting, events)
+        assertEquals(waiting.candidateId, card.proposal!!.candidateId)
+        assertEquals(CardDecision("decide", waiting.proposalId!!, waiting.candidatesVersion!!, waiting.stateDeadlineMillis), card.decision)
+        assertEquals("mock: the first offered candidate [mock-sop, 1]", card.rationale)
+        assertEquals("mock-sop", card.citations.single()["title"].textValue())
+        assertEquals(1, card.symptoms.size)
+    }
+
+    @Test fun `an unknown precondition's card names the proposition from the real candidate`() {
+        acts.revalidation = "UNKNOWN"
+        val ep = open()
+        val v = ep.until { it.phase == "UNKNOWN_PRECONDITION" }
+        val line = json.readTree(Picasso.search("search-1"))
+        val card = operatorCard(v, emptyList())
+        assertEquals(
+            "(${line["robotId"].textValue()}, ${line["jobOrderId"].textValue()})에 searchId ${line["searchId"].textValue()} 뒤로 더 새 탐색 줄이 없다",
+            card.precondition,
+        )
+        assertEquals("confirm", card.decision!!.update)
+    }
 }
