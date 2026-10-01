@@ -62,16 +62,18 @@ class PolicyFileReaderTest {
         assertTrue("depth" in read.reason!!, read.reason)
     }
 
-    @Test fun `200 000 open flow sequences are refused within a second`() = refusedQuickly("[".repeat(200_000))
+    // Near the 1 MiB limit so a regression lands far over the budget: before the depth fix these sizes took minutes.
+    @Test fun `1 000 000 open flow sequences are refused quickly`() = refusedQuickly("[".repeat(1_000_000))
 
-    @Test fun `200 000 nested block sequences are refused within a second`() = refusedQuickly("- ".repeat(200_000) + "1\n")
+    @Test fun `500 000 nested block sequences are refused quickly`() = refusedQuickly("- ".repeat(500_000) + "1\n")
 
     /** The pre-pass must stop at the depth limit: readPolicy is a local activity, and a timeout does not stop the thread. */
     private fun refusedQuickly(text: String) {
         val file = dir.resolve("active.yaml")
         Files.writeString(file, text)
         assertTrue(Files.size(file) <= PolicyFileReader.MAX_BYTES, "under the size limit, so the parser sees it")
-        val read = assertTimeoutPreemptively(Duration.ofSeconds(1)) { PolicyFileReader(file).read() }
+        StrictYaml.toJson("a: 1\n")   // class loading on a fresh JVM must not count against the budget
+        val read = assertTimeoutPreemptively(Duration.ofSeconds(5)) { PolicyFileReader(file).read() }
         assertEquals("UNREADABLE", read.kind, read.json?.take(40))
         assertTrue("depth" in read.reason!!, read.reason)
     }
