@@ -2,12 +2,16 @@ package koshei.episode.runtime
 
 import com.fasterxml.jackson.databind.JsonNode
 import java.sql.Connection
+import java.sql.SQLException
 
 /** One stored record of an episode. [payloadJson] is the stored JSON value (jsonb's own spacing). */
 data class StoredEvent(val seq: Long, val kind: String, val payloadJson: String)
 
 /** A different record already holds this (instance, seq): never overwritten, never retried. */
 class RecordConflict(message: String) : RuntimeException(message)
+
+/** The database cannot hold this value (jsonb refuses NUL and lone surrogates): a retry would fail the same way. */
+class RecordUnstorable(message: String, cause: Throwable) : RuntimeException(message, cause)
 
 /**
  * The episode tables (design §8.5, §13). Plain JDBC, one connection per call. Open so tests can inject faults.
@@ -22,9 +26,17 @@ open class EpisodeStore(private val connect: () -> Connection) {
 
     /**
      * Appends one record. True when written; false when the same record is already there (an activity retry);
-     * [RecordConflict] when a different record holds the seq.
+     * [RecordConflict] when a different record holds the seq; [RecordUnstorable] when jsonb cannot hold the payload.
+     *
+     * "The same record" is the same kind and an equal JSON value (jsonb `=`), not the same text: key order and spacing do
+     * not count, and neither does the form of a number (`1` and `1.0` are equal). jsonb keeps only the last of duplicated
+     * keys, so callers pass a payload Jackson serialised, which has none.
      */
-    open fun append(instanceId: String, seq: Long, kind: String, payloadJson: String): Boolean = connect().use { c ->
+    open fun append(instanceId: String, seq: Long, kind: String, payloadJson: String): Boolean = storable("episode_event $instanceId #$seq") {
+        appendRow(instanceId, seq, kind, payloadJson)
+    }
+
+    private fun appendRow(instanceId: String, seq: Long, kind: String, payloadJson: String): Boolean = connect().use { c ->
         val written = c.prepareStatement(
             "INSERT INTO episode_event (episode_instance_id, seq, kind, payload) VALUES (?, ?, ?, ?::jsonb) ON CONFLICT DO NOTHING",
         ).use { s ->
@@ -51,7 +63,8 @@ open class EpisodeStore(private val connect: () -> Connection) {
         }
     }
 
-    open fun notice(instanceId: String, noticeJson: String) {
+    /** Appends one notice; [RecordUnstorable] when jsonb cannot hold it. */
+    open fun notice(instanceId: String, noticeJson: String) = storable("episode_notice $instanceId") {
         connect().use { c -> insertNotice(c, instanceId, noticeJson) }
     }
 
@@ -78,28 +91,44 @@ open class EpisodeStore(private val connect: () -> Connection) {
 
     /**
      * Issues a person task exactly once (design §8.4): the task row and its notice are written in one transaction, and
-     * nothing is written when the key already has a task.
+     * nothing is written when the key already has a task. [RecordUnstorable], with neither row written, when jsonb
+     * cannot hold the intent.
      */
     open fun issueTask(instanceId: String, key: String, intentJson: String): DispatchOutcome {
         val task = DispatchOutcome("PERSON_TASK")
-        connect().use { c ->
-            c.autoCommit = false
-            try {
-                if (insertOutcome(c, instanceId, key, task)) {
-                    val notice = strictJson.createObjectNode().apply {
-                        put("kind", "PERSON_TASK")
-                        put("idempotencyKey", key)
-                        set<JsonNode>("intent", strictJson.readTree(intentJson))
+        storable("episode_dispatch $key") {
+            connect().use { c ->
+                c.autoCommit = false
+                try {
+                    if (insertOutcome(c, instanceId, key, task)) {
+                        val notice = strictJson.createObjectNode().apply {
+                            put("kind", "PERSON_TASK")
+                            put("idempotencyKey", key)
+                            set<JsonNode>("intent", strictJson.readTree(intentJson))
+                        }
+                        insertNotice(c, instanceId, notice.toString())
                     }
-                    insertNotice(c, instanceId, notice.toString())
+                    c.commit()
+                } catch (e: Throwable) {
+                    try { c.rollback() } catch (r: SQLException) { e.addSuppressed(r) }
+                    throw e
+                } finally {
+                    c.autoCommit = true   // a pooled connection must not come back mid-transaction
                 }
-                c.commit()
-            } catch (e: Exception) {
-                c.rollback()
-                throw e
             }
         }
         return checkNotNull(outcome(key)) { "episode_dispatch $key vanished" }
+    }
+
+    /**
+     * A data exception (SQLState class 22: NUL in jsonb, an invalid escape, a value out of range) is about the value,
+     * so a retry fails the same way: it becomes [RecordUnstorable], which the activity reports as non-retryable.
+     */
+    private inline fun <T> storable(what: String, block: () -> T): T = try {
+        block()
+    } catch (e: SQLException) {
+        if (e.sqlState?.startsWith("22") == true) throw RecordUnstorable("$what cannot be stored: ${e.message}", e)
+        throw e
     }
 
     private fun insertOutcome(c: Connection, instanceId: String, key: String, outcome: DispatchOutcome): Boolean =
