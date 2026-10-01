@@ -186,12 +186,11 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | DISPATCH_PENDING | 이 실행 의도와 맞지 않는 `Recorded` · `RecordFailed`(다른 `seq`) | ESCALATED | `RECORD_FAILED`. 조치를 내지 않는 쪽을 고른다 — `Dispatch` 는 이 의도의 `Recorded` 에서만 나온다 |
 | DISPATCH_PENDING | `EvidenceArrived` | (그대로) | 기록만. 이 시도의 `Recorded` 앞에 처리한 것이라 근거로 치지 않는다 (§12) |
 | DISPATCHED | `EvidenceArrived` | (그대로) | 기록하고 보관한다. 결과 통보는 수락과 같은 펌프에서 나오므로 답보다 먼저 올 수 있다. AWAITING_EVIDENCE · UNKNOWN(OUTCOME) 에 들어갈 때 다시 적용한다 — 내부 재적용이라 `eventId` 중복 제거(§6)에 걸리지 않는다 |
-| DISPATCHED | 답의 `schemaVersion` 이 `"2"` 가 아님 · `refusal` 이 판 2 의 아는 값 넷(`NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · `REFUSED_BY_GATE` · `NOT_DECLARED`) 밖 | ESCALATED | `DISPATCH_ANSWER_UNKNOWN`. **DISPATCHED 의 picasso 답 행 중 이 검사가 먼저다** (§8.4) |
-| DISPATCHED | 수락(`APPROVE_REMEDY` 는 `delivered: true`) · 사람 과업 발행 · 자식 사가 완료 | AWAITING_EVIDENCE | `REMEDY_NOT_APPLIED` 는 수락이 아니다 (아래 행) |
-| DISPATCHED | 승인이 수락됐는데 `delivered` 가 true 가 아님(false · null) | UNKNOWN(OUTCOME) | 전달됐는지 모른다. 재시도하지 않는다 |
+| DISPATCHED | 답의 `schemaVersion` 이 `"2"` 가 아님 · `outcome` 이 `APPROVED` · `REFUSED` 밖 · `refusal` 이 판 2 의 열다섯(§8.4) 밖 · `APPROVED` 인데 `executionId` 나 `steps` 가 없음 · 후보 종류와 맞지 않는 답 | ESCALATED | `DISPATCH_ANSWER_UNKNOWN`. **DISPATCHED 의 picasso 답 행 중 이 검사가 먼저다** (§8.4) |
+| DISPATCHED | 수락(`APPROVE_REMEDY` 는 `outcome: APPROVED` — `executionId` 와 실제로 나간 `steps` 를 싣는다) · 사람 과업 발행 · 자식 사가 완료 | AWAITING_EVIDENCE | `executionId` 가 결과 통보를 이 시도에 잇는다(§12). `REMEDY_NOT_APPLIED` 는 수락이 아니다 (아래 행) |
 | DISPATCHED | `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · 재시도 소진 · `dispatchMs` 만료 · 자식 사가 UNKNOWN 보고 | UNKNOWN(OUTCOME) | 나갔는지 모름 (§11). 둘 다 「내 앞선 시도가 이미 들어갔을 수 있음」이고 재시도로 풀지 않는다 |
 | DISPATCHED | 재진단 목록(§8.4)에 있는 거절 열거값 | DIAGNOSING | `DISPATCH_REFUSED(enum)`. 목록은 지금 비어 있다 |
-| DISPATCHED | 그 밖의 아는 거절 값(`REFUSED_BY_GATE` · `NOT_DECLARED`) | ESCALATED | `DISPATCH_REFUSED(enum)`. 기본값. `refusal` 열거값으로만 가르고 산문은 보지 않는다. 재진단으로 고칠 수 없는 거절을 다른 후보로 돌려 누르지 않게 한다 (§8.4) |
+| DISPATCHED | 그 밖의 아는 거절 값(판 2 의 열다섯 가운데 `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` 를 뺀 열셋) | ESCALATED | `DISPATCH_REFUSED(enum)`. 기본값. `refusal` 열거값으로만 가르고 산문은 보지 않는다. 재진단으로 고칠 수 없는 거절을 다른 후보로 돌려 누르지 않게 한다 (§8.4) |
 | DISPATCHED | 자식 사가 실패(보상 끝남) | DIAGNOSING | `CHILD_FAILED` |
 | DISPATCHED | 위 행 어디에도 맞지 않는 `DispatchReturned` | ESCALATED | `DISPATCH_ANSWER_UNKNOWN`. 액티비티 결과는 「그대로」 규칙으로 삼키지 않는다 |
 | AWAITING_EVIDENCE, UNKNOWN(OUTCOME) | ① `EvidenceArrived` 인데 대상과 이어지지 않음 · **이 시도의** `Recorded` 앞(앞선 시도의 늦은 통보 포함) · 이미 본 `jobResponseId` | (그대로) | 기록만. 기한(`evidenceMs` · `unknownMs`)이 출구를 지킨다 |
@@ -298,7 +297,7 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 싣고 `Revalidated` 가 그것을 돌려준다 — 재진단 뒤에 도착한 앞 후보의 늦은 결과가 새 후보의 전제로 읽히지 않게. 거절 사유는
 `RejectReason { WRONG_TARGET, WRONG_ACTION, PRECONDITION_NOT_MET, NOT_NOW, OTHER }` 이고 이력(계약 §3.4)에는 이 값만 간다. 운영자의
 자유 글(`note`)은 감사 기록에만 남는다 — narrator 가 이력을 모델의 자료 칸에 옮기므로 인증 없는 글이 프롬프트로 가지 않게 한다.
-재진단 사유(기록 전용)는 `APPROVAL_REJECTED` · `APPROVAL_LAPSED` · `PRECONDITION_BROKEN`. POLICY 자동 승인은 실행 의도 직전에 지금 표로
+재진단 사유(기록 전용)는 `APPROVAL_REJECTED` · `APPROVAL_LAPSED` · `PRECONDITION_BROKEN` · `NOT_DONE`. 실행 뒤의 모양(계획 B2b-2b): `Dispatch(intent, approverKind, timeoutMs, token)` 과 `DispatchReturned(result, token)`, `EvidenceArrived(Evidence)`(결과 통보의 칸 그대로), `ConfirmedOutcome(candidateId, proposalId, done, by)`. `Recorded` 를 받으면 실행 의도 직전과 같은 관문을 다시 지나고 나서야 `Dispatch` 를 낸다. UNKNOWN(OUTCOME)이 `unknownMs` 로 끝나면 이력의 `closedAs` 는 `UNKNOWN` 이다. POLICY 자동 승인은 실행 의도 직전에 지금 표로
 다시 판정하고, 그 사이 자동 승인이 꺼졌거나 표가 거절돼 멈췄으면 승인을 거두고 AWAITING_APPROVAL 로 간다.
 
 고정 규칙(정책 표로 못 바꾼다):
@@ -434,7 +433,7 @@ UNKNOWN(PRECONDITION)을 지나고, 사람의 `ConfirmedPrecondition` 이 없으
 | `OPERATOR_DECISION` | 운영자 과업. koshei 는 `resolve` 를 부르지 않는다 | 과업 발행 | 사람의 `ConfirmedOutcome` 만(AWAITING_EVIDENCE 의 `confirm`, §7.2. 없으면 `EVIDENCE_EXPIRED`). 사건 줄의 `resolution` 은 아직 근거로 쓰지 않는다 — 실시간이 아니고, 판단이 아직 안 실린 가장 최근 사건에 붙는다(붙는 범위는 picasso 에 묻는다, §19) |
 | `SAGA_ACTION` (계획 D) | koshei 자식 사가 | 자식 시작 | 자식 사가 결과 + 원천 재조회 |
 
-- picasso 응답의 `approverKind`(PERSON/AGENT), `delivered` 를 그대로 기록한다. koshei 의 POLICY 자동 승인은 picasso 에 AGENT 로 간다.
+- koshei 가 승인 창구에 보낸 `approverKind`(PERSON/AGENT — POLICY 자동 승인은 AGENT, picasso §7.1)와 답의 `executionId` · `steps` 를 기록한다. `steps` 가 「실제로 나간 값」이다(picasso §7.3) — 이력의 `dispatch.delivered` 가 이것이다(§9.4). 답에 참 · 거짓 `delivered` 칸은 없다(v0.5 는 그렇게 잘못 읽었다, 2026-10-01 picasso main `584c6cd` 의 `ApprovalWire` 로 바로잡음).
 - **멱등은 액티비티 안에서 지킨다(§11).** 자식 사가는 child workflow id 로 지킨다. `APPROVE_REMEDY` 는 열쇠로 결과를 조회할 표면이
   없다 — 두 번 나감은 picasso 가 막고, 재시도의 `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` 는 UNKNOWN(OUTCOME)이다.
 
@@ -442,7 +441,7 @@ picasso 와의 경계 (picasso 2026-09-30 답):
 
 | 항목 | 규칙 |
 |---|---|
-| 거절 열거값을 전이 입력으로 | picasso 동의, 조건 넷. ① `refusal` 열거값으로만 가르고 산문으로 가르지 않는다 ② 답의 `schemaVersion`(지금 `"2"`)을 **먼저** 본다. 판 2 의 아는 거절 값은 답이 이름을 댄 넷(`NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · `REFUSED_BY_GATE` · `NOT_DECLARED`)뿐이다. 모르는 판이나 그 밖의 값이면 ESCALATED(`DISPATCH_ANSWER_UNKNOWN`). 판 2 의 전체 목록은 picasso 에 묻는다(§19) ③ `REFUSED_BY_GATE` 는 제안을 소모하지 않는다 ④ `NO_PROPOSAL` 은 「이미 소모됐을 수 있음」 → UNKNOWN(OUTCOME), 재시도로 풀지 않는다. 덧붙여 `REMEDY_NOT_APPLIED` 는 승인이 아니고, 같은 판의 둘째 시도에도 오므로(§11) `NO_PROPOSAL` 과 같이 UNKNOWN(OUTCOME) |
+| 거절 열거값을 전이 입력으로 | picasso 동의, 조건 넷. ① `refusal` 열거값으로만 가르고 산문으로 가르지 않는다 ② 답의 `schemaVersion`(지금 `"2"`)을 **먼저** 본다. 판 2 의 거절 값은 picasso `ApprovalRefusal` 의 열다섯이다(picasso main `584c6cd`, `docs/orchestration.md` §7.3): `WITHHELD` · `NO_PROPOSAL` · `PROPOSAL_CHANGED` · `NOT_DECLARED` · `REVOKED` · `EXPIRED` · `ROBOT_OUT_OF_SCOPE` · `SKILL_OUT_OF_SCOPE` · `VALUE_NOT_DECLARED` · `OBJECT_NOT_OBSERVED` · `DECLARED_CONTRADICTS_OBSERVED` · `CAPABILITY_UNKNOWN` · `VALUES_NOT_ACCEPTED` · `REFUSED_BY_GATE` · `REMEDY_NOT_APPLIED`. 모르는 판이나 그 밖의 값이면 ESCALATED(`DISPATCH_ANSWER_UNKNOWN`) ③ `REFUSED_BY_GATE` 는 제안을 소모하지 않는다 ④ `NO_PROPOSAL` 은 「이미 소모됐을 수 있음」 → UNKNOWN(OUTCOME), 재시도로 풀지 않는다. 덧붙여 `REMEDY_NOT_APPLIED` 는 승인이 아니고, 같은 판의 둘째 시도에도 오므로(§11) `NO_PROPOSAL` 과 같이 UNKNOWN(OUTCOME) |
 | 거절의 기본 갈래 | **모든 거절 값은 기본이 ESCALATED(`DISPATCH_REFUSED(enum)`)다.** DIAGNOSING 으로 가는 것은 「재진단으로 고칠 수 있다」고 답이 보여 준 값의 목록뿐이고, **그 목록은 지금 비어 있다.** picasso 2026-09-30 답에 나온 거절 값은 `NO_PROPOSAL` · `REMEDY_NOT_APPLIED`(나갔는지 모름 → UNKNOWN), `REFUSED_BY_GATE`(관문 판정 — 재진단이 관문을 바꾸지 않는다), `NOT_DECLARED`(picasso 쪽 선언 부재 — 재진단이 선언을 만들지 않는다)뿐이다 |
 | 선언 | picasso 쪽 전제다. koshei 가 보내는 것이 아니다. 사람 승인도 창구를 지나면 선언이 있어야 하고, 없으면 `NOT_DECLARED` 로 온다(값 없는 문에서는 선언이 값의 출처). 이 선언이 자격 선언과 같은 표인지는 picasso 에 묻는다(§19). POLICY 자동 승인은 두 표(koshei 정책 ∧ picasso 자격)의 교집합이다(§10.3) |
 | 다른 길로 누르지 않음 | picasso 가 거절한 것을 다른 길로 밀어 넣지 않는다. 거절이 ESCALATED 로 가므로 에이전트가 다른 후보로 다시 고를 틈이 없다 |
@@ -566,7 +565,7 @@ v1 은 에피소드 전체에 적용한다. 전이 함수도 같은 조건을 �
 - `dispatch.result`: `ACCEPTED` · `PERSON_TASK`(사람 과업 발행, 이때 `approverKind`·`delivered` 는 `null`) · picasso 거절 열거값 그대로 ·
   `UNCERTAIN`(나갔는지 모름) · `ANSWER_UNKNOWN`(답의 `schemaVersion` 이나 `refusal` 값을 모름, `DISPATCH_ANSWER_UNKNOWN`) ·
   `CHILD_COMPLETED` · `CHILD_FAILED` · `null`. 사람 과업의 결과는 `evidence` 로 들어온다.
-  `dispatch.approverKind` 는 picasso 가 기록한 PERSON / AGENT — `approval.by` 와 두 칸을 다 남겨야 두 시스템의 감사가 이어진다.
+  `dispatch.approverKind` 는 koshei 가 승인 창구에 보낸 PERSON / AGENT(picasso 가 감사에 남긴다) — `approval.by` 와 두 칸을 다 남겨야 두 시스템의 감사가 이어진다. `dispatch.delivered` 는 `APPROVED` 답의 `steps`(실제로 나간 걸음과 값)이고, 승인되지 않았으면 `null` 이다.
 - `evidence.outcome`: `DONE` · `NOT_DONE` · `UNKNOWN` · `null`.
 - 사람의 현물 확인(`confirm`)은 `evidence.grade = "E3"`(picasso 근거 등급의 작업자 확인)로 남기고, `identityAssurance` 를 함께 싣는다.
   인증이 없는 동안 E3 는 `SELF_ASSERTED` 신원 위의 E3 라는 것이 기록에서 보여야 한다.
@@ -744,7 +743,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 
   한 통보가 DONE 과 UNKNOWN 을 함께 말하면 UNKNOWN 이다. 모호한 통보로 자동 RESOLVED 하지 않는다. NOT_DONE 은 지금 결과 통보에서
   나오지 않는다 — 사람의 `ConfirmedOutcome` 만 낸다.
-- 결과 통보와 (기체, 주문) · 대상 단위를 잇는 칸은 답에 없다 — picasso 에 묻는다(§19). **그 답이 오기 전까지 결과 통보로는 DONE 에
+- 결과 통보는 `APPROVED` 답의 `executionId` 로 이 시도에 잇는다(picasso main `584c6cd`). 결과 통보의 어느 단위가 이 조치의 대상인지는 답에 없다 — picasso 에 묻는다(§19). **그 답이 오기 전까지 결과 통보로는 DONE 에
   닿을 수 없다.** 모든 실물 에피소드는 사람(`confirm`) 또는 기한으로 끝난다.
 - **파일 내보내기는 결과 통보를 싣지 않는다.** 담는 쪽이 설 때까지 감시자는 개발용으로 파일 내보내기에서 접수만 한다. 그 길에서는
   완료 근거가 오지 않아 AWAITING_EVIDENCE 가 `EVIDENCE_EXPIRED` 로 끝난다(모르면 끝내지 않는다). 근거 경로 시험은 Mock 담는 쪽
@@ -905,10 +904,10 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 |---|---|---|
 | 결정적 기본 동작 층의 뒤 절반(슬롯을 수동 처리로 넘기는 상태·명령, 현장 호출) | 라인 쪽 결정적 규칙, 주인 미정 (picasso 의 것이 아니고 에이전트 층과 뗀다). 반응 시간은 담는 쪽의 `pump()` 주기라 C 에 딸린다 | R4 · R5 의 라인 정지 0 검증 |
 | `unknowns.what` 열거값 — koshei 의 열거값이다. picasso 는 대응만 확인한다(2026-09-30 답에는 없음). 검토 제안(결정 전): 진행 관측 가능 여부가 null → `OBSERVATION`(§17 이 시험한다, 유지), `inDoubtUnits` → `OUTCOME`, `unverifiedUnits` 또는 `verification ≠ MATCHED` → `VERIFICATION`, `reachedEvidence` 가 `requiredEvidence` 에 못 미침 → `EVIDENCE`. 코드와 narrator 계약 §3.3 을 바꾼다 | 사용자 결정 (대응 확인은 picasso) | R8 세부 |
-| 판 2 의 거절 값 전체 목록 — 답이 이름을 댄 넷(`NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · `REFUSED_BY_GATE` · `NOT_DECLARED`) 밖에 더 있는가, koshei 의 물음에 나온 `PROPOSAL_CHANGED` 가 그 하나인가 | picasso 에 물음 | 그 전까지 넷 밖의 값은 `DISPATCH_ANSWER_UNKNOWN` (§5.2, §8.4) |
+| `PROPOSAL_CHANGED` 를 재진단 목록에 넣을지 — picasso 는 「다시 읽고 다시 시도」를 권한다(§7.3). 판 2 의 거절 값 열다섯은 picasso 코드로 확인했다(`584c6cd`, §8.4) | 사용자 결정 | 그 전까지 ESCALATED(`DISPATCH_REFUSED`) (§8.4 기본 갈래) |
 | 사건 줄 `resolution` 이 붙는 범위 — 「판단이 아직 안 실린 가장 최근 사건」이 판단한 (실행, 단위)의 사건과 늘 같은가 | picasso 에 물음 | `OPERATOR_DECISION` 의 근거로 `resolution` 을 쓰는 것 (§8.4) |
 | `NOT_DECLARED` 를 가르는 선언이 자격 선언과 같은 표인가 | picasso 에 물음 | §8.4 선언 행 |
-| 결과 통보를 (기체, 주문) 과 대상 단위에 잇는 칸 — 승인 답에서 executionId 나 단위를 알 수 있는가 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
+| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). 결과 통보의 어느 단위가 이 조치의 대상인가 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
 | khala 변경 여섯: 프롬프트 지문 결함과 `prompt_version`, 브리지 구조화 출력, `answer_context`, `numbers[].found_in`, `corpus_version`, `search_fingerprint` | khala | R9 · R11 판 칸, `UNCITED` 재진단 조정 |
 | 개발용 동시 한도 | khala · narrator | narrator 워커 동시 실행 설정 (벽 순서는 계약 0.5 에서 정해짐) |
 | 고정 예제의 응답 넷 | narrator | §17 계약 시험 |
