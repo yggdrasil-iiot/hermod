@@ -31,8 +31,11 @@ sealed interface EpisodeEvent {
      */
     data class Revalidated(val result: TriState, val token: Long) : EpisodeEvent
 
-    /** `confirm` Update on UNKNOWN(PRECONDITION): the person checked the proposition for [candidateId] (design §8.3). */
-    data class ConfirmedPrecondition(val candidateId: String, val proposalId: String, val holds: Boolean, val by: Approver) : EpisodeEvent
+    /**
+     * `confirm` Update on UNKNOWN(PRECONDITION): the person checked the proposition for [candidateId] (design §8.3).
+     * [proposition] is the proposition the person was shown (§7.2, §8.3), filled by the control plane from its own card — never by the client.
+     */
+    data class ConfirmedPrecondition(val candidateId: String, val proposalId: String, val holds: Boolean, val by: Approver, val proposition: String? = null) : EpisodeEvent
 
     data class DeadlineExpired(val which: Timer, val token: Long) : EpisodeEvent
 

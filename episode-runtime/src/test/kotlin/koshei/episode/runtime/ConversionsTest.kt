@@ -51,6 +51,12 @@ class ConversionsTest {
         assertFailsWith<IllegalArgumentException> { CloseRequest("op", "").validate() }
     }
 
+    @Test fun `a precondition confirmation carries the proposition the control plane filled in`() {
+        val event = ConfirmRequest("PRECONDITION", "c", "p", true, operatorId = "op", proposition = "명제").toEvent()
+        assertIs<EpisodeEvent.ConfirmedPrecondition>(event)
+        assertEquals("명제", event.proposition)
+    }
+
     @Test fun `a dispatch outcome becomes the core's result, and anything odd is uncertain`() {
         assertEquals(DispatchResult.Answer(PICASSO_APPROVED), DispatchOutcome("ANSWER", PICASSO_APPROVED).toResult())
         assertEquals(DispatchResult.PersonTaskIssued, DispatchOutcome("PERSON_TASK").toResult())

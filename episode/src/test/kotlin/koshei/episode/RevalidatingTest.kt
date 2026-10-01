@@ -103,6 +103,18 @@ class RevalidatingTest {
         assertEquals(Phase.SUPERSEDED, broken.state.phase)
     }
 
+    @Test fun `a precondition confirmation records the proposition the person was shown`() {
+        val u = unknown()
+        val t = u.state.enteredAt.plusSeconds(10)
+        val proposition = "(r, j)에 searchId s 뒤로 더 새 탐색 줄이 없다"
+        val shown = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", holds = true, by = OPERATOR, proposition = proposition), t)
+        assertEquals(Reply.ACCEPTED, shown.reply)
+        assertEquals(proposition, shown.records(RecordKind.CONFIRMATION).single().entry.payload.get("proposition").textValue())
+        val bare = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), t)
+        val payload = bare.records(RecordKind.CONFIRMATION).single().entry.payload
+        assertTrue(payload.has("proposition") && payload.get("proposition").isNull, "a confirmation without a proposition says so: $payload")
+    }
+
     @Test fun `an unresolved precondition escalates at its deadline`() {
         assertEquals(EscalationReason.UNKNOWN_UNRESOLVED, unknown().expireState().reason)
     }

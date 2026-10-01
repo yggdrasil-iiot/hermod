@@ -80,7 +80,7 @@ internal fun ConfirmRequest.validate() {
 }
 
 internal fun ConfirmRequest.toEvent(): EpisodeEvent = when (kind) {
-    "PRECONDITION" -> EpisodeEvent.ConfirmedPrecondition(candidateId, proposalId, holds, Approver(operatorId))
+    "PRECONDITION" -> EpisodeEvent.ConfirmedPrecondition(candidateId, proposalId, holds, Approver(operatorId), proposition)
     "OUTCOME" -> EpisodeEvent.ConfirmedOutcome(candidateId, proposalId, holds, Approver(operatorId))
     else -> EpisodeEvent.ConfirmedUnknown(LinkedHashMap(subject), UnknownWhat.valueOf(what), Approver(operatorId), note)
 }

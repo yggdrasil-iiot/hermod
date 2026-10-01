@@ -34,6 +34,7 @@ internal fun Out.onUnknownPrecondition(event: EpisodeEvent, policy: PolicyTable,
                 put("holds", event.holds)
                 put("by", event.by.id)
                 put("assurance", event.by.assurance.name)
+                put("proposition", event.proposition)
             }
             onPrecondition(if (event.holds) TriState.TRUE else TriState.FALSE, "PERSON", policy, now)
         }

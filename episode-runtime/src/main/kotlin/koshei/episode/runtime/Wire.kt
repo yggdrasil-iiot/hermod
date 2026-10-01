@@ -65,6 +65,8 @@ data class ConfirmRequest(
     val what: String = "",
     val operatorId: String = "",
     val note: String? = null,
+    /** PRECONDITION only: the proposition the card showed (§7.2). The control plane fills it from its own card, never from the client. */
+    val proposition: String? = null,
 )
 
 data class TakeoverRequest(val operatorId: String = "")
