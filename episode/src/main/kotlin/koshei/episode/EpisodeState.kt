@@ -3,6 +3,13 @@ package koshei.episode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import java.time.Instant
 
+/**
+ * A person's confirmation of one unknown (design §9.1). It covers the lines that had arrived when it was given — the
+ * first [coversSymptoms] of `EpisodeState.symptoms` — and none that arrive later, whatever their `observedAt` says: the
+ * watcher's clock and the workflow's are never compared (§12). [at] is kept for the record.
+ */
+data class UnknownConfirmation(val subject: Map<String, String?>, val what: UnknownWhat, val at: Instant, val coversSymptoms: Int)
+
 /** The attempt in progress (design §9.4). Closed attempts live in [EpisodeState.history]. */
 @ConsistentCopyVisibility
 data class Attempt internal constructor(
@@ -77,6 +84,8 @@ data class EpisodeState internal constructor(
      * again after a restart: an attempt whose id was used before links no JobResponse (a stale one could resolve it).
      */
     val usedExecutionIds: Set<String> = emptySet(),
+    /** A person's confirmations of unknowns (design §7.2, §9.1). */
+    val confirmations: List<UnknownConfirmation> = emptyList(),
 ) {
     /** Every symptom so far as a snapshot (design §9.0). Throws on a malformed manifest; callers escalate. */
     internal fun snapshot(): Snapshot = Snapshot(
@@ -85,6 +94,18 @@ data class EpisodeState internal constructor(
         symptoms.filter { it.kind == SymptomKind.SEARCH }.map { it.line },
     )
 
-    /** Unknowns right now (design §9.1): from every symptom so far, plus the episode's own. A person's confirmations: plan B2b-2c. */
-    internal fun currentUnknowns(): List<Unknown> = deriveUnknowns(snapshot()) + episodeUnknowns
+    /**
+     * Unknowns right now (design §9.1): those each incident line derives, minus what a person confirmed after that line
+     * had arrived, plus the episode's own. Without confirmations this equals `deriveUnknowns(snapshot()) +
+     * episodeUnknowns`, in the same order. Throws on a malformed manifest; callers fail safe.
+     */
+    internal fun currentUnknowns(): List<Unknown> {
+        val manifest = mapper.readTree(manifestJson) as? ObjectNode ?: throw IllegalArgumentException("manifest is not a JSON object")
+        val derived = symptoms.withIndex().filter { it.value.kind == SymptomKind.INCIDENT }.flatMap { (index, s) ->
+            deriveUnknowns(Snapshot(manifest, listOf(s.line), emptyList())).filterNot { u ->
+                confirmations.any { it.subject == u.subject && it.what == u.what && index < it.coversSymptoms }
+            }
+        }
+        return derived + episodeUnknowns
+    }
 }

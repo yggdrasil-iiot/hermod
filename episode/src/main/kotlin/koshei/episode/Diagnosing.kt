@@ -35,7 +35,7 @@ internal fun Out.enterDiagnosing(policy: PolicyTable, now: Instant) {
     if (bytes > policy.snapshotMaxBytes)
         return escalate(now, Escalation(EscalationReason.SNAPSHOT_TOO_LARGE, "$bytes bytes > ${policy.snapshotMaxBytes}"))
     val request = try {
-        diagnosisRequest(state.instanceId, number, snapshot, episodeUnknowns = state.episodeUnknowns, history = state.history.map { it.toJson() })
+        diagnosisRequestWithUnknowns(state.instanceId, number, snapshot, state.currentUnknowns(), state.history.map { it.toJson() })
     } catch (e: Exception) {
         return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "request: ${e.message}"))
     }

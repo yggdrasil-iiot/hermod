@@ -44,10 +44,21 @@ fun diagnosisRequest(
     snapshot: Snapshot,
     episodeUnknowns: List<Unknown> = emptyList(),
     history: List<ObjectNode> = emptyList(),
+): DiagnosisRequest = diagnosisRequestWithUnknowns(episodeId, attempt, snapshot, deriveUnknowns(snapshot) + episodeUnknowns, history)
+
+/**
+ * The same request with [unknowns] already final — derived, the episode's own, minus a person's confirmations (the
+ * transition function's `currentUnknowns()`). The projection withholds execution candidates from exactly this list.
+ */
+internal fun diagnosisRequestWithUnknowns(
+    episodeId: String,
+    attempt: Int,
+    snapshot: Snapshot,
+    unknowns: List<Unknown>,
+    history: List<ObjectNode>,
 ): DiagnosisRequest {
     require(episodeId.isNotBlank()) { "episodeId must not be blank" }
     require(attempt >= 1) { "attempt starts at 1, was $attempt" }
-    val unknowns = deriveUnknowns(snapshot) + episodeUnknowns
     val candidates = projectCandidates(snapshot, unknowns)
     return DiagnosisRequest(
         episodeId, attempt, snapshot, unknowns, candidates, candidatesVersion(candidates),

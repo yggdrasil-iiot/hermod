@@ -94,6 +94,7 @@ fun transition(state: EpisodeState, event: EpisodeEvent, read: PolicyRead?, now:
         // The deadline check above has normally escalated already; an early-delivered EPISODE timer still counts.
         event is EpisodeEvent.DeadlineExpired && event.which == Timer.EPISODE && !wasEscalated ->
             if (out.state.phase != Phase.ESCALATED) out.escalate(now, Escalation(EscalationReason.EPISODE_EXPIRED))
+        event is EpisodeEvent.ConfirmedUnknown && out.state.phase != Phase.ESCALATED -> out.confirmUnknown(event, now)
         out.state.phase == Phase.ESCALATED -> out.onEscalated(event, now)
         event is EpisodeEvent.TakenOver -> {
             out.reply = Reply.ACCEPTED
@@ -315,6 +316,7 @@ private fun EpisodeEvent.approver(): Approver? = when (this) {
     is EpisodeEvent.TakenOver -> by
     is EpisodeEvent.Closed -> by
     is EpisodeEvent.ConfirmedOutcome -> by
+    is EpisodeEvent.ConfirmedUnknown -> by
     else -> null
 }
 
@@ -327,12 +329,13 @@ private fun rawJson(json: String): JsonNode = try {
 
 private fun EpisodeEvent.isUpdate(): Boolean =
     this is EpisodeEvent.ApprovalDecided || this is EpisodeEvent.ConfirmedPrecondition ||
-        this is EpisodeEvent.TakenOver || this is EpisodeEvent.Closed || this is EpisodeEvent.ConfirmedOutcome
+        this is EpisodeEvent.TakenOver || this is EpisodeEvent.Closed || this is EpisodeEvent.ConfirmedOutcome ||
+        this is EpisodeEvent.ConfirmedUnknown
 
 /** The value an Update gets when its event does not apply here (design §7.2). Signals get none. */
 private fun EpisodeEvent.refusal(): Reply? = when (this) {
     is EpisodeEvent.ApprovalDecided -> Reply.REFUSED_NOT_AWAITING
-    is EpisodeEvent.ConfirmedPrecondition, is EpisodeEvent.ConfirmedOutcome -> Reply.REFUSED_SUBJECT_NOT_UNKNOWN
+    is EpisodeEvent.ConfirmedPrecondition, is EpisodeEvent.ConfirmedOutcome, is EpisodeEvent.ConfirmedUnknown -> Reply.REFUSED_SUBJECT_NOT_UNKNOWN
     is EpisodeEvent.Closed -> Reply.REFUSED_NOT_ESCALATED
     else -> null
 }

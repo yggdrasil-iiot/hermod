@@ -62,6 +62,13 @@ sealed interface EpisodeEvent {
      * the action of [proposalId] for [candidateId] was done (design §7.2). Counted as evidence grade E3.
      */
     data class ConfirmedOutcome(val candidateId: String, val proposalId: String, val done: Boolean, val by: Approver) : EpisodeEvent
+
+    /**
+     * `confirm` Update on an item of the episode's `unknowns` (design §7.2 second case, §9.1): the person found out on
+     * site what the system could not observe. Valid until a later observation says unknown again. [note] is free text
+     * for the audit record only.
+     */
+    data class ConfirmedUnknown(val subject: Map<String, String?>, val what: UnknownWhat, val by: Approver, val note: String?) : EpisodeEvent
 }
 
 /** What [transition] asks the runtime to do, in order (design §6). Results come back as events. */
