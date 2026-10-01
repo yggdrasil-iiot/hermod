@@ -17,6 +17,19 @@ internal object Episodes {
     fun incident(id: String, at: Instant = T0): Symptom =
         Symptom("incident:$id", SymptomKind.INCIDENT, mapper.readTree(PicassoRun1.incident(id)) as ObjectNode, at)
 
+    /**
+     * incident-6 on another unit and robot (RACK-204.S07, hum-08, exec-9), with a fresh digest: a second, unrelated
+     * LINK_BROKEN subject.
+     */
+    fun otherUnitIncident(eventId: String = "incident:6-other", at: Instant = T0): Symptom {
+        val line = mapper.readTree(PicassoRun1.incident("incident-6")) as ObjectNode
+        line.put("unitId", "RACK-204.S07")
+        line.put("robotId", "hum-08")
+        line.put("executionId", "exec-9")
+        line.put("digest", "digest-other-unit")
+        return Symptom(eventId, SymptomKind.INCIDENT, line, at)
+    }
+
     /** The test table: APPROVE_REMEDY auto-approval ON, so the auto path can be tested. */
     fun policy(edit: ObjectNode.() -> Unit = {}): PolicyRead = PolicyRead.Found(Policies.node(edit))
 

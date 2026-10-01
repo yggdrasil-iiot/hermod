@@ -206,7 +206,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | `*` | `agentOff` · 결정 시점에 읽은 정책이 꺼짐 | ESCALATED | `AGENT_LAYER_OFF`. DISPATCHED 면 결과 수신은 기록으로 계속 |
 | `*` | 에피소드 기한 만료 | ESCALATED | `EPISODE_EXPIRED` |
 | `*`, ESCALATED | `SymptomJoined` | (그대로) | 증상 목록에 붙이고 기록. 다음 진단의 스냅샷에 들어간다. 이미 나간 조치는 REVALIDATING 이 지킨다 |
-| `*` | `ConfirmedUnknown` — `unknowns` 의 항목(subject · what) | (그대로) | 그 항목을 뺀다(§9.1). 사람의 판정으로 기록. ESCALATED 에서는 받지 않는다(에이전트가 행동하지 않는다). 후보 자기의 OUTCOME 항목은 받지 않는다 — `ConfirmedOutcome` 이 시도를 끝내며 지운다. 그 밖의 상태에서 온 `ConfirmedPrecondition` · `ConfirmedOutcome` 은 값으로 거절한다 |
+| `*` | `ConfirmedUnknown` — `unknowns` 의 항목(subject · what) | (그대로) | 그 항목을 뺀다(§9.1). 사람의 판정으로 기록. ESCALATED 에서는 받지 않는다(에이전트가 행동하지 않는다). 후보 자기의 OUTCOME 항목은 받지 않는다 — `ConfirmedOutcome` 이 시도를 끝내며 지운다. 지금 시도의 실행(`executionId`)에 걸린 OUTCOME 단위 항목도 결과 확인 단계(AWAITING_EVIDENCE · UNKNOWN(OUTCOME))에서는 받지 않는다 — 결과 확인(`ConfirmedOutcome`)의 몫이다. 그 밖의 상태에서 온 `ConfirmedPrecondition` · `ConfirmedOutcome` 은 값으로 거절한다 |
 | ESCALATED | `DispatchReturned` · `EvidenceArrived` · `OutcomeRechecked` · `Recorded` · `RecordFailed` | (그대로) | 기록만. 에이전트 명령 없음. DISPATCH_PENDING 중 인수되면 기록 결과가 늦게 올 수 있다 — `Dispatch` 는 DISPATCH_PENDING 에서만 나오므로 안전하다 |
 | ESCALATED | `close(by, outcome)` · 보존 기한 | CLOSED | |
 
@@ -524,6 +524,7 @@ v1 은 에피소드 전체에 적용한다. 전이 함수도 같은 조건을 �
 - 사람이 `confirm`(`ConfirmedUnknown`)으로 판정한다(ESCALATED 와 종료를 뺀 상태에서, §7.2). 판정은 그 subject · 종류에 대해, 판정
   **뒤에 도착한** 사건 줄이 다시 모름을 말하기 전까지 유효하다 — 「뒤」는 도착 순서이고 `observedAt`(감시자의 시계)과 판정 시각(워크플로의
   시계)을 견주지 않는다(§12 와 같은 까닭). `CONFIRM_DONE` 후보는 "했다"만 말하므로, "안 했다"는 `confirm(NOT_DONE)` 으로 들어온다.
+  에피소드 단위의 OUTCOME 항목은 판정하면 목록에서 지워지고, 새 결과 통보(DISPATCHED 에서 보관했다가 판정 뒤에 다시 적용한 것 포함)가 다시 의심을 말하면 되살아난다.
 
 ### 9.2 후보 식별자
 

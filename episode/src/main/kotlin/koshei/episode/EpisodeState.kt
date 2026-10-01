@@ -8,7 +8,14 @@ import java.time.Instant
  * first [coversSymptoms] of `EpisodeState.symptoms` — and none that arrive later, whatever their `observedAt` says: the
  * watcher's clock and the workflow's are never compared (§12). [at] is kept for the record.
  */
-data class UnknownConfirmation(val subject: Map<String, String?>, val what: UnknownWhat, val at: Instant, val coversSymptoms: Int)
+@ConsistentCopyVisibility
+data class UnknownConfirmation internal constructor(val subject: Map<String, String?>, val what: UnknownWhat, val at: Instant, val coversSymptoms: Int) {
+    internal companion object {
+        /** The only way to make one: the subject is copied, so the caller's map cannot change a confirmation later. */
+        fun of(subject: Map<String, String?>, what: UnknownWhat, at: Instant, coversSymptoms: Int): UnknownConfirmation =
+            UnknownConfirmation(LinkedHashMap(subject), what, at, coversSymptoms)
+    }
+}
 
 /** The attempt in progress (design §9.4). Closed attempts live in [EpisodeState.history]. */
 @ConsistentCopyVisibility
@@ -100,11 +107,12 @@ data class EpisodeState internal constructor(
      * episodeUnknowns`, in the same order. Throws on a malformed manifest; callers fail safe.
      */
     internal fun currentUnknowns(): List<Unknown> {
-        val manifest = mapper.readTree(manifestJson) as? ObjectNode ?: throw IllegalArgumentException("manifest is not a JSON object")
-        val derived = symptoms.withIndex().filter { it.value.kind == SymptomKind.INCIDENT }.flatMap { (index, s) ->
-            deriveUnknowns(Snapshot(manifest, listOf(s.line), emptyList())).filterNot { u ->
-                confirmations.any { it.subject == u.subject && it.what == u.what && index < it.coversSymptoms }
-            }
+        // snapshot() is built once, so the manifest and every line are validated as for a diagnosis request. Its incidents
+        // are the INCIDENT symptoms in order: zip them with those symptoms' positions in `symptoms`.
+        val incidents = snapshot().incidents
+        val positions = symptoms.indices.filter { symptoms[it].kind == SymptomKind.INCIDENT }
+        val derived = incidents.zip(positions).flatMap { (line, position) ->
+            deriveUnknownsOf(line).filterNot { u -> confirmations.any { u.matches(it.subject, it.what) && position < it.coversSymptoms } }
         }
         return derived + episodeUnknowns
     }
