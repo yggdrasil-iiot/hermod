@@ -42,9 +42,13 @@ internal fun episodeOptions(id: String): WorkflowOptions = WorkflowOptions.newBu
 internal fun searchSignal(id: String) = SymptomSignal("search:$id", "SEARCH", Picasso.search(id), 0)
 
 /** signalWithStart, as the watcher will (design §7.1). */
-internal fun WorkflowClient.openEpisode(id: String = "ep:test", symptom: SymptomSignal = searchSignal("search-1")): EpisodeWorkflow {
+internal fun WorkflowClient.openEpisode(
+    id: String = "ep:test",
+    symptom: SymptomSignal = searchSignal("search-1"),
+    start: EpisodeStart = EpisodeStart(Picasso.manifest),
+): EpisodeWorkflow {
     val stub = newWorkflowStub(EpisodeWorkflow::class.java, episodeOptions(id))
-    WorkflowStub.fromTyped(stub).signalWithStart("symptom", arrayOf(symptom), arrayOf(EpisodeStart(Picasso.manifest)))
+    WorkflowStub.fromTyped(stub).signalWithStart("symptom", arrayOf(symptom), arrayOf(start))
     return stub
 }
 
@@ -133,6 +137,8 @@ internal class FakeEpisodeActivities : EpisodeActivities {
     /** Every notice attempted, in order, retries included. */
     val notices: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val calls: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    /** The `instanceId` of every `dispatch` call, in order, retries included. */
+    val dispatchedFor: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val records: MutableList<Rec> = Collections.synchronizedList(mutableListOf())
     private val policyReads = AtomicInteger()
 
@@ -159,6 +165,7 @@ internal class FakeEpisodeActivities : EpisodeActivities {
 
     override fun dispatch(instanceId: String, intentJson: String, approverKind: String?): DispatchOutcome? {
         calls += "dispatch:$approverKind"
+        dispatchedFor += instanceId
         dispatchGate?.await(60, TimeUnit.SECONDS)
         dispatchError?.let { throw it }
         return dispatchOutcome

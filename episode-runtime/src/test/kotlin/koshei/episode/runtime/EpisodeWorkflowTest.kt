@@ -1,5 +1,6 @@
 package koshei.episode.runtime
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.WorkflowExecutionStatus
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
@@ -38,8 +39,11 @@ class EpisodeWorkflowTest {
 
     private fun options(id: String): WorkflowOptions = episodeOptions(id)
 
-    private fun open(id: String = "ep:test", symptom: SymptomSignal = searchSignal("search-1")): EpisodeWorkflow =
-        client.openEpisode(id, symptom)
+    private fun open(
+        id: String = "ep:test",
+        symptom: SymptomSignal = searchSignal("search-1"),
+        start: EpisodeStart = EpisodeStart(Picasso.manifest),
+    ): EpisodeWorkflow = client.openEpisode(id, symptom, start)
 
     private fun EpisodeWorkflow.until(seconds: Int = 120, cond: (EpisodeView) -> Boolean): EpisodeView = until(env, seconds, cond)
 
@@ -281,25 +285,54 @@ class EpisodeWorkflowTest {
 
     // --- B3b --------------------------------------------------------------------------------------------------------
 
-    private val json = com.fasterxml.jackson.databind.ObjectMapper()
+    private val json = ObjectMapper()
 
     /** Notices attempted so far whose `kind` is [kind] (retries included). */
     private fun notices(kind: String): List<String> =
         synchronized(acts.notices) { acts.notices.filter { json.readTree(it)["kind"]?.textValue() == kind } }
 
+    /** picasso's manifest with a `marker` key, so a test can tell which manifest a run opened with. */
+    private fun manifest(marker: String): String =
+        Picasso.manifest.replace("\"schemaVersion\"", "\"marker\":\"$marker\",\"schemaVersion\"").also {
+            assertTrue(it != Picasso.manifest, "the marker went in")   // `Snapshot` keeps manifest keys it does not know
+        }
+
+    /** The OPENED record of the run [instanceId]. */
+    private fun opened(instanceId: String): Rec = eventually { records(instanceId).firstOrNull { it.kind == "OPENED" } }
+
+    /**
+     * Ends the current run of [workflowId] while its dispatch is held at [gate], sends [late] during the drain, holds the
+     * next run's dispatch at [nextGate] (none when null), then releases [gate]: the run continues as new. Returns the
+     * next run's view once its episode has opened.
+     */
+    private fun forward(workflowId: String, gate: CountDownLatch, late: SymptomSignal, nextGate: CountDownLatch? = null): EpisodeView {
+        val ep = client.newWorkflowStub(EpisodeWorkflow::class.java, workflowId)
+        val current = ep.until { it.phase == "DISPATCHED" }.instanceId
+        eventually { acts.dispatchedFor.toList().takeIf { current in it } }   // the dispatch is in the activity, held at [gate]
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
+        ep.symptom(late)
+        acts.dispatchGate = nextGate
+        gate.countDown()
+        return ep.until { it.instanceId != current && it.phase != "OPENING" }
+    }
+
     @Test fun `a record that keeps failing raises RECORD_LAG once, and the episode goes on`() {
         acts.recordFault = { it == "PROPOSED" || it == "APPROVAL" }
         val ep = open()
         ep.until { it.phase == "AWAITING_EVIDENCE" }
-        // "Once" means something only after BOTH failing records have used up their three attempts.
+        // Both failing records reach their third and last attempt in the fake. The workflow learns of each failure only
+        // after that, so this does not yet show both failures handled: the sleep below covers that gap.
         eventually {
             acts.calls.toList().takeIf { c -> c.count { it == "record-failed:PROPOSED" } >= 3 && c.count { it == "record-failed:APPROVAL" } >= 3 }
         }
         val lag = eventually { notices("RECORD_LAG").takeIf { it.isNotEmpty() } }
-        Thread.sleep(2_000)   // without the once-per-run flag, the second failure's notice would have landed by now
+        Thread.sleep(2_000)   // time for the other failure to reach the workflow: without the once-per-run flag, a second RECORD_LAG lands here
         assertEquals(1, notices("RECORD_LAG").size, "one RECORD_LAG per run: ${acts.notices}")
         val detail = json.readTree(lag.first())["detail"].textValue()
         assertTrue("PROPOSED" in detail || "APPROVAL" in detail, "the notice names the failed record: $detail")
+        assertTrue("store down for" in detail, "the notice names the application's cause: $detail")
+        assertEquals("AWAITING_EVIDENCE", ep.view().phase, "the failed records did not hold the episode up")
     }
 
     @Test fun `a failing notice does not raise RECORD_LAG`() {
@@ -319,7 +352,9 @@ class EpisodeWorkflowTest {
         val gate = CountDownLatch(1)
         acts.dispatchGate = gate
         val ep = open()
-        ep.until { it.phase == "DISPATCHED" }
+        val dispatched = ep.until { it.phase == "DISPATCHED" }
+        val dispatchedFor = eventually { acts.dispatchedFor.toList().takeIf { it.isNotEmpty() } }
+        assertEquals(listOf(dispatched.instanceId), dispatchedFor, "dispatch names its episode")
         assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
         assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
         assertEquals("REFUSED_CLOSED", ep.close(CloseRequest("op-2", "again")))   // the run is still draining
@@ -343,5 +378,45 @@ class EpisodeWorkflowTest {
         assertTrue("run-later" in opened.payload, "the new run opened with the late symptom's manifest: ${opened.payload}")
         val ignored = records(first).first { it.kind == "IGNORED" && "SymptomJoined" in it.payload }
         assertTrue("search:search-2" in ignored.payload, "the ended run names what it forwarded: ${ignored.payload}")
+    }
+
+    @Test fun `the first run opens with its first symptom's manifest, not the start argument's`() {
+        val ep = open(
+            id = "ep:first-manifest",
+            symptom = searchSignal("search-1").copy(manifestJson = manifest("first-line")),
+            start = EpisodeStart(manifest("start-arg")),
+        )
+        val payload = opened(ep.until { it.phase != "OPENING" }.instanceId).payload
+        assertTrue("first-line" in payload, "opened with the first line's manifest: $payload")
+        assertTrue("start-arg" !in payload, "not with the start argument's: $payload")
+    }
+
+    @Test fun `a manifest-less late line keeps the manifest of the run it continues from, across two continuations`() {
+        val gate1 = CountDownLatch(1)
+        acts.dispatchGate = gate1
+        val run1 = open(id = "ep:chain").until { it.phase != "OPENING" }.instanceId
+        val gate2 = CountDownLatch(1)
+        // Run 2 must reach DISPATCHED to be held while it drains; search-2 ends in NO_GROUNDS, so search-1's line comes again
+        // under a new eventId.
+        val late = searchSignal("search-1").copy(eventId = "search:chain-2", manifestJson = manifest("from-run-1"))
+        val run2 = forward("ep:chain", gate1, late, nextGate = gate2).instanceId
+        assertTrue("from-run-1" in opened(run2).payload, "run 2 opened with its late line's manifest: ${opened(run2).payload}")
+        val run3 = forward("ep:chain", gate2, searchSignal("search-3")).instanceId   // this late line carries no manifest
+        assertEquals(3, setOf(run1, run2, run3).size)
+        assertTrue("from-run-1" in opened(run3).payload, "run 3 kept run 2's manifest: ${opened(run3).payload}")
+    }
+
+    @Test fun `a run started with one manifest but opened with another forwards the one it opened with`() {
+        val gate = CountDownLatch(1)
+        acts.dispatchGate = gate
+        open(
+            id = "ep:opened-manifest",
+            symptom = searchSignal("search-1").copy(manifestJson = manifest("first-line")),
+            start = EpisodeStart(manifest("start-arg")),
+        )
+        val next = forward("ep:opened-manifest", gate, searchSignal("search-2"))   // the late line carries no manifest
+        val payload = opened(next.instanceId).payload
+        assertTrue("first-line" in payload, "the next run opened with the manifest this run opened with: $payload")
+        assertTrue("start-arg" !in payload, "not with this run's start argument: $payload")
     }
 }

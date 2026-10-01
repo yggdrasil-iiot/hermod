@@ -107,6 +107,8 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
     private val unsettled = mutableListOf<Promise<Unit>>()
     /** Whether this run has already said that a record failed for good (RECORD_LAG, once per run; design §8.5). */
     private var recordLagRaised = false
+    /** The manifest this run's episode opened with: what a continued run falls back to (design §7.1). */
+    private var openedManifest = ""
 
     private val local: EpisodeActivities = Workflow.newLocalActivityStub(
         EpisodeActivities::class.java,
@@ -139,6 +141,7 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
         val line = first.line!!
         // The episode opens on this line, so it takes the line's own manifest when the watcher sent one.
         val manifest = line.manifestJson?.takeUnless { it.isBlank() } ?: start.manifestJson
+        openedManifest = manifest
         apply(startEpisode(EpisodeEvent.Detected(instanceId(), manifest, line.toSymptom()), read, now()))
         // No yield since `state` was set, so nothing has reached the inbox ahead of these.
         inbox.addAll(preOpen)
@@ -159,8 +162,9 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
         // A line the ended episode already had is a redelivery, not a new occurrence.
         val fresh = late.filter { it.eventId !in end.seenEventIds }.distinctBy { it.eventId }
         if (fresh.isNotEmpty()) {
-            // The new episode opens on the first fresh line, so it takes that line's manifest when the watcher sent one.
-            val manifest = fresh.first().manifestJson?.takeUnless { it.isBlank() } ?: start.manifestJson
+            // The new episode opens on the first fresh line, so it takes that line's manifest when the watcher sent one;
+            // otherwise the one this episode opened with (which may be its first line's, not the start argument's).
+            val manifest = fresh.first().manifestJson?.takeUnless { it.isBlank() } ?: openedManifest
             Workflow.continueAsNew(EpisodeStart(manifest, start.schemaVersion, fresh))
         }
         return EpisodeResult(end.phase.name, end.escalation?.reason?.name)
@@ -235,9 +239,9 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
                     inbox.addLast(Inbound(EpisodeEvent.DeadlineExpired(command.which, command.token), decision = true))
                 }
             }
-            // Records run concurrently and may land out of seq order; the store keys them by (instance, seq).
             is Command.Notify -> notice(noticeJson(command.notice))
             is Command.Record -> {
+                // Records run concurrently and may land out of seq order; the store keys them by (instance, seq).
                 val id = instanceId()
                 val seq = command.seq
                 val kind = command.entry.kind.name
@@ -246,9 +250,12 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
                     unsettled,
                     Async.procedure { activities(30_000).record(id, seq, kind, payload) }.handle { _, failure ->
                         // A record that failed for good: say so once per run (design §8.5). Temporal history still has it.
+                        // The detail names the application's cause, not the activity wrapper (which names the worker host).
+                        // The flag is set only once the notice is under way, so a throw here cannot swallow the one notice.
                         if (failure != null && !recordLagRaised) {
+                            val cause = ((failure as? ActivityFailure)?.cause ?: failure).message
+                            notice(noticeJson(Notice(NoticeKind.RECORD_LAG, current().phase, detail = "record $seq $kind failed: $cause")))
                             recordLagRaised = true
-                            notice(noticeJson(Notice(NoticeKind.RECORD_LAG, current().phase, detail = "record $seq $kind failed: ${failure.message}")))
                         }
                     },
                 )
