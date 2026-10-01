@@ -462,6 +462,8 @@ git commit -m "feat(episode-runtime): RECORD_LAG once per run, a continued run t
 - Test: `episode-runtime/src/test/kotlin/koshei/episode/runtime/StrictYamlTest.kt`
 - Test: `episode-runtime/src/test/kotlin/koshei/episode/runtime/PolicyFileReaderTest.kt`
 
+> **(청크 2 리뷰 뒤 주석)** 아래 Task 3 코드 블록(의존성, `StrictYamlTest`, `StrictYaml`, `PolicyFileReaderTest`, `PolicyFileReader`)과 시험 수(13 · 5, Task 4 의 6)는 `e5fee05` 와 그 뒤 재리뷰 커밋으로 대체되었다. 정본은 소스다. 바뀐 것: SnakeYAML 이벤트 사전 검사(앵커 · 별칭 · 태그 · 지시문 · 깊이 64), 정규 스칼라만 허용, 빈 값은 null, `snakeyaml` 명시 의존, `PolicyFileReader` 는 `Files.exists` 대신 크기 검사(1 MiB) 뒤 읽고 `NoSuchFileException` 을 `MISSING` 으로 받는다. 블록은 고쳐 쓰지 않았다.
+
 - [ ] **Step 1: 의존성을 더한다**
 
 `episode-runtime/build.gradle.kts` 의 `dependencies` 에 다음을 더한다. Chunk 3 에서 쓸 DB 의존성도 여기서 함께 더한다.

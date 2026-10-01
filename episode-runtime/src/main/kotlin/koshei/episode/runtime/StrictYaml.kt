@@ -9,6 +9,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import com.fasterxml.jackson.dataformat.yaml.YAMLParser
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.events.AliasEvent
+import org.yaml.snakeyaml.events.CollectionEndEvent
 import org.yaml.snakeyaml.events.CollectionStartEvent
 import org.yaml.snakeyaml.events.DocumentStartEvent
 import org.yaml.snakeyaml.events.NodeEvent
@@ -19,11 +20,14 @@ import org.yaml.snakeyaml.reader.StreamReader
 /**
  * YAML to JSON text for the policy file (design §8.2). Two passes, each refusing with [IllegalArgumentException]:
  * - SnakeYAML's event stream: an anchor or alias (a value pulled in from elsewhere), a tag (a value typed by the
- *   writer, including the non-specific `!`), and a `%YAML` or `%TAG` directive.
+ *   writer, including the non-specific `!`), a `%YAML` or `%TAG` directive, and nesting deeper than [MAX_DEPTH]. The
+ *   depth is counted here, while walking, so a deep file stops at the limit instead of being walked to its end first
+ *   (`readPolicy` is a local activity: its timeout does not stop the thread).
  * - Jackson's tokens, from which the tree is built (not by Jackson's tree reader): a repeated key (a later
  *   `agentLayerEnabled` must not silently override an earlier one), a scalar that is not in its canonical JSON form
  *   (YAML 1.1 reads `010` as 8, `0x10` as 16, `1_000` as 1000 and `yes`/`on`/`off`/`True` as booleans), a second
- *   document, an empty file, and nesting deeper than [MAX_DEPTH].
+ *   document, an empty file, and nesting deeper than [MAX_DEPTH] (the same limit, as a stream constraint).
+ * An empty value is null, as YAML says (`EMPTY_STRING_AS_NULL`, on in a plain `YAMLFactory()` but not in its builder).
  */
 internal object StrictYaml {
     const val MAX_DEPTH = 64
@@ -37,11 +41,12 @@ internal object StrictYaml {
     private val factory: YAMLFactory = YAMLFactory.builder()
         .loaderOptions(loaderOptions())
         .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(MAX_DEPTH).build())
+        .enable(YAMLParser.Feature.EMPTY_STRING_AS_NULL)
         .build()
     private val nodes = JsonNodeFactory.instance
 
     fun toJson(text: String): String = try {
-        refuseAnchorsTagsAndDirectives(text)
+        refuseByEvents(text)
         (factory.createParser(text) as YAMLParser).use { p ->
             if (p.nextToken() == null) throw IllegalArgumentException("empty document")
             val root = value(p)
@@ -54,11 +59,17 @@ internal object StrictYaml {
         throw IllegalArgumentException("not readable YAML: ${e.message}", e)
     }
 
-    /** Jackson's parser does not surface anchors on scalars, tags or directives, so they are read from the events. */
-    private fun refuseAnchorsTagsAndDirectives(text: String) {
+    /**
+     * Jackson's parser does not surface anchors on scalars, tags or directives, so they are read from the events. The
+     * depth is counted here too, so that the walk stops at the limit.
+     */
+    private fun refuseByEvents(text: String) {
         val events = ParserImpl(StreamReader(text), loaderOptions())
+        var depth = 0
         while (events.peekEvent() != null) {
             val e = events.getEvent()
+            if (e is CollectionStartEvent && ++depth > MAX_DEPTH) throw IllegalArgumentException("nesting depth $depth exceeds $MAX_DEPTH")
+            if (e is CollectionEndEvent) depth--
             if (e is AliasEvent) throw IllegalArgumentException("alias *${e.anchor} is not allowed")
             if (e is NodeEvent && e.anchor != null) throw IllegalArgumentException("anchor &${e.anchor} is not allowed")
             // An untagged node has no tag at all; the non-specific `!` is a tag here even though SnakeYAML calls it implicit.

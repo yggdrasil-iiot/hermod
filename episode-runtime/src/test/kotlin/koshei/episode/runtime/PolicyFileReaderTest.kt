@@ -4,9 +4,11 @@ import koshei.episode.CandidateKind
 import koshei.episode.PolicyParse
 import koshei.episode.PolicyRead
 import koshei.episode.parsePolicy
+import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -58,6 +60,32 @@ class PolicyFileReaderTest {
         val read = PolicyFileReader(file).read()
         assertEquals("UNREADABLE", read.kind, read.json?.take(40))
         assertTrue("depth" in read.reason!!, read.reason)
+    }
+
+    @Test fun `200 000 open flow sequences are refused within a second`() = refusedQuickly("[".repeat(200_000))
+
+    @Test fun `200 000 nested block sequences are refused within a second`() = refusedQuickly("- ".repeat(200_000) + "1\n")
+
+    /** The pre-pass must stop at the depth limit: readPolicy is a local activity, and a timeout does not stop the thread. */
+    private fun refusedQuickly(text: String) {
+        val file = dir.resolve("active.yaml")
+        Files.writeString(file, text)
+        assertTrue(Files.size(file) <= PolicyFileReader.MAX_BYTES, "under the size limit, so the parser sees it")
+        val read = assertTimeoutPreemptively(Duration.ofSeconds(1)) { PolicyFileReader(file).read() }
+        assertEquals("UNREADABLE", read.kind, read.json?.take(40))
+        assertTrue("depth" in read.reason!!, read.reason)
+    }
+
+    @Test fun `an empty expiresAt in the committed table is null, and the table is still valid`() {
+        val committed = Files.readString(Path.of(System.getProperty("koshei.repoRoot"), "model", "episode-policy", "active.yaml"))
+        // Not tied to a line ending: with core.autocrlf the checked-out file may end its lines with CRLF.
+        assertEquals(1, Regex("expiresAt: null").findAll(committed).count(), "the committed table spells out its null once")
+        val file = dir.resolve("active.yaml")
+        Files.writeString(file, committed.replace("expiresAt: null", "expiresAt:"))
+        val read = PolicyFileReader(file).read()
+        assertEquals("FOUND", read.kind, read.reason)
+        val parsed = parsePolicy(read.toRead().let { (it as PolicyRead.Found).node })
+        assertTrue(parsed is PolicyParse.Valid, "an empty value is null, as YAML says: $parsed")
     }
 
     @Test fun `the file is read afresh on every call`() {

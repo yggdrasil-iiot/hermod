@@ -20,7 +20,9 @@ class PolicyFileReader(private val path: Path) {
         } catch (e: NoSuchFileException) {
             return PolicyReadResult("MISSING")
         } catch (e: IOException) {
-            return PolicyReadResult("UNREADABLE", reason = "$path: cannot read: $e")
+            // A file-system exception's message is often the path alone; say it once.
+            val detail = e.message?.takeUnless { it == path.toString() }?.let { ": $it" } ?: ""
+            return PolicyReadResult("UNREADABLE", reason = "$path: cannot read: ${e.javaClass.simpleName}$detail")
         }
         return try {
             PolicyReadResult("FOUND", json = StrictYaml.toJson(text))

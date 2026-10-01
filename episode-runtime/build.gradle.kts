@@ -13,6 +13,7 @@ dependencies {
     implementation(libs.temporal.sdk)
     implementation(libs.jackson.kotlin)
     implementation(libs.jackson.yaml)
+    implementation(libs.snakeyaml)   // StrictYaml walks its events directly
     implementation(libs.postgresql)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)

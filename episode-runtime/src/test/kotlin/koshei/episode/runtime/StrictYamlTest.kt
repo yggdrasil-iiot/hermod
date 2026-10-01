@@ -112,6 +112,10 @@ class StrictYamlTest {
 
     @Test fun `a syntax error is refused`() = rejects("a: [1, 2\n", "")
 
+    @Test fun `an empty value is null`() = assertEquals("""{"a":null}""", StrictYaml.toJson("a:\n"))
+
+    @Test fun `a lone document start is a null document`() = assertEquals("null", StrictYaml.toJson("---\n"))
+
     @Test fun `a list root passes through - the core decides what a table is`() =
         assertEquals("[1,2]", StrictYaml.toJson("- 1\n- 2\n"))
 }
