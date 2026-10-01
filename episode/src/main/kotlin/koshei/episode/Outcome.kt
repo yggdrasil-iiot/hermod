@@ -45,9 +45,62 @@ private fun Out.replayBuffered(policy: PolicyTable, now: Instant) {
     }
 }
 
-/** Task 4 replaces this placeholder with the design §12 judgement. */
-internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTable, now: Instant) =
-    recordEvidence(e, counted = false, why = "not judged yet")
+/**
+ * One JobResponse, in the design §12 order: ① record only (duplicate, not this attempt's execution) → ② UNKNOWN (anything
+ * in doubt or not reported) → ③ DONE (the target unit completed). A report that says DONE and UNKNOWN at once is
+ * UNKNOWN. JobResponses never say NOT_DONE (④ — only a person does). Anything else is recorded (⑤).
+ */
+internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTable, now: Instant) {
+    val attempt = state.attempt ?: return recordEvidence(e, counted = false, why = "no attempt in progress")
+    if (!replayed) {
+        if (e.jobResponseId in state.seenJobResponseIds) return recordEvidence(e, counted = false, why = "duplicate jobResponseId")
+        state = state.copy(seenJobResponseIds = state.seenJobResponseIds + e.jobResponseId)
+    }
+    // ① Linked only through the executionId picasso returned for this attempt's approval. Person tasks have none (§8.4).
+    if (attempt.executionId == null || e.executionId != attempt.executionId)
+        return recordEvidence(e, counted = false, why = "not linked to this attempt's execution")
+    // ② In doubt, unverified, a person needed, or simply not reported: UNKNOWN — never DONE, never folded into NOT_DONE.
+    val inDoubt = e.inDoubtUnits
+    val unverified = e.unverifiedUnits
+    if (inDoubt == null || unverified == null || e.operatorRequired != false || inDoubt.isNotEmpty() || unverified.isNotEmpty()) {
+        recordEvidence(e, counted = true, why = "in doubt")
+        val units = (inDoubt.orEmpty() + unverified.orEmpty()).distinct()
+        val subjects: List<Map<String, String?>> =
+            if (units.isEmpty()) listOf(mapOf("executionId" to e.executionId))
+            else units.map { mapOf("executionId" to e.executionId, "unitId" to it) }
+        // Once per (subject, what): a repeated report does not grow the next request.
+        val fresh = subjects.filterNot { s -> state.episodeUnknowns.any { it.subject == s && it.what == UnknownWhat.OUTCOME } }
+        state = state.copy(
+            attempt = attempt.copy(evidence = EvidenceSummary(e.reachedEvidence ?: "E0", "UNKNOWN")),
+            episodeUnknowns = state.episodeUnknowns + fresh.map { Unknown(it, UnknownWhat.OUTCOME, e.receivedAt.toString(), "picasso") },
+        )
+        if (state.phase == Phase.AWAITING_EVIDENCE)
+            enterUnknownOutcome(policy, now, outcomeUnknown = false, detail = "JobResponse ${e.jobResponseId} in doubt")
+        return
+    }
+    // ③ DONE: the target unit completed.
+    val unit = attempt.intent?.targetUnit
+    if (unit != null && e.completedUnits?.contains(unit) == true) {
+        recordEvidence(e, counted = true, why = "target completed")
+        return resolve(EvidenceSummary(e.reachedEvidence ?: "E0", "DONE"), now)
+    }
+    recordEvidence(e, counted = false, why = if (unit == null) "target unit not known (design §19)" else "target not completed yet")
+}
+
+/** RESOLVED (design §5.2): the attempt closes with its evidence; after NO_PROPOSAL the record says "done; by whom unknown" (§11). */
+private fun Out.resolve(evidence: EvidenceSummary, now: Instant) {
+    val attempt = state.attempt ?: return
+    attempt.candidate?.let { forgetOutcomeUnknown(it) }
+    state = state.copy(attempt = attempt.copy(evidence = evidence))
+    closeAttempt(ClosedAs.RESOLVED, now)
+    enter(Phase.RESOLVED, now, detail = if (attempt.authorUnknown) "done; by whom unknown" else "done")
+}
+
+/** The candidate's own OUTCOME unknown (§9.4) goes once a person or a report knows the outcome. Unit-level ones stay. */
+private fun Out.forgetOutcomeUnknown(candidate: Candidate) {
+    val subject = mapOf("candidateId" to candidate.candidateId)
+    state = state.copy(episodeUnknowns = state.episodeUnknowns.filterNot { it.what == UnknownWhat.OUTCOME && it.subject == subject })
+}
 
 /** The audit record of a JobResponse (design §13), whether or not it counted. */
 internal fun Out.recordEvidence(e: Evidence, counted: Boolean, why: String) = record(RecordKind.EVIDENCE) {
@@ -73,5 +126,40 @@ private fun ObjectNode.putStrings(key: String, values: List<String>?) {
     if (values == null) putNull(key) else putArray(key).apply { values.forEach { add(it) } }
 }
 
-/** Task 4 replaces this placeholder: JobResponses, a person's check, and the two deadlines. */
-internal fun Out.onOutcome(event: EpisodeEvent, policy: PolicyTable, now: Instant) = ignore(event, "awaiting the outcome")
+/**
+ * AWAITING_EVIDENCE and UNKNOWN(OUTCOME) (design §5.1, §5.2, §7.2, §12). A person's on-site check of the executed target
+ * is evidence grade E3: DONE resolves, NOT_DONE re-diagnoses. A check from another attempt's card is refused as stale.
+ */
+internal fun Out.onOutcome(event: EpisodeEvent, policy: PolicyTable, now: Instant) {
+    val attempt = state.attempt
+    val candidate = attempt?.candidate
+        ?: return escalate(now, Escalation(EscalationReason.DIAGNOSIS_FAILED, "internal: no proposed candidate"))
+    when {
+        event is EpisodeEvent.EvidenceArrived -> takeEvidence(event.evidence, replayed = false, policy, now)
+        event is EpisodeEvent.ConfirmedOutcome && event.candidateId == candidate.candidateId && event.proposalId != attempt.proposalId -> {
+            reply = Reply.REFUSED_STALE
+            ignore(event, "stale confirmation: ${event.proposalId}")
+        }
+        event is EpisodeEvent.ConfirmedOutcome && event.candidateId == candidate.candidateId -> {
+            reply = Reply.ACCEPTED
+            record(RecordKind.OUTCOME_CONFIRMED) {
+                put("candidateId", candidate.candidateId)
+                put("proposalId", event.proposalId)
+                put("done", event.done)
+                put("by", event.by.id)
+                put("assurance", event.by.assurance.name)
+            }
+            val evidence = EvidenceSummary("E3", if (event.done) "DONE" else "NOT_DONE")
+            if (event.done) resolve(evidence, now)
+            else {
+                state = state.copy(attempt = attempt.copy(evidence = evidence))
+                forgetOutcomeUnknown(candidate)
+                rediagnose(RediagnoseReason.NOT_DONE, policy, now, detail = "by ${event.by.id}")
+            }
+        }
+        event is EpisodeEvent.DeadlineExpired && event.which == Timer.STATE ->
+            if (state.phase == Phase.AWAITING_EVIDENCE) escalate(now, Escalation(EscalationReason.EVIDENCE_EXPIRED, candidate.candidateId))
+            else escalate(now, Escalation(EscalationReason.UNKNOWN_UNRESOLVED, "outcome of ${candidate.candidateId}"), closedAs = ClosedAs.UNKNOWN)
+        else -> ignore(event, "awaiting the outcome")
+    }
+}
