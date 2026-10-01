@@ -26,33 +26,76 @@ class EpisodePropertiesTest {
         var crowded = 0
     }
 
+    /** Runs that start from UNKNOWN(OUTCOME) with two units in doubt, so the episode-level items are crowded from the first event. */
+    private val directedSeeds = 0L until 200L
+
     @Test fun `random event sequences keep the fixed rules and always end`() {
         for (seed in seeds) {
             try {
-                run(seed, Stats())
+                run(seed, Stats(), directed = false)
             } catch (e: AssertionError) {
                 throw AssertionError("seed $seed: ${e.message}", e)
+            }
+        }
+        for (seed in directedSeeds) {
+            try {
+                run(seed, Stats(), directed = true)
+            } catch (e: AssertionError) {
+                throw AssertionError("directed seed $seed: ${e.message}", e)
             }
         }
     }
 
     @Test fun `the random runs reach every phase, dispatch often, and walk the confirmation path`() {
         val stats = Stats()
-        for (seed in seeds) run(seed, stats)
+        for (seed in seeds) run(seed, stats, directed = false)
         assertEquals(Phase.entries.toSet(), stats.phases)
         val seen = "dispatches=${stats.dispatches}, accepted=${stats.accepted}, unblocked=${stats.unblocked}, crowded=${stats.crowded}"
         assertTrue(stats.dispatches > 100, "too few dispatches: $seen")
         assertTrue(stats.accepted >= 100, "too few accepted ConfirmedUnknown: $seen")
         assertTrue(stats.unblocked >= 10, "too few execution Dispatches that a confirmation unblocked: $seen")
         assertTrue(stats.crowded >= 2, "too few confirmations of one episode item among several: $seen")
+        val directed = Stats()
+        for (seed in directedSeeds) run(seed, directed, directed = true)
+        assertTrue(directed.crowded >= 20, "too few confirmations of one episode item among several in the directed runs: crowded=${directed.crowded}")
     }
 
-    private fun run(seed: Long, stats: Stats) {
+    /**
+     * One run: a fuzzed event sequence, then the timers alone until the end. A [directed] run starts instead from
+     * UNKNOWN(OUTCOME) with unit u-1 in doubt and u-2 unverified, reached by the ordinary steps — each of them checked too,
+     * so the run's own bookkeeping (dispatched keys, counts, record numbers, unknowns) starts from what really happened.
+     */
+    private fun run(seed: Long, stats: Stats, directed: Boolean) {
         val f = EpisodeFuzzer(seed)
         var now = Episodes.T0
-        var step = startEpisode(EpisodeEvent.Detected(Episodes.INSTANCE, PicassoRun1.manifest, f.first()), f.startPolicy(), now)
         val run = Run()
-        var lastSeq = check(null, null, step, 0, run, stats)
+        var step: Step
+        var lastSeq: Long
+        if (!directed) {
+            step = startEpisode(EpisodeEvent.Detected(Episodes.INSTANCE, PicassoRun1.manifest, f.first()), f.startPolicy(), now)
+            lastSeq = check(null, null, step, 0, run, stats)
+        } else {
+            step = Episodes.open(Episodes.search("search-1"), Episodes.policy(), now)
+            lastSeq = check(null, null, step, 0, run, stats)
+            fun advance(event: EpisodeEvent, at: java.time.Instant) {
+                val before = step.state
+                step = transition(before, event, null, at)
+                lastSeq = check(before, event, step, lastSeq, run, stats)
+                now = at
+            }
+            advance(EpisodeEvent.DeadlineExpired(Timer.STATE, step.state.token), step.state.stateDeadline!!)
+            val offered = step.request.candidates.first { it.kind != CandidateKind.ESCALATE }.candidateId
+            advance(EpisodeEvent.DiagnosisReturned(Responses.forRequest(step.request, "RECOMMENDED", offered).toString()), step.state.enteredAt.plusSeconds(60))
+            advance(EpisodeEvent.Revalidated(TriState.TRUE, step.state.token), step.state.enteredAt.plusSeconds(1))
+            advance(EpisodeEvent.Recorded(step.state.attempt!!.intentSeq!!), step.state.enteredAt.plusSeconds(1))
+            advance(EpisodeEvent.DispatchReturned(DispatchResult.Answer(PicassoAnswers.approved()), step.state.token), step.state.enteredAt.plusSeconds(2))
+            advance(
+                EpisodeEvent.EvidenceArrived(jobResponse("jr-start", inDoubt = listOf("u-1"), unverified = listOf("u-2"))),
+                step.state.enteredAt.plusSeconds(5),
+            )
+            assertEquals(Phase.UNKNOWN_OUTCOME, step.state.phase, "the directed start")
+            assertEquals(2, step.state.episodeUnknowns.size, "the directed start")
+        }
         var n = 0
         while (n < maxEvents && !step.state.phase.terminal) {
             now = now.plusSeconds(f.gap())
@@ -97,7 +140,7 @@ class EpisodePropertiesTest {
         val manifest = mapper.readTree(s.manifestJson) as ObjectNode
         val derived = s.symptoms.withIndex().filter { it.value.kind == SymptomKind.INCIDENT }.flatMap { (i, sym) ->
             deriveUnknowns(Snapshot(manifest, listOf(sym.line), emptyList())).filterNot { u ->
-                confirmations.any { (subject, what, covers) -> u.matches(subject, what) && i < covers }
+                confirmations.any { (subject, what, covers) -> u.names(subject, what) && i < covers }
             }
         }
         return derived + s.episodeUnknowns
@@ -113,8 +156,11 @@ class EpisodePropertiesTest {
         val waitingOnIt = event.what == UnknownWhat.OUTCOME && executionId != null && event.subject["executionId"] == executionId &&
             (after.phase == Phase.AWAITING_EVIDENCE || after.phase == Phase.UNKNOWN_OUTCOME)
         return event.subject.values.any { it != null } && "candidateId" !in event.subject && !waitingOnIt &&
-            known.any { it.matches(event.subject, event.what) }
+            known.any { it.names(event.subject, event.what) }
     }
+
+    /** The test's own matching of an item by subject and kind — not the production `Unknown.matches`, which is under test. */
+    private fun Unknown.names(subject: Map<String, String?>, what: UnknownWhat): Boolean = this.subject == subject && this.what == what
 
     /** True when the global rows (policy, episode deadline, agent layer) escalated this very step, whatever the event was. */
     private fun escalatedByGlobalRow(before: EpisodeState, after: EpisodeState): Boolean =
@@ -133,9 +179,9 @@ class EpisodePropertiesTest {
                 assertTrue(open && want, "accepted a confirmation the rules do not allow: $event in ${s.phase}")
                 run.confirmations += Triple(event.subject, event.what, before.symptoms.size)
                 stats.accepted++
-                if (before.episodeUnknowns.size >= 2 && before.episodeUnknowns.any { it.matches(event.subject, event.what) }) stats.crowded++
+                if (before.episodeUnknowns.size >= 2 && before.episodeUnknowns.any { it.names(event.subject, event.what) }) stats.crowded++
                 assertEquals(
-                    before.episodeUnknowns.filterNot { it.matches(event.subject, event.what) }, s.episodeUnknowns,
+                    before.episodeUnknowns.filterNot { it.names(event.subject, event.what) }, s.episodeUnknowns,
                     "episodeUnknowns after $event",
                 )
             } else if (open) assertFalse(want, "refused a confirmation of something unknown: $event in ${s.phase}")

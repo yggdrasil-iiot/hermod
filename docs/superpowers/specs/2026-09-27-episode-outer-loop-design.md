@@ -206,7 +206,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | `*` | `agentOff` · 결정 시점에 읽은 정책이 꺼짐 | ESCALATED | `AGENT_LAYER_OFF`. DISPATCHED 면 결과 수신은 기록으로 계속 |
 | `*` | 에피소드 기한 만료 | ESCALATED | `EPISODE_EXPIRED` |
 | `*`, ESCALATED | `SymptomJoined` | (그대로) | 증상 목록에 붙이고 기록. 다음 진단의 스냅샷에 들어간다. 이미 나간 조치는 REVALIDATING 이 지킨다 |
-| `*` | `ConfirmedUnknown` — `unknowns` 의 항목(subject · what) | (그대로) | 그 항목을 뺀다(§9.1). 사람의 판정으로 기록. ESCALATED 에서는 받지 않는다(에이전트가 행동하지 않는다). 후보 자기의 OUTCOME 항목은 받지 않는다 — `ConfirmedOutcome` 이 시도를 끝내며 지운다. 지금 시도의 실행(`executionId`)에 걸린 OUTCOME 단위 항목도 결과 확인 단계(AWAITING_EVIDENCE · UNKNOWN(OUTCOME))에서는 받지 않는다 — 결과 확인(`ConfirmedOutcome`)의 몫이다. 그 밖의 상태에서 온 `ConfirmedPrecondition` · `ConfirmedOutcome` 은 값으로 거절한다 |
+| `*` | `ConfirmedUnknown` — `unknowns` 의 항목(subject · what) | (그대로) | 그 항목을 뺀다(§9.1). 사람의 판정으로 기록. ESCALATED 에서는 받지 않는다(에이전트가 행동하지 않는다). 후보 자기의 OUTCOME 항목은 받지 않는다 — `ConfirmedOutcome` 이 시도를 끝내며 지운다. 지금 시도의 실행(`executionId`)에 걸린 OUTCOME 단위 항목도 결과 확인 단계(AWAITING_EVIDENCE · UNKNOWN(OUTCOME))에서는 받지 않는다 — 결과 확인(`ConfirmedOutcome`)의 몫이다. 그 밖의 상태에서 온 `ConfirmedPrecondition` · `ConfirmedOutcome` 은 값으로 거절한다. 값이 모두 null 인 subject(이름 없는 대상)는 받지 않는다. |
 | ESCALATED | `DispatchReturned` · `EvidenceArrived` · `OutcomeRechecked` · `Recorded` · `RecordFailed` | (그대로) | 기록만. 에이전트 명령 없음. DISPATCH_PENDING 중 인수되면 기록 결과가 늦게 올 수 있다 — `Dispatch` 는 DISPATCH_PENDING 에서만 나오므로 안전하다 |
 | ESCALATED | `close(by, outcome)` · 보존 기한 | CLOSED | |
 
@@ -334,7 +334,7 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 | 입력 | 형태 | 보내는 쪽 |
 |---|---|---|
 | 승인·거절 `decide` | **Update**. validator: 해독·형식만. handler: 현재 상태가 AWAITING_APPROVAL 이 아니면 `REFUSED_NOT_AWAITING`, 제안 id·후보 판이 다르면 `REFUSED_STALE` 를 **값으로** 반환 | 제어면 (사람) |
-| 현물 확인 `confirm(subject, result)` | Update, PERSON 만. 받는 subject: UNKNOWN 상태의 대상, `unknowns` 의 항목, **AWAITING_EVIDENCE 에서 실행한 대상**(결과 `DONE \| NOT_DONE` → `ConfirmedOutcome`, 사람 과업 종류가 끝나는 길, §5.2). 셋 어디에도 없으면 `REFUSED_SUBJECT_NOT_UNKNOWN`. UNKNOWN(PRECONDITION) 의 `holds` 는 카드가 보인 명제(§8.3)를 확인한 것으로 기록한다 | 제어면 |
+| 현물 확인 `confirm(subject, result)` | Update, PERSON 만. 받는 subject: UNKNOWN 상태의 대상, `unknowns` 의 항목, **AWAITING_EVIDENCE 에서 실행한 대상**(결과 `DONE \| NOT_DONE` → `ConfirmedOutcome`, 사람 과업 종류가 끝나는 길, §5.2). 셋 어디에도 없으면 `REFUSED_SUBJECT_NOT_UNKNOWN`. ESCALATED 에서도 `REFUSED_SUBJECT_NOT_UNKNOWN` 으로 답한다(새 값을 만들지 않고 그대로 쓴다). UNKNOWN(PRECONDITION) 의 `holds` 는 카드가 보인 명제(§8.3)를 확인한 것으로 기록한다 | 제어면 |
 | 인수 `takeover` | Update. **진행 중에도 먹는다**: 대기점은 조건에 포함, 진단 중이면 액티비티 취소 | 제어면 |
 | 종료 `close(outcome)` | Update, ESCALATED 에서만 | 제어면 |
 | 완료 근거 `evidence` | signal, `eventId` 로 중복 제거 | 감시자 |
