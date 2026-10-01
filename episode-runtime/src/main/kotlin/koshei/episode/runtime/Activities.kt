@@ -31,12 +31,11 @@ interface EpisodeActivities {
     /**
      * design §8.4: the approval window (APPROVE_REMEDY) or an operator task (the person-task kinds).
      *
-     * Obligation for the implementation (plan B3b): it MUST be idempotent on the intent's `idempotencyKey`. Temporal
-     * retries this activity, and a retry sends again — the approval window must recognise the key, and a person task
-     * must not be issued twice.
+     * Obligation: MUST be idempotent on the intent's idempotencyKey (design §8.4, §11) — a person task must not be issued
+     * twice. [instanceId] names the episode a person task or its notice belongs to.
      */
     @ActivityMethod(name = "episodeDispatch")
-    fun dispatch(intentJson: String, approverKind: String?): DispatchOutcome?
+    fun dispatch(instanceId: String, intentJson: String, approverKind: String?): DispatchOutcome?
 
     /** design §8.5: the operator channel. A failure never blocks a transition. */
     @ActivityMethod(name = "episodeNotify")

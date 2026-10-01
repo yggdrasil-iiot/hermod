@@ -1,18 +1,13 @@
 package koshei.episode.runtime
 
-import io.temporal.activity.Activity
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.WorkflowExecutionStatus
-import io.temporal.api.enums.v1.WorkflowIdReusePolicy
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
-import io.temporal.client.ActivityCompletionException
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
 import io.temporal.client.WorkflowStub
 import io.temporal.client.WorkflowUpdateException
-import io.temporal.testing.TestEnvironmentOptions
 import io.temporal.testing.TestWorkflowEnvironment
-import koshei.runtime.DataConverterSupport
 import koshei.runtime.RawJson
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -23,7 +18,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.fail
 
 class EpisodeWorkflowTest {
     private lateinit var env: TestWorkflowEnvironment
@@ -32,15 +26,7 @@ class EpisodeWorkflowTest {
     private val narrator = ProgrammableNarrator()
 
     /** An environment with both workers registered, not yet started. */
-    private fun environment(): TestWorkflowEnvironment = TestWorkflowEnvironment.newInstance(
-        TestEnvironmentOptions.newBuilder().setWorkflowClientOptions(DataConverterSupport.clientOptions()).build(),
-    ).apply {
-        newWorker(EPISODE_TASK_QUEUE).apply {
-            registerWorkflowImplementationTypes(EpisodeWorkflowImpl::class.java)
-            registerActivitiesImplementations(acts)
-        }
-        newWorker(NARRATOR_TASK_QUEUE).registerActivitiesImplementations(narrator)
-    }
+    private fun environment(): TestWorkflowEnvironment = episodeEnvironment { fakeWorkers(acts, narrator) }
 
     @BeforeEach fun up() {
         env = environment()
@@ -50,40 +36,14 @@ class EpisodeWorkflowTest {
 
     @AfterEach fun down() = env.close()
 
-    private fun options(id: String): WorkflowOptions = WorkflowOptions.newBuilder()
-        .setTaskQueue(EPISODE_TASK_QUEUE)
-        .setWorkflowId(id)
-        .setWorkflowIdReusePolicy(WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
-        .build()
+    private fun options(id: String): WorkflowOptions = episodeOptions(id)
 
-    private fun open(id: String = "ep:test", symptom: SymptomSignal = searchSignal("search-1")): EpisodeWorkflow {
-        val stub = client.newWorkflowStub(EpisodeWorkflow::class.java, options(id))
-        WorkflowStub.fromTyped(stub).signalWithStart("symptom", arrayOf(symptom), arrayOf(EpisodeStart(Picasso.manifest)))
-        return stub
-    }
+    private fun open(id: String = "ep:test", symptom: SymptomSignal = searchSignal("search-1")): EpisodeWorkflow =
+        client.openEpisode(id, symptom)
 
-    private fun searchSignal(id: String) = SymptomSignal("search:$id", "SEARCH", Picasso.search(id), 0)
+    private fun EpisodeWorkflow.until(seconds: Int = 120, cond: (EpisodeView) -> Boolean): EpisodeView = until(env, seconds, cond)
 
-    /** Advances test time a second at a time until [cond] holds on the view (the workflow runs between steps). */
-    private fun EpisodeWorkflow.until(seconds: Int = 120, cond: (EpisodeView) -> Boolean): EpisodeView {
-        repeat(seconds) {
-            val v = view()
-            if (cond(v)) return v
-            env.sleep(Duration.ofSeconds(1))
-        }
-        fail("condition not reached; last view ${view()}")
-    }
-
-    private fun EpisodeWorkflow.result(): EpisodeResult = WorkflowStub.fromTyped(this).getResult(EpisodeResult::class.java)
-
-    /** Polls in wall-clock time (activities run on worker threads, outside test time) until [probe] yields a value. */
-    private fun <T : Any> eventually(seconds: Int = 20, probe: () -> T?): T {
-        repeat(seconds * 10) {
-            probe()?.let { return it }
-            Thread.sleep(100)
-        }
-        return probe() ?: fail("not reached within ${seconds}s; records ${acts.records}")
-    }
+    private fun <T : Any> eventually(seconds: Int = 20, probe: () -> T?): T = eventually(seconds, { "records ${acts.records}" }, probe)
 
     /** One instance's records in seq order. */
     private fun records(instanceId: String): List<Rec> =
@@ -318,33 +278,70 @@ class EpisodeWorkflowTest {
         val off = recs.first { it.isEscalation() }.seq
         assertTrue(evidence < joined && joined < off, "arrival order evidence, search-2, agentOff: $recs")
     }
-}
 
-/**
- * The mock narrator unless told otherwise: [answer] replaces it, [block] heartbeats until cancelled, [stallMs] sleeps
- * that long without a heartbeat first.
- */
-internal class ProgrammableNarrator : NarratorActivities {
-    @Volatile var answer: ((RawJson) -> RawJson?)? = null
-    @Volatile var block = false
-    @Volatile var cancelled = false
-    @Volatile var stallMs = 0L
+    // --- B3b --------------------------------------------------------------------------------------------------------
 
-    override fun diagnose(request: RawJson): RawJson? {
-        if (block) {
-            val ctx = Activity.getExecutionContext()
-            try {
-                while (true) {
-                    ctx.heartbeat(null)
-                    Thread.sleep(100)
-                }
-            } catch (e: ActivityCompletionException) {
-                cancelled = true
-                throw e
-            }
+    private val json = com.fasterxml.jackson.databind.ObjectMapper()
+
+    /** Notices attempted so far whose `kind` is [kind] (retries included). */
+    private fun notices(kind: String): List<String> =
+        synchronized(acts.notices) { acts.notices.filter { json.readTree(it)["kind"]?.textValue() == kind } }
+
+    @Test fun `a record that keeps failing raises RECORD_LAG once, and the episode goes on`() {
+        acts.recordFault = { it == "PROPOSED" || it == "APPROVAL" }
+        val ep = open()
+        ep.until { it.phase == "AWAITING_EVIDENCE" }
+        // "Once" means something only after BOTH failing records have used up their three attempts.
+        eventually {
+            acts.calls.toList().takeIf { c -> c.count { it == "record-failed:PROPOSED" } >= 3 && c.count { it == "record-failed:APPROVAL" } >= 3 }
         }
-        if (stallMs > 0) Thread.sleep(stallMs)
-        val programmed = answer
-        return if (programmed != null) programmed(request) else MockNarratorActivities().diagnose(request)
+        val lag = eventually { notices("RECORD_LAG").takeIf { it.isNotEmpty() } }
+        Thread.sleep(2_000)   // without the once-per-run flag, the second failure's notice would have landed by now
+        assertEquals(1, notices("RECORD_LAG").size, "one RECORD_LAG per run: ${acts.notices}")
+        val detail = json.readTree(lag.first())["detail"].textValue()
+        assertTrue("PROPOSED" in detail || "APPROVAL" in detail, "the notice names the failed record: $detail")
+    }
+
+    @Test fun `a failing notice does not raise RECORD_LAG`() {
+        acts.noticeFault = true                                  // every notice fails, after being remembered as attempted
+        acts.policyJson = TestPolicies.table(autoApprove = false)
+        val ep = open()
+        ep.until { it.phase == "AWAITING_APPROVAL" }
+        eventually { notices("APPROVAL_NEEDED").takeIf { it.size >= 3 } }   // three failed attempts of APPROVAL_NEEDED
+        // A later notice: anything the failures above would have raised is attempted before it.
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        eventually { notices("ESCALATED").takeIf { it.isNotEmpty() } }
+        Thread.sleep(2_000)
+        assertTrue(notices("RECORD_LAG").isEmpty(), "a failed notice is not a lagging record: ${acts.notices}")
+    }
+
+    @Test fun `an Update during the drain is refused as a value`() {
+        val gate = CountDownLatch(1)
+        acts.dispatchGate = gate
+        val ep = open()
+        ep.until { it.phase == "DISPATCHED" }
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
+        assertEquals("REFUSED_CLOSED", ep.close(CloseRequest("op-2", "again")))   // the run is still draining
+        gate.countDown()
+        assertEquals(EpisodeResult("CLOSED", "TAKEN_OVER"), ep.result())
+    }
+
+    @Test fun `a run continued for a late symptom opens with that symptom's manifest`() {
+        val gate = CountDownLatch(1)
+        acts.dispatchGate = gate
+        val ep = open(id = "ep:manifest")
+        val first = ep.until { it.phase == "DISPATCHED" }.instanceId
+        assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
+        assertEquals("ACCEPTED", ep.close(CloseRequest("op-1", "handled on site")))
+        val later = Picasso.manifest.replace("\"schemaVersion\"", "\"marker\":\"run-later\",\"schemaVersion\"")
+        assertTrue(later != Picasso.manifest)
+        ep.symptom(searchSignal("search-2").copy(manifestJson = later))
+        gate.countDown()
+        val next = client.newWorkflowStub(EpisodeWorkflow::class.java, "ep:manifest").until { it.instanceId != first && it.phase != "OPENING" }
+        val opened = eventually { records(next.instanceId).firstOrNull { it.kind == "OPENED" } }
+        assertTrue("run-later" in opened.payload, "the new run opened with the late symptom's manifest: ${opened.payload}")
+        val ignored = records(first).first { it.kind == "IGNORED" && "SymptomJoined" in it.payload }
+        assertTrue("search:search-2" in ignored.payload, "the ended run names what it forwarded: ${ignored.payload}")
     }
 }

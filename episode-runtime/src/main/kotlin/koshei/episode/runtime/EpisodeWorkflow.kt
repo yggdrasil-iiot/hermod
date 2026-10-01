@@ -23,6 +23,8 @@ import koshei.episode.DiagnosisBudget
 import koshei.episode.DispatchResult
 import koshei.episode.EpisodeEvent
 import koshei.episode.EpisodeState
+import koshei.episode.Notice
+import koshei.episode.NoticeKind
 import koshei.episode.Phase
 import koshei.episode.PolicyRead
 import koshei.episode.Reply
@@ -103,6 +105,8 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
     private val pending = mutableListOf<Promise<Unit>>()
     /** Records and notices in flight. Nothing waits for them during the episode (design §8.5); the end does. */
     private val unsettled = mutableListOf<Promise<Unit>>()
+    /** Whether this run has already said that a record failed for good (RECORD_LAG, once per run; design §8.5). */
+    private var recordLagRaised = false
 
     private val local: EpisodeActivities = Workflow.newLocalActivityStub(
         EpisodeActivities::class.java,
@@ -132,7 +136,10 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
         val first = preOpen.first { it.line != null }
         preOpen.remove(first)
         val read = readPolicy(opening)
-        apply(startEpisode(EpisodeEvent.Detected(instanceId(), start.manifestJson, first.line!!.toSymptom()), read, now()))
+        val line = first.line!!
+        // The episode opens on this line, so it takes the line's own manifest when the watcher sent one.
+        val manifest = line.manifestJson?.takeUnless { it.isBlank() } ?: start.manifestJson
+        apply(startEpisode(EpisodeEvent.Detected(instanceId(), manifest, line.toSymptom()), read, now()))
         // No yield since `state` was set, so nothing has reached the inbox ahead of these.
         inbox.addAll(preOpen)
         preOpen.clear()
@@ -151,7 +158,11 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
         val end = current()
         // A line the ended episode already had is a redelivery, not a new occurrence.
         val fresh = late.filter { it.eventId !in end.seenEventIds }.distinctBy { it.eventId }
-        if (fresh.isNotEmpty()) Workflow.continueAsNew(EpisodeStart(start.manifestJson, start.schemaVersion, fresh))
+        if (fresh.isNotEmpty()) {
+            // The new episode opens on the first fresh line, so it takes that line's manifest when the watcher sent one.
+            val manifest = fresh.first().manifestJson?.takeUnless { it.isBlank() } ?: start.manifestJson
+            Workflow.continueAsNew(EpisodeStart(manifest, start.schemaVersion, fresh))
+        }
         return EpisodeResult(end.phase.name, end.escalation?.reason?.name)
     }
 
@@ -224,16 +235,23 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
                     inbox.addLast(Inbound(EpisodeEvent.DeadlineExpired(command.which, command.token), decision = true))
                 }
             }
-            // TODO(B3b): a record or notice that keeps failing raises RECORD_LAG. Records run concurrently, so they can
-            //  land out of seq order; the store orders them by (instance, seq).
-            is Command.Notify -> {
-                val id = instanceId()
-                keep(unsettled, Async.procedure { activities(30_000).sendNotice(id, noticeJson(command.notice)) }.handle { _, _ -> })
-            }
+            // Records run concurrently and may land out of seq order; the store keys them by (instance, seq).
+            is Command.Notify -> notice(noticeJson(command.notice))
             is Command.Record -> {
                 val id = instanceId()
+                val seq = command.seq
+                val kind = command.entry.kind.name
                 val payload = command.entry.payload.toString()
-                keep(unsettled, Async.procedure { activities(30_000).record(id, command.seq, command.entry.kind.name, payload) }.handle { _, _ -> })
+                keep(
+                    unsettled,
+                    Async.procedure { activities(30_000).record(id, seq, kind, payload) }.handle { _, failure ->
+                        // A record that failed for good: say so once per run (design §8.5). Temporal history still has it.
+                        if (failure != null && !recordLagRaised) {
+                            recordLagRaised = true
+                            notice(noticeJson(Notice(NoticeKind.RECORD_LAG, current().phase, detail = "record $seq $kind failed: ${failure.message}")))
+                        }
+                    },
+                )
             }
             is Command.RecordIntent -> {
                 val id = instanceId()
@@ -242,11 +260,20 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
                     failed = { EpisodeEvent.RecordFailed(command.seq, it.message) },
                 ) { EpisodeEvent.Recorded(command.seq) }
             }
-            is Command.Dispatch -> report(
-                Async.function { activities(command.timeoutMs).dispatch(intentJson(command.intent), command.approverKind) },
-                failed = { EpisodeEvent.DispatchReturned(DispatchResult.Uncertain(it.message), command.token) },
-            ) { outcome -> EpisodeEvent.DispatchReturned(checkNotNull(outcome) { "dispatch answered null" }.toResult(), command.token) }
+            is Command.Dispatch -> {
+                val id = instanceId()
+                report(
+                    Async.function { activities(command.timeoutMs).dispatch(id, intentJson(command.intent), command.approverKind) },
+                    failed = { EpisodeEvent.DispatchReturned(DispatchResult.Uncertain(it.message), command.token) },
+                ) { outcome -> EpisodeEvent.DispatchReturned(checkNotNull(outcome) { "dispatch answered null" }.toResult(), command.token) }
+            }
         }
+    }
+
+    /** A notice is never awaited and its failure is never reported further: the channel is what failed (design §8.5). */
+    private fun notice(json: String) {
+        val id = instanceId()
+        keep(unsettled, Async.procedure { activities(30_000).sendNotice(id, json) }.handle { _, _ -> })
     }
 
     /**

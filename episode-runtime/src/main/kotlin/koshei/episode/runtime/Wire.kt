@@ -16,8 +16,18 @@ const val NARRATOR_TASK_QUEUE = "narrator-tq"
  */
 data class EpisodeStart(val manifestJson: String = "", val schemaVersion: Int = 1, val pending: List<SymptomSignal> = emptyList())
 
-/** `symptom` signal: one picasso export line (design §12). [kind] is `INCIDENT` or `SEARCH`. */
-data class SymptomSignal(val eventId: String = "", val kind: String = "", val lineJson: String = "", val observedAtMillis: Long = 0)
+/**
+ * `symptom` signal: one picasso export line (design §12). [kind] is `INCIDENT` or `SEARCH`. [manifestJson] is the
+ * manifest of the export the line came from; the watcher sends it with every signal (plan C). Only the symptom that
+ * opens an episode uses it — a joined symptom's manifest is not read (design §7.1).
+ */
+data class SymptomSignal(
+    val eventId: String = "",
+    val kind: String = "",
+    val lineJson: String = "",
+    val observedAtMillis: Long = 0,
+    val manifestJson: String? = null,
+)
 
 /** `evidence` signal: a JobResponse the host carried (design §12). A null list or flag means "not reported". */
 data class EvidenceSignal(

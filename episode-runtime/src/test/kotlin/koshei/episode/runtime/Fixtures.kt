@@ -1,10 +1,73 @@
 package koshei.episode.runtime
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.temporal.activity.Activity
+import io.temporal.api.enums.v1.WorkflowIdReusePolicy
+import io.temporal.client.ActivityCompletionException
+import io.temporal.client.WorkflowClient
+import io.temporal.client.WorkflowOptions
+import io.temporal.client.WorkflowStub
+import io.temporal.testing.TestEnvironmentOptions
+import io.temporal.testing.TestWorkflowEnvironment
+import koshei.runtime.DataConverterSupport
+import koshei.runtime.RawJson
+import java.time.Duration
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.fail
+
+/** A test environment with koshei's converter (as every worker and client in production), workers not yet started. */
+internal fun episodeEnvironment(register: TestWorkflowEnvironment.() -> Unit): TestWorkflowEnvironment =
+    TestWorkflowEnvironment.newInstance(
+        TestEnvironmentOptions.newBuilder().setWorkflowClientOptions(DataConverterSupport.clientOptions()).build(),
+    ).apply(register)
+
+/** The workflow with [acts] on the episode queue and [narrator] on narrator-tq. */
+internal fun TestWorkflowEnvironment.fakeWorkers(acts: EpisodeActivities, narrator: NarratorActivities) {
+    newWorker(EPISODE_TASK_QUEUE).apply {
+        registerWorkflowImplementationTypes(EpisodeWorkflowImpl::class.java)
+        registerActivitiesImplementations(acts)
+    }
+    newWorker(NARRATOR_TASK_QUEUE).registerActivitiesImplementations(narrator)
+}
+
+internal fun episodeOptions(id: String): WorkflowOptions = WorkflowOptions.newBuilder()
+    .setTaskQueue(EPISODE_TASK_QUEUE)
+    .setWorkflowId(id)
+    .setWorkflowIdReusePolicy(WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
+    .build()
+
+internal fun searchSignal(id: String) = SymptomSignal("search:$id", "SEARCH", Picasso.search(id), 0)
+
+/** signalWithStart, as the watcher will (design §7.1). */
+internal fun WorkflowClient.openEpisode(id: String = "ep:test", symptom: SymptomSignal = searchSignal("search-1")): EpisodeWorkflow {
+    val stub = newWorkflowStub(EpisodeWorkflow::class.java, episodeOptions(id))
+    WorkflowStub.fromTyped(stub).signalWithStart("symptom", arrayOf(symptom), arrayOf(EpisodeStart(Picasso.manifest)))
+    return stub
+}
+
+/** Advances test time a second at a time until [cond] holds on the view (the workflow runs between steps). */
+internal fun EpisodeWorkflow.until(env: TestWorkflowEnvironment, seconds: Int = 120, cond: (EpisodeView) -> Boolean): EpisodeView {
+    repeat(seconds) {
+        val v = view()
+        if (cond(v)) return v
+        env.sleep(Duration.ofSeconds(1))
+    }
+    fail("condition not reached; last view ${view()}")
+}
+
+internal fun EpisodeWorkflow.result(): EpisodeResult = WorkflowStub.fromTyped(this).getResult(EpisodeResult::class.java)
+
+/** Polls in wall-clock time (activities run on worker threads, outside test time) until [probe] yields a value. */
+internal fun <T : Any> eventually(seconds: Int = 20, describe: () -> String = { "" }, probe: () -> T?): T {
+    repeat(seconds * 10) {
+        probe()?.let { return it }
+        Thread.sleep(100)
+    }
+    return probe() ?: fail("not reached within ${seconds}s; ${describe()}")
+}
 
 /** picasso run-1 lines (byte copies of the `:episode` test resources; the picasso repo is read-only). */
 internal object Picasso {
@@ -63,6 +126,12 @@ internal class FakeEpisodeActivities : EpisodeActivities {
     @Volatile var dispatchError: RuntimeException? = null
     /** When set, `dispatch` waits for it after remembering the call. */
     @Volatile var dispatchGate: CountDownLatch? = null
+    /** Whether a `record` call for this kind throws (every attempt, so the activity fails for good). */
+    @Volatile var recordFault: (String) -> Boolean = { false }
+    /** Whether every `sendNotice` throws (after the notice is remembered as attempted). */
+    @Volatile var noticeFault: Boolean = false
+    /** Every notice attempted, in order, retries included. */
+    val notices: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val calls: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val records: MutableList<Rec> = Collections.synchronizedList(mutableListOf())
     private val policyReads = AtomicInteger()
@@ -79,6 +148,7 @@ internal class FakeEpisodeActivities : EpisodeActivities {
     }
 
     override fun record(instanceId: String, seq: Long, kind: String, payloadJson: String) {
+        if (recordFault(kind)) { calls += "record-failed:$kind"; throw IllegalStateException("store down for $kind") }
         calls += "record:$kind"
         records += Rec(instanceId, seq, kind, payloadJson)
     }
@@ -87,7 +157,7 @@ internal class FakeEpisodeActivities : EpisodeActivities {
         calls += "intent:$seq"
     }
 
-    override fun dispatch(intentJson: String, approverKind: String?): DispatchOutcome? {
+    override fun dispatch(instanceId: String, intentJson: String, approverKind: String?): DispatchOutcome? {
         calls += "dispatch:$approverKind"
         dispatchGate?.await(60, TimeUnit.SECONDS)
         dispatchError?.let { throw it }
@@ -96,5 +166,36 @@ internal class FakeEpisodeActivities : EpisodeActivities {
 
     override fun sendNotice(instanceId: String, noticeJson: String) {
         calls += "notice"
+        notices += noticeJson
+        if (noticeFault) throw IllegalStateException("channel down")
+    }
+}
+
+/**
+ * The mock narrator unless told otherwise: [answer] replaces it, [block] heartbeats until cancelled, [stallMs] sleeps
+ * that long without a heartbeat first.
+ */
+internal class ProgrammableNarrator : NarratorActivities {
+    @Volatile var answer: ((RawJson) -> RawJson?)? = null
+    @Volatile var block = false
+    @Volatile var cancelled = false
+    @Volatile var stallMs = 0L
+
+    override fun diagnose(request: RawJson): RawJson? {
+        if (block) {
+            val ctx = Activity.getExecutionContext()
+            try {
+                while (true) {
+                    ctx.heartbeat(null)
+                    Thread.sleep(100)
+                }
+            } catch (e: ActivityCompletionException) {
+                cancelled = true
+                throw e
+            }
+        }
+        if (stallMs > 0) Thread.sleep(stallMs)
+        val programmed = answer
+        return if (programmed != null) programmed(request) else MockNarratorActivities().diagnose(request)
     }
 }
