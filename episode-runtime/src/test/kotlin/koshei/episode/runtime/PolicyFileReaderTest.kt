@@ -1,5 +1,9 @@
 package koshei.episode.runtime
 
+import koshei.episode.CandidateKind
+import koshei.episode.PolicyParse
+import koshei.episode.PolicyRead
+import koshei.episode.parsePolicy
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -7,6 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class PolicyFileReaderTest {
     @TempDir lateinit var dir: Path
@@ -44,5 +49,15 @@ class PolicyFileReaderTest {
         assertEquals("""{"version":"1"}""", reader.read().json)
         Files.writeString(file, "version: \"2\"\n")
         assertEquals("""{"version":"2"}""", reader.read().json)
+    }
+
+    @Test fun `the committed v1 table is valid and keeps auto-approval off`() {
+        val file = Path.of(System.getProperty("koshei.repoRoot"), "model", "episode-policy", "active.yaml")
+        val read = PolicyFileReader(file).read()
+        assertEquals("FOUND", read.kind, read.reason)
+        val parsed = parsePolicy(read.toRead().let { (it as PolicyRead.Found).node })
+        val table = (parsed as? PolicyParse.Valid)?.policy ?: fail("invalid: $parsed")
+        assertTrue(table.agentLayerEnabled)
+        assertEquals(false, table.autoApprove[CandidateKind.APPROVE_REMEDY]?.allowed, "policy v1 (design §10.1, §18)")
     }
 }
