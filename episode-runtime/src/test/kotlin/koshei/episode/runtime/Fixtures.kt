@@ -164,9 +164,10 @@ internal class FakeEpisodeActivities : EpisodeActivities {
     }
 
     override fun dispatch(instanceId: String, intentJson: String, approverKind: String?): DispatchOutcome? {
+        val gate = dispatchGate
         calls += "dispatch:$approverKind"
         dispatchedFor += instanceId
-        dispatchGate?.await(60, TimeUnit.SECONDS)
+        gate?.await(60, TimeUnit.SECONDS)
         dispatchError?.let { throw it }
         return dispatchOutcome
     }

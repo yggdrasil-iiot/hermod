@@ -341,7 +341,8 @@ class EpisodeWorkflowTest {
         val ep = open()
         ep.until { it.phase == "AWAITING_APPROVAL" }
         eventually { notices("APPROVAL_NEEDED").takeIf { it.size >= 3 } }   // three failed attempts of APPROVAL_NEEDED
-        // A later notice: anything the failures above would have raised is attempted before it.
+        // Seeing the fake's third attempt does not mean the workflow has processed that failure: the sleep below is
+        // what gives the last APPROVAL_NEEDED failure time to reach the workflow before RECORD_LAG is checked.
         assertEquals("ACCEPTED", ep.takeover(TakeoverRequest("op-1")))
         eventually { notices("ESCALATED").takeIf { it.isNotEmpty() } }
         Thread.sleep(2_000)
@@ -389,6 +390,16 @@ class EpisodeWorkflowTest {
         val payload = opened(ep.until { it.phase != "OPENING" }.instanceId).payload
         assertTrue("first-line" in payload, "opened with the first line's manifest: $payload")
         assertTrue("start-arg" !in payload, "not with the start argument's: $payload")
+    }
+
+    @Test fun `a first symptom with a blank manifest opens with the start argument's manifest`() {
+        val ep = open(
+            id = "ep:blank-manifest",
+            symptom = searchSignal("search-1").copy(manifestJson = ""),
+            start = EpisodeStart(manifest("start-arg")),
+        )
+        val payload = opened(ep.until { it.phase != "OPENING" }.instanceId).payload
+        assertTrue("start-arg" in payload, "a blank manifest falls back to the start argument's: $payload")
     }
 
     @Test fun `a manifest-less late line keeps the manifest of the run it continues from, across two continuations`() {

@@ -6,6 +6,7 @@ import io.temporal.activity.LocalActivityOptions
 import io.temporal.api.enums.v1.TimeoutType
 import io.temporal.common.RetryOptions
 import io.temporal.failure.ActivityFailure
+import io.temporal.failure.TemporalFailure
 import io.temporal.failure.TimeoutFailure
 import io.temporal.workflow.Async
 import io.temporal.workflow.CancellationScope
@@ -253,7 +254,7 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
                         // The detail names the application's cause, not the activity wrapper (which names the worker host).
                         // The flag is set only once the notice is under way, so a throw here cannot swallow the one notice.
                         if (failure != null && !recordLagRaised) {
-                            val cause = ((failure as? ActivityFailure)?.cause ?: failure).message
+                            val cause = ((failure as? ActivityFailure)?.cause as? TemporalFailure)?.originalMessage ?: failure.message
                             notice(noticeJson(Notice(NoticeKind.RECORD_LAG, current().phase, detail = "record $seq $kind failed: $cause")))
                             recordLagRaised = true
                         }
