@@ -106,7 +106,7 @@ data class EpisodeState internal constructor(
      * had arrived, plus the episode's own. Without confirmations this equals `deriveUnknowns(snapshot()) +
      * episodeUnknowns`, in the same order. Throws on a malformed manifest; callers fail safe.
      */
-    internal fun currentUnknowns(): List<Unknown> {
+    fun currentUnknowns(): List<Unknown> {
         // snapshot() is built once, so the manifest and every line are validated as for a diagnosis request. Its incidents
         // are the INCIDENT symptoms in order: zip them with those symptoms' positions in `symptoms`.
         val incidents = snapshot().incidents
