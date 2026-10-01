@@ -1,5 +1,6 @@
 package koshei.episode.runtime
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.assertThrows
 import java.lang.reflect.InvocationTargetException
@@ -97,6 +98,29 @@ class EpisodeStoreTest {
         }
     }
 
+    @Test fun `a failed rollback never commits half a person task`() {
+        // A fault on the Kotlin side leaves the transaction open with the task row in it; re-enabling autocommit would
+        // commit that row without its notice, and every retry would then find the task and tell no one.
+        val held = HeldConnection(failRollback = true)
+        try {
+            assertThrows<JsonProcessingException> { EpisodeStore { held.proxy }.issueTask("ep:a/r1", "k", "not json") }
+            assertNull(store.outcome("k"), "the task row is not committed")   // read on another connection
+            assertEquals(emptyList(), store.notices("ep:a/r1"))
+        } finally {
+            held.real.close()
+        }
+    }
+
+    @Test fun `when rollback and the autocommit restore both fail, the caller still sees why the task failed`() {
+        val held = HeldConnection(failRollback = true, failRestore = true)
+        try {
+            val e = assertThrows<JsonProcessingException> { EpisodeStore { held.proxy }.issueTask("ep:a/r1", "k", "not json") }
+            assertEquals(listOf("rollback failed: connection gone"), e.suppressed.map { it.message })
+        } finally {
+            held.real.close()
+        }
+    }
+
     @Test fun `a person task leaves its connection in autocommit`() {
         val held = HeldConnection(failRollback = false)
         try {
@@ -128,12 +152,13 @@ class EpisodeStoreTest {
     }
 
     /** A real connection behind a proxy: closing is held back so its state can be read afterwards; rollback may fail. */
-    private class HeldConnection(failRollback: Boolean) {
+    private class HeldConnection(failRollback: Boolean, failRestore: Boolean = false) {
         val real: Connection = EpisodeDb.connection()
         val proxy: Connection = Proxy.newProxyInstance(Connection::class.java.classLoader, arrayOf(Connection::class.java)) { _, m, args ->
             when {
                 m.name == "close" -> null
                 m.name == "rollback" && args.isNullOrEmpty() && failRollback -> throw SQLException("rollback failed: connection gone")
+                m.name == "setAutoCommit" && args!![0] == true && failRestore -> throw SQLException("autocommit failed: connection gone")
                 else -> try { m.invoke(real, *(args ?: emptyArray())) } catch (e: InvocationTargetException) { throw e.targetException }
             }
         } as Connection

@@ -92,7 +92,7 @@ open class EpisodeStore(private val connect: () -> Connection) {
     /**
      * Issues a person task exactly once (design §8.4): the task row and its notice are written in one transaction, and
      * nothing is written when the key already has a task. [RecordUnstorable], with neither row written, when jsonb
-     * cannot hold the intent.
+     * cannot hold the intent. [intentJson] must be valid JSON: the caller parses it first (the activity's dispatch does).
      */
     open fun issueTask(instanceId: String, key: String, intentJson: String): DispatchOutcome {
         val task = DispatchOutcome("PERSON_TASK")
@@ -110,11 +110,13 @@ open class EpisodeStore(private val connect: () -> Connection) {
                     }
                     c.commit()
                 } catch (e: Throwable) {
-                    try { c.rollback() } catch (r: SQLException) { e.addSuppressed(r) }
+                    // A failed rollback leaves the transaction open: re-enabling autocommit would commit it (pgjdbc), so
+                    // the connection is left as it is and close() discards the transaction.
+                    try { c.rollback() } catch (r: SQLException) { e.addSuppressed(r); throw e }
+                    try { c.autoCommit = true } catch (r: SQLException) { e.addSuppressed(r) }
                     throw e
-                } finally {
-                    c.autoCommit = true   // a pooled connection must not come back mid-transaction
                 }
+                c.autoCommit = true   // a pooled connection must not come back mid-transaction
             }
         }
         return checkNotNull(outcome(key)) { "episode_dispatch $key vanished" }
