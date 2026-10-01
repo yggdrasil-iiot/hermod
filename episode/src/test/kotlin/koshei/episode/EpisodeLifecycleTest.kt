@@ -154,6 +154,17 @@ class EpisodeLifecycleTest {
         assertEquals(1, late.records(RecordKind.IGNORED).size)
     }
 
+    @Test fun `a symptom ignored after the end names its eventId and kind`() {
+        val closed = open().on(EpisodeEvent.TakenOver(OPERATOR), T0.plusSeconds(1)).on(EpisodeEvent.Closed(OPERATOR, "x"), T0.plusSeconds(2))
+        assertEquals(Phase.CLOSED, closed.state.phase)
+        val line = mapper.readTree(PicassoRun1.search("search-1")) as ObjectNode
+        val late = closed.on(EpisodeEvent.SymptomJoined(Symptom("search:late-1", SymptomKind.SEARCH, line, T0.plusSeconds(3))), T0.plusSeconds(3))
+        val ignored = late.records(RecordKind.IGNORED).single().entry.payload
+        assertEquals("SymptomJoined", ignored.get("event").textValue())
+        assertEquals("search:late-1", ignored.get("eventId")?.textValue())
+        assertEquals("SEARCH", ignored.get("symptomKind")?.textValue())
+    }
+
     @Test fun `close is accepted only when the episode was already escalated before the event`() {
         val byTime = open().on(EpisodeEvent.Closed(OPERATOR, "x"), T0.plusMillis(3_600_000))
         assertEquals(Reply.REFUSED_NOT_ESCALATED, byTime.reply)

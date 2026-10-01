@@ -218,6 +218,11 @@ internal fun Out.ignore(event: EpisodeEvent, why: String) {
             is DispatchResult.Uncertain -> put("detail", r.message)
             DispatchResult.PersonTaskIssued -> put("result", "PersonTaskIssued")
         }
+        // Which line the ended episode (or a duplicate or keyless line) did not take: a forwarding run can be traced (§7.1).
+        if (event is EpisodeEvent.SymptomJoined) {
+            put("eventId", event.symptom.eventId)
+            put("symptomKind", event.symptom.kind.name)
+        }
         if (event is EpisodeEvent.EvidenceArrived) putObject("evidence").putEvidence(event.evidence)
         // Which record an ignored record-result belongs to (the intent's `seq`).
         if (event is EpisodeEvent.Recorded) put("seq", event.seq)

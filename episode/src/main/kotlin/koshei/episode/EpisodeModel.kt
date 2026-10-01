@@ -86,7 +86,8 @@ enum class Timer { STATE, RECHECK, EPISODE, RETENTION }
 /** What an Update handler returns (design §7.2): refusals are values, recorded, never exceptions. */
 enum class Reply { ACCEPTED, REFUSED_NOT_AWAITING, REFUSED_STALE, REFUSED_SUBJECT_NOT_UNKNOWN, REFUSED_NOT_ESCALATED, REFUSED_CLOSED }
 
-enum class NoticeKind { APPROVAL_NEEDED, CONFIRM_PRECONDITION, ESCALATED, POLICY_REJECTED, CONFIRM_OUTCOME }
+/** RECORD_LAG is raised by the runtime when a record keeps failing (design §8.5); the core never emits it. */
+enum class NoticeKind { APPROVAL_NEEDED, CONFIRM_PRECONDITION, ESCALATED, POLICY_REJECTED, CONFIRM_OUTCOME, RECORD_LAG }
 
 /** What goes to the operator channel (design §8.5). The card itself (§9.5) is drawn by the runtime from the state. */
 data class Notice(val kind: NoticeKind, val phase: Phase, val reason: EscalationReason? = null, val detail: String? = null)
