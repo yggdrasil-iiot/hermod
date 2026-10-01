@@ -206,7 +206,7 @@ DIAGNOSING 대신 ESCALATED(`ATTEMPTS_EXHAUSTED`)로 간다.
 | `*` | `agentOff` · 결정 시점에 읽은 정책이 꺼짐 | ESCALATED | `AGENT_LAYER_OFF`. DISPATCHED 면 결과 수신은 기록으로 계속 |
 | `*` | 에피소드 기한 만료 | ESCALATED | `EPISODE_EXPIRED` |
 | `*`, ESCALATED | `SymptomJoined` | (그대로) | 증상 목록에 붙이고 기록. 다음 진단의 스냅샷에 들어간다. 이미 나간 조치는 REVALIDATING 이 지킨다 |
-| `*` | `ConfirmedPrecondition` · `ConfirmedOutcome` (UNKNOWN 상태가 아님) | (그대로) | 해당 subject 를 에피소드의 `unknowns` 에서 뺀다(§9.1). 사람의 판정으로 기록 |
+| `*` | `ConfirmedUnknown` — `unknowns` 의 항목(subject · what) | (그대로) | 그 항목을 뺀다(§9.1). 사람의 판정으로 기록. ESCALATED 에서는 받지 않는다(에이전트가 행동하지 않는다). 후보 자기의 OUTCOME 항목은 받지 않는다 — `ConfirmedOutcome` 이 시도를 끝내며 지운다. 그 밖의 상태에서 온 `ConfirmedPrecondition` · `ConfirmedOutcome` 은 값으로 거절한다 |
 | ESCALATED | `DispatchReturned` · `EvidenceArrived` · `OutcomeRechecked` · `Recorded` · `RecordFailed` | (그대로) | 기록만. 에이전트 명령 없음. DISPATCH_PENDING 중 인수되면 기록 결과가 늦게 올 수 있다 — `Dispatch` 는 DISPATCH_PENDING 에서만 나오므로 안전하다 |
 | ESCALATED | `close(by, outcome)` · 보존 기한 | CLOSED | |
 
@@ -297,7 +297,7 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 싣고 `Revalidated` 가 그것을 돌려준다 — 재진단 뒤에 도착한 앞 후보의 늦은 결과가 새 후보의 전제로 읽히지 않게. 거절 사유는
 `RejectReason { WRONG_TARGET, WRONG_ACTION, PRECONDITION_NOT_MET, NOT_NOW, OTHER }` 이고 이력(계약 §3.4)에는 이 값만 간다. 운영자의
 자유 글(`note`)은 감사 기록에만 남는다 — narrator 가 이력을 모델의 자료 칸에 옮기므로 인증 없는 글이 프롬프트로 가지 않게 한다.
-재진단 사유(기록 전용)는 `APPROVAL_REJECTED` · `APPROVAL_LAPSED` · `PRECONDITION_BROKEN` · `NOT_DONE`. 실행 뒤의 모양(계획 B2b-2b): `Dispatch(intent, approverKind, timeoutMs, token)` 과 `DispatchReturned(result, token)`, `EvidenceArrived(Evidence)`(결과 통보의 칸 그대로), `ConfirmedOutcome(candidateId, proposalId, done, by)`. `Recorded` 를 받으면 실행 의도 직전과 같은 관문을 다시 지나고 나서야 `Dispatch` 를 낸다. UNKNOWN(OUTCOME)이 `unknownMs` 로 끝나면 이력의 `closedAs` 는 `UNKNOWN` 이다. POLICY 자동 승인은 실행 의도 직전에 지금 표로
+재진단 사유(기록 전용)는 `APPROVAL_REJECTED` · `APPROVAL_LAPSED` · `PRECONDITION_BROKEN` · `NOT_DONE`. 실행 뒤의 모양(계획 B2b-2b): `Dispatch(intent, approverKind, timeoutMs, token)` 과 `DispatchReturned(result, token)`, `EvidenceArrived(Evidence)`(결과 통보의 칸 그대로), `ConfirmedOutcome(candidateId, proposalId, done, by)`, 확인 불가 항목을 사람이 판정하는 `ConfirmedUnknown(subject, what, by, note)`(계획 B2b-2c, §9.1). `Recorded` 를 받으면 실행 의도 직전과 같은 관문을 다시 지나고 나서야 `Dispatch` 를 낸다. UNKNOWN(OUTCOME)이 `unknownMs` 로 끝나면 이력의 `closedAs` 는 `UNKNOWN` 이다. POLICY 자동 승인은 실행 의도 직전에 지금 표로
 다시 판정하고, 그 사이 자동 승인이 꺼졌거나 표가 거절돼 멈췄으면 승인을 거두고 AWAITING_APPROVAL 로 간다.
 
 고정 규칙(정책 표로 못 바꾼다):
@@ -521,8 +521,9 @@ v1 은 에피소드 전체에 적용한다. 전이 함수도 같은 조건을 �
 
 **`unknowns` 는 UNKNOWN 상태와 별개인 에피소드의 목록이다.** 진단 스냅샷을 만들 때마다 다시 계산하고, 두 가지로만 빠진다.
 - 원천이 더 새로운 관측(`observedAt` 이 더 늦음)으로 참·거짓을 준다.
-- 사람이 `confirm` 으로 판정한다(어느 비종료 상태에서든, §7.2). 판정은 그 subject 에 대해 판정 시각 이후의 새 관측이 다시 모름을
-  말하기 전까지 유효하다. `CONFIRM_DONE` 후보는 "했다"만 말하므로, "안 했다"는 `confirm(NOT_DONE)` 으로 들어온다.
+- 사람이 `confirm`(`ConfirmedUnknown`)으로 판정한다(ESCALATED 와 종료를 뺀 상태에서, §7.2). 판정은 그 subject · 종류에 대해, 판정
+  **뒤에 도착한** 사건 줄이 다시 모름을 말하기 전까지 유효하다 — 「뒤」는 도착 순서이고 `observedAt`(감시자의 시계)과 판정 시각(워크플로의
+  시계)을 견주지 않는다(§12 와 같은 까닭). `CONFIRM_DONE` 후보는 "했다"만 말하므로, "안 했다"는 `confirm(NOT_DONE)` 으로 들어온다.
 
 ### 9.2 후보 식별자
 
@@ -831,7 +832,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 
 | 층 | 무엇 | 도구 |
 |---|---|---|
-| `:episode` 순수 | §5.2 전이 표 전수, 정책 검증, 투영·식별자·판 | JUnit. 무작위 사건 열 속성 시험: UNKNOWN 중 Dispatch 0, 같은 열쇠 Dispatch ≤ 1, Record 없이 Dispatch 0, 모든 열이 유한 단계 안에 종료 상태 도달 |
+| `:episode` 순수 | §5.2 전이 표 전수, 정책 검증, 투영·식별자·판 | JUnit. 무작위 사건 열 속성 시험: UNKNOWN 중 Dispatch 0, 같은 열쇠 Dispatch ≤ 1, Record 없이 Dispatch 0, 모든 열이 유한 단계 안에 종료 상태 도달. 계획 B2b-2c 의 `EpisodePropertiesTest`: 씨앗 1000개 × 사건 60개, 기록 번호 연속 · 실행 횟수 · 기한 있는 대기 · 이력 여덟 칸 · ESCALATED 와 종료에서 에이전트 명령 0 · Update 마다 답 · 겹친 `eventId` 무시도 보고, 「모름」은 시험이 따로 계산한 목록과 맞춘다. 13개 상태를 다 지나는지 따로 본다 |
 | 구동부 | R1 경합, R4 기한, 인수(하트비트 취소), 끄기, 늦은 `decide` 의 값 거절 | `TestWorkflowEnvironment` 시간 건너뛰기 (기존 `SagaWorkflowTest` 방식) |
 | 재생 | R3: 상태별 멈춘 이력 저장 → 새 코드 재생 | `WorkflowReplayer` (기존 `ReplayDeterminismTest` 방식) |
 | 장애 주입 | R2 · R5: 워커·DB·Temporal·narrator 강제 종료 | 실제 프로세스. 기존 `run-crash-recovery.sh` 방식. 고정 sleep 대신 조건 대기 |
