@@ -106,6 +106,18 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 | 제어면 (`:authoring-api`) | 127.0.0.1:18090 | 조회·결정 중계만. 정책 편집은 하지 않는다 (R14) |
 | 정책 편집 | git + CLI `policy validate` / `policy activate` | 런타임과 다른 프로세스·권한 (R14, 계획 D) |
 
+**구현(B3b).** 등록은 `:episode-runtime` 의 `EpisodeWorkers.register(factory, config, store)` 한 함수가 한다. `:app` 의 `Worker.kt` 는
+`EpisodeRuntimeConfig.fromEnv` 로 환경변수를 시작 때 한 번 읽어 그 함수를 부를 뿐이다(워크플로는 여전히 아무것도 읽지 않는다, §7.5).
+워커 옵션은 사가 워커와 같다(교착 감지 10초).
+- `KOSHEI_PICASSO`: 기본은 `off` 다. 에피소드 워커를 띄우지 않고 표도 만들지 않으므로 기존 사가 워커와 관문 스크립트는 그대로다.
+  `mock` 은 이름으로 골라야 하고, 시작 때 경고 한 줄을 남긴다(§8.3 · §11 의 Mock 은 시험의 것이다). 그 밖의 값은 시작을 멈춘다 —
+  실물 승인 창구 클라이언트는 §19 C 뒤다.
+- `KOSHEI_NARRATOR`: `mock`(기본)이면 koshei 워커가 `MockNarratorActivities` 를 `narrator-tq` 에 등록한다. `remote` 면 등록하지 않고
+  narrator 의 Python 워커가 그 큐를 맡는다. 둘이 한 큐를 함께 폴링하면 어느 쪽이 답할지 모르므로 하나만 켠다.
+- `KOSHEI_EPISODE_POLICY`: 정책 파일 경로(§8.2).
+- picasso 창구는 `ApprovalWindow`(`revalidate`, `approve`)로 액티비티에 들어간다. 한 인스턴스를 동시에 도는 액티비티들이 함께 쓰므로
+  구현은 스레드 안전해야 하고, `approve` 가 받는 의도 노드는 읽기 전용이다. 지금 구현은 `MockPicasso` 하나다.
+
 ---
 
 ## 5. 에피소드 상태기계
@@ -329,6 +341,15 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 - DETECTED 의 발생원은 감시자(picasso 내보내기) 하나다. drift 감지를 발생원으로 붙이는 것은 계획 C 에서 감시자의 두 번째 입력
   (drift 감사 테이블 읽기)으로 한다.
 
+**구현(B3b).**
+- `SymptomSignal.manifestJson`(널 가능): 감시자는 signalWithStart 마다 그 줄이 나온 내보내기의 manifest 를 함께 싣는다(계획 C).
+  에피소드를 여는 증상은 자기 manifest 를 쓰고, 없거나 비었을 때만 시작 인자의 것을 쓴다.
+- 끝난 에피소드에 늦게 온 증상으로 이어 시작(continue-as-new)한 run 은 첫 새 증상의 manifest 를 쓴다. 그 줄에 없으면 앞 run 이
+  **실제로 열 때 쓴** manifest 를 쓴다 — 시작 인자의 것이 아니다(앞 run 도 자기 첫 줄의 것으로 열었을 수 있다).
+- 알려진 한계: 열린 에피소드에 합류하는 증상의 manifest 는 읽지 않는다.
+- **B3c 메모:** 이전 run 의 결과를 `getResult` 로 기다리면 continue-as-new 사슬을 따라가 다음 에피소드의 결과를 받는다. runId 를
+  고정해 기다리거나 `CONTINUED_AS_NEW` 를 끝으로 본다.
+
 ### 7.2 사람과 감시자의 입력
 
 | 입력 | 형태 | 보내는 쪽 |
@@ -366,6 +387,18 @@ Temporal execution timeout 으로 두면 강제 종료라 ESCALATED 가 **상태
   신규 에피소드는 시작 때 정책을 읽으므로 놓치지 않는다.
 - 자식 사가의 판 고정은 §8.4.
 
+**구현(B3b).** 재생 시험(`EpisodeReplayTest`)은 시나리오 넷의 이력을 오늘 코드에 재생한다: 자동 승인에서 사람의 DONE 까지,
+사람 승인 뒤 인수와 종료, continue-as-new 한 첫 run, 끝내 실패한 기록과 `RECORD_LAG`. 재생 워커는 운영과 같은 koshei 변환기
+(`DataConverterSupport.clientOptions()`)를 단다. 기본 변환기로는 narrator 의 `RawJson` 답을 읽지 못해 진단이 실패로 바뀌고 명령이
+갈린다(대조군). 변환기도 결정성의 일부다.
+- 인스턴스 id 가 runId 를 담고(§7.1) 코어가 narrator 답의 `episodeId` 를 그것과 견준다. 그래서 재생은 그 run 의 실제 runId 로
+  돌려야 한다. SDK 1.25.1 의 재생기는 모든 이력을 `run_id_in_replay` 로 돌리므로, 시험이 시작 사건의 runId 를 넣어 준다. 워커는
+  늘 run 자신의 id 로 재생하므로 운영에서는 생기지 않는다.
+- 같은 까닭으로 Temporal **reset** 은 쓰지 않는다. reset 한 run 은 새 runId 로 앞 이력을 재생하므로, 진단 답이 있는 이력이면 그
+  자리에서 갈릴 것이다(시험으로 밟지는 않음). 운영자는 `takeover` → `close` 를 쓴다.
+- R3 의 재생 시험(상태별로 멈춘 이력을 커밋해 두고 판마다 재생)은 계획 D 다. 첫 배포부터는 명령 순서를 바꿀 때마다
+  `Workflow.getVersion` 을 건다.
+
 ---
 
 ## 8. 액티비티
@@ -402,6 +435,24 @@ false` 가 글자 그대로 있으면 마지막 유효 판으로 돌아가지 �
 유효한 판을 한 번도 읽지 못한 채 ESCALATED 로 가면 보존 기한은 고정 24시간이다(§5.1 의 "기한 없는 대기는 없다"). 모든 기한 칸은
 365일 이하.
 거절되거나 읽을 수 없는 판은 제한 쪽으로 푼다: 그 트리에 `agentLayerEnabled` 가 `true` 가 아닌 값으로 있으면 끄고, 지난 `expiresAt` 이 있으면 만료로 보고, 그 밖에는 마지막 유효 판으로 돌되 자동 승인을 멈춘다(사람이 승인한다). 활성 판이 없다고 읽혀도 ESCALATED 보존 기한은 마지막 유효 판의 것을 쓴다. B3 의 YAML 읽개는 중복 키를 거부해야 한다(끄기 스위치가 뒤의 키로 덮이지 않게).
+
+**구현(B3b).**
+- 경로는 `KOSHEI_EPISODE_POLICY`, 없으면 작업 디렉터리 기준 `model/episode-policy/active.yaml` 이다. `:app:run` 은 저장소 뿌리의
+  절대경로를 넣어 준다. `readPolicy` 는 로컬 액티비티이고 결정 때마다 파일을 새로 읽는다(`PolicyFileReader`).
+- 파일이 없으면 `MISSING` 이다. 1 MiB 를 넘거나, 읽을 수 없거나, 엄격한 YAML 이 아니면 `UNREADABLE` 이다. 그 밖에는 JSON 글자로
+  `FOUND` 를 돌려주고, 유효한 판인지는 코어의 `parsePolicy` 가 본다.
+- 엄격한 YAML(`StrictYaml`)은 두 번 걷는다. Jackson 의 트리 읽기에 기대지 않는다.
+  - 먼저 SnakeYAML 의 이벤트에서 앵커와 별칭(별칭은 다른 값을 몰래 끌어오는 길이다), 태그(`!!str`, `!foo`, 비특정 `!` 포함),
+    `%YAML` · `%TAG` 지시문을 거부한다. 깊이도 여기서 세어 64 단에서 멈춘다 — 로컬 액티비티의 기한은 스레드를 멈추지 않기 때문이다.
+  - 다음 Jackson 토큰으로 트리를 직접 만들며 중복 키, 정규 JSON 꼴이 아닌 스칼라, 둘째 문서(`---`), 빈 파일, 64 단을 넘는 중첩을
+    거부한다. 정규 꼴이 아닌 스칼라는 `010` · `0x10` · `0b1` · `1_000` · `+1` · `1000.` · `.5`, `yes` · `on` · `off` · `True` 같은
+    것이다 — YAML 1.1 은 이들을 다른 값으로 읽는다. 문자열이면 따옴표로 적는다.
+  - 빈 값(`key:`)은 YAML 대로 null 이다.
+- 커밋한 `active.yaml` 은 v1 이다(`autoApprove.APPROVE_REMEDY.allowed: false`, 값은 `:episode` 시험 표와 같다). 시험이 이 파일을 직접
+  읽어 유효한지와 자동 승인이 꺼졌는지를 지킨다.
+- 끝에서 끝까지 시험(`EpisodeEndToEndTest`, 실제 액티비티 · Postgres · 이 파일)이 보이는 것: v1 에서 사람이 승인하는 길, 파일에서
+  `agentLayerEnabled` 를 끄면 새 에피소드와 열린 에피소드의 다음 결정이 모두 `AGENT_LAYER_OFF` 로 가는 것, 끄기 스위치를 두 번
+  적은 파일은 `UNREADABLE` 이라 유효한 판이 아직 없으면 `POLICY_MISSING` 인 것(첫 값을 쓰는 읽개였다면 `AGENT_LAYER_OFF` 였다).
 
 ### 8.3 `revalidate` — 원천 재조회 (R7, R15)
 
@@ -467,6 +518,18 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
   기록으로 받는다. 보상 도중에 끊기는 일이 없다.
 - 자식 사가가 확인 불가를 보고하는 경로(보상하지 않고 UNKNOWN)는 §14 의 현재 블록 동작을 바꾸는 일이라 계획 D 에서 한다.
 
+**구현(B3b).**
+- 서명은 `dispatch(instanceId, intentJson, approverKind)` 다. 사람 과업과 그 알림이 어느 에피소드의 것인지 적으려고 인스턴스 id 가
+  들어간다.
+- 멱등은 koshei 쪽 표 `episode_dispatch(idempotency_key)` 가 지킨다. picasso 의 답은 글자 그대로(`text`) 저장하고 먼저 쓴 쪽이
+  이긴다. 저장된 결과가 있으면 picasso 를 부르지 않고 그것을 돌려준다.
+- `CHOOSE_SOURCE` · `OPERATOR_DECISION` 은 `episode_dispatch` 행(`PERSON_TASK`)과 `episode_notice` 행을 한 트랜잭션으로 쓴다.
+  이미 행이 있으면 아무것도 쓰지 않는다. 과업은 정확히 한 번 발행된다.
+- 답을 받고 저장하기 전에 잃으면(워커가 죽거나 저장이 실패) 재시도가 창구를 다시 부른다. 제안은 이미 소모됐으므로
+  `REMEDY_NOT_APPLIED`(다른 탐색 줄이면 `NO_PROPOSAL`)가 오고, 코어는 이것을 UNKNOWN(OUTCOME)으로 받는다. 이 틈은 막을 수 없고
+  picasso 와 코어가 막는다(§11). 끝에서 끝까지 시험이 실제 표와 Mock 으로 이 R2 를 보인다.
+- 의도가 JSON 이 아니거나 열쇠가 없으면 재시도하지 않는 실패(`BadIntent`), 대상이 없는 종류도 마찬가지(`NoDispatchTarget`)다.
+
 ### 8.5 `notify`, `record`
 
 - `notify`: 운영자 채널. 에피소드 단위, 상태가 바뀔 때만(R10). 실패해도 전이를 막지 않는다.
@@ -476,6 +539,21 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
   - 그 밖의 기록: 결과를 기다리지 않는다. 재시도 예산 안에서 끝내 실패하면 `Notify(RECORD_LAG)`. Temporal 이력에는 남아 있으므로
     보존 기간 안에 이력에서 메울 수 있다(메우는 작업은 계획 D).
 - 계획 B(P0)부터 `episode_event` 테이블(§13)에 쓴다. 필수 항목 전체와 품질 이력 연결은 계획 D.
+
+**구현(B3b).**
+- `record`: 같은 seq 에 같은 기록(같은 종류, jsonb `=` 로 같은 값)이 있으면 조용히 넘긴다(재시도). 다른 기록이 있으면
+  `RecordConflict` 다. jsonb 가 담지 못하는 값(SQLState 22 계열 — NUL, 짝 없는 서로게이트 등)이면 `RecordUnstorable` 이다. 둘 다
+  재시도해도 같으므로 재시도하지 않는 실패로 낸다. `RecordUnstorable` 의 메시지는 SQLState 와 서버의 첫 메시지만 담고 값(운영자
+  메모, 승인자 id)을 옮기지 않는다 — 그 메시지가 `RECORD_LAG` 알림과 로그로 가기 때문이다. 실행 의도는 같은 seq 공간에
+  `kind = DISPATCH_INTENT` 로 쓴다.
+- `record` 액티비티가 끝내 실패하면 워크플로가 run 마다 한 번 `RECORD_LAG` 알림을 낸다. `detail` 은 `record <seq> <kind> failed:
+  <원인>` 이고, 원인은 액티비티 실패의 겉껍질이 아니라 애플리케이션 실패의 메시지 그대로다(겉껍질은 워커 호스트 이름을 담는다).
+  알림이 실패한 것에는 다시 알리지 않는다 — 알림이 채널이다. 코어 열거형에 `NoticeKind.RECORD_LAG` 가 있지만 코어는 내지 않는다.
+- `notify` 의 채널은 P0 동안 `episode_notice` 표(추가 전용) + 로그 한 줄이다. 로그를 먼저 남기므로 DB 가 죽어도 로그에는 닿는다.
+  최소 한 번이다: 커밋 뒤 응답 전에 죽으면 같은 알림이 두 줄 될 수 있다.
+- **B3c 메모:** `episode_notice` 의 알림 모양은 둘이다. 화면은 `kind` 로 가른다.
+  - `noticeJson` 이 만든 것: `kind` · `phase` · `reason` · `detail`
+  - 사람 과업: `kind: PERSON_TASK` · `idempotencyKey` · `intent`
 
 ---
 
@@ -714,6 +792,17 @@ R6 검증("끈 유형은 자동 실행 없이 사람 승인으로")과 맞춘 �
 - 시험의 Mock picasso 는 실물과 같게 소모를 흉내 낸다: 열쇠를 버리고 결과 조회를 내지 않으며, 소모된 제안의 둘째 시도에는
   `NO_PROPOSAL`(같은 판이면 `REMEDY_NOT_APPLIED`)을 돌려준다. R2 시험은 그때 UNKNOWN(OUTCOME)을 기대한다.
 
+**구현(B3b).** `MockPicasso`(main 코드, 프로세스 메모리, `ApprovalWindow` 의 구현).
+- (기체, 주문) 제안은 첫 승인에 소모된다. 같은 `searchId` 의 둘째 승인은 `REMEDY_NOT_APPLIED`, 다른 `searchId` 는 `NO_PROPOSAL` 이다.
+- `revalidate` 는 사람 과업 종류면 `TRUE`, 소모된 제안이면 `FALSE`, 아니면 `TRUE` 다(§8.3: 재조회만으로 TRUE 까지 가는 길은 Mock
+  뿐이다).
+- 읽을 수 없는 후보 — 객체가 아니거나, 모르는 종류이거나, 기체나 주문이 없는 조치 — 는 `UNKNOWN` 으로 재조회된다. 그런 조치의
+  승인은 아무것도 소모하지 않고 `NO_PROPOSAL` 이다.
+- 한번 소모된 (기체, 주문)은 프로세스가 사는 동안 어느 탐색 줄로도 다시 서지 않는다. 실물은 더 새 FOUND 줄로 새 제안을 세운다.
+- `KOSHEI_PICASSO` 의 기본값은 `off` 다(에피소드 워커 없음, §4.2). `mock` 은 이름으로 골라야 하고, 시작 때 경고를 남긴다. Mock 은
+  프로세스 메모리라서 워커가 죽으면 소모 기록을 잊고, 그 뒤 재시도는 다시 승인된다. 그래서 끝에서 끝까지 시험의 R2 는 같은 프로세스
+  안의 실패만 보인다.
+
 ---
 
 ## 12. 감시자 (`EpisodeWatcherMain`, 별도 프로세스, 계획 C)
@@ -765,6 +854,18 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - 영향받은 작업 id · 차대번호 칸을 두어 품질 이력과 잇는다(계획 D).
 - Temporal 이력은 보존 기간이 지나면 지워진다. **감사 정본은 이 테이블**이고, Temporal 이력은 재생·디버깅용이다.
 - 알려진 한계: `jsonb` 가 담지 못하는 payload(NUL 문자, 짝 없는 서로게이트)는 저장되지 않는다. 재시도해도 같으므로 재시도하지 않는 실패(`RecordUnstorable`)로 내고 `RECORD_LAG` 를 알린다. 그 기록은 보존 기간이 끝날 때까지 Temporal 이력에만 남는다.
+
+**구현(B3b).**
+- 스키마 파일은 `episode-runtime/src/main/resources/episode-schema.sql` 이다. 표 셋(`episode_event`, `episode_notice`,
+  `episode_dispatch`)을 `CREATE … IF NOT EXISTS` 로 만들고, 몇 번이든 돌려도 같다. `EpisodeStore.ensureSchema()` 가 에피소드 워커
+  시작 때 돌린다.
+- `IF NOT EXISTS` 는 동시에 돌면 안전하지 않다. 빈 DB 에 두 워커가 함께 뜨면 하나가 `pg_type` 의 유일 색인에서 실패한다. 그래서
+  스크립트는 먼저 트랜잭션 범위의 advisory lock(`pg_advisory_xact_lock`)을 잡는다. 스크립트 전체가 한 암묵 트랜잭션으로 가므로
+  워커들 사이에서 차례로 돈다.
+- `IF NOT EXISTS` 는 이미 있는 표를 고치지 않는다. 뒤의 열 · 제약 변경은 따로 `ALTER … IF NOT EXISTS` 로 적어야 한다.
+- `at` 은 쓴 시각(DB `now()`)이다.
+- 런타임 계정의 `UPDATE`/`DELETE` 권한 회수는 스크립트 주석으로 적어 두고 계획 D 에서 한다. koshei 는 이 표들의 행을 고치거나
+  지우지 않는다.
 
 ---
 
@@ -827,6 +928,11 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | **B. 에피소드 코어** | `:episode`(전이·투영·식별자·판·정책 검증·판정 함수), `:episode-runtime` 구동부·타이머·Update·쿼리, Mock `diagnose`·Mock picasso(`revalidate`/`dispatch`), 파일 정책, `episode_event` 테이블, 제어면 경로, 고정 예제 요청 넷 | — (A 뒤에 하는 것은 순서 선호) | — (Mock 으로 진행) |
 | **C. 현장 연결** | 감시자(접수·근거·병합, drift 입력), 에피소드 모드에서 drift 자동 디스패치 끄기, 실제 picasso 승인 창구 클라이언트, 결과 통보 수신, Mock 담는 쪽(먼저 온 · 관계없는 · `jobResponseId` 가 겹치는 결과 통보를 냄, §12) | B | picasso · 담는 쪽 (§19) |
 | **D. 운영 관리 (P1)** | 정책 git+DB 포인터·CLI·`agentOff` 방송, `SAGA_ACTION`·조치 목록·자식 사가, 블록의 "모름" 보고, 기록 항목 전체·품질 연결, R3 재생 시험, D5 결함 | B | khala·narrator(판 칸) |
+
+**B3b 끝(2026-10-01).** 계획 B 의 실제 액티비티와 배선이 섰다: 파일 정책(§8.2), 기록 표 셋(§13), 멱등 `dispatch`(§8.4),
+Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 끝까지 시험과 재생 시험(§7.5). 계획 B 에 남은 것:
+- 실물 picasso 승인 창구 클라이언트 — §19 C 뒤. 그때까지 `KOSHEI_PICASSO` 는 `off` 아니면 `mock` 이다.
+- B3c 제어면 — `/api/episodes…` 와 알림 표를 읽는 화면.
 
 ---
 
