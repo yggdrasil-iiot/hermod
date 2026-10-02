@@ -241,8 +241,10 @@ class EpisodeWorkflowTest {
         acts.revalidation = "UNKNOWN"
         val ep = open()
         val unknown = ep.until { it.phase == "UNKNOWN_PRECONDITION" }
-        val confirm = ConfirmRequest("PRECONDITION", unknown.candidateId!!, unknown.proposalId!!, true, operatorId = "op-1")
-        assertEquals("ACCEPTED", ep.confirm(confirm))
+        val bare = ConfirmRequest("PRECONDITION", unknown.candidateId!!, unknown.proposalId!!, true, operatorId = "op-1")
+        assertEquals("REFUSED_NO_PROPOSITION", ep.confirm(bare))   // §8.3: the core refuses "it holds" with nothing to hold
+        assertEquals("UNKNOWN_PRECONDITION", ep.view().phase)
+        assertEquals("ACCEPTED", ep.confirm(bare.copy(proposition = "the proposition the card showed")))
         ep.until { it.phase == "AWAITING_EVIDENCE" }
         val intent = acts.calls.indexOfFirst { it.startsWith("intent:") }
         assertTrue(intent in 0 until acts.calls.indexOf("dispatch:AGENT"), "${acts.calls}")

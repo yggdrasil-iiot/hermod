@@ -40,6 +40,9 @@ class ConversionsTest {
         assertFailsWith<IllegalArgumentException> { DecideRequest(proposalId = "p", sawCandidatesVersion = "v", operatorId = "op", reason = "NOPE").validate() }
 
         assertIs<EpisodeEvent.ConfirmedPrecondition>(ConfirmRequest("PRECONDITION", "c", "ep#1", true, operatorId = "op").toEvent())
+        // "It holds" with no proposition is well-formed: the core refuses it as a value in UNKNOWN(PRECONDITION) only, and in
+        // any other phase the control plane's relay must still get the core's own refusal, not a validator's 400 (§7.2, §8.3).
+        ConfirmRequest("PRECONDITION", "c", "ep#1", true, operatorId = "op").validate()
         assertIs<EpisodeEvent.ConfirmedOutcome>(ConfirmRequest("OUTCOME", "c", "ep#1", true, operatorId = "op").toEvent())
         val unknown = ConfirmRequest("UNKNOWN", subject = mapOf("unitId" to "u-1"), what = "LINK_BROKEN", operatorId = "op").toEvent()
         assertIs<EpisodeEvent.ConfirmedUnknown>(unknown)

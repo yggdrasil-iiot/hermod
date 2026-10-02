@@ -26,6 +26,12 @@ internal fun Out.onUnknownPrecondition(event: EpisodeEvent, policy: PolicyTable,
             reply = Reply.REFUSED_STALE
             ignore(event, "stale confirmation: ${event.proposalId}")
         }
+        // §8.3: nobody confirms a proposition nobody wrote. The control plane refuses this before it is sent, but from a view
+        // that can be a step behind; here the check and the transition are one step. "It does not hold" needs none.
+        event is EpisodeEvent.ConfirmedPrecondition && event.candidateId == candidate.candidateId && event.holds && event.proposition.isNullOrBlank() -> {
+            reply = Reply.REFUSED_NO_PROPOSITION
+            ignore(event, "no proposition (design §8.3)")
+        }
         event is EpisodeEvent.ConfirmedPrecondition && event.candidateId == candidate.candidateId -> {
             reply = Reply.ACCEPTED
             record(RecordKind.CONFIRMATION) {

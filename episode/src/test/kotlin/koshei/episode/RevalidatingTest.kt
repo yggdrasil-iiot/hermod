@@ -24,6 +24,9 @@ class RevalidatingTest {
 
     private fun unknown(): Step = revalidating().let { it.revalidated(TriState.UNKNOWN, it.at.plusSeconds(1)) }
 
+    /** The proposition a card shows for the remedy (§8.3): a confirmation that it holds must carry one. */
+    private val SHOWN = "the proposition the card showed"
+
     @Test fun `a precondition that holds records the dispatch intent and nothing else`() {
         val r = revalidating()
         val s = r.revalidated(TriState.TRUE, r.at.plusSeconds(1))
@@ -91,10 +94,10 @@ class RevalidatingTest {
     @Test fun `a person's confirmation decides the precondition - another subject is refused`() {
         val u = unknown()
         val t = u.state.enteredAt.plusSeconds(10)
-        val other = u.on(EpisodeEvent.ConfirmedPrecondition(CONFIRM_DONE, "$INSTANCE#1", true, OPERATOR), t)
+        val other = u.on(EpisodeEvent.ConfirmedPrecondition(CONFIRM_DONE, "$INSTANCE#1", true, OPERATOR, SHOWN), t)
         assertEquals(Reply.REFUSED_SUBJECT_NOT_UNKNOWN, other.reply)
         assertEquals(Phase.UNKNOWN_PRECONDITION, other.state.phase)
-        val holds = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), t)
+        val holds = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR, SHOWN), t)
         assertEquals(Reply.ACCEPTED, holds.reply)
         assertEquals(Phase.DISPATCH_PENDING, holds.state.phase)
         assertEquals("op-1", holds.records(RecordKind.CONFIRMATION).single().entry.payload.get("by").textValue())
@@ -110,9 +113,35 @@ class RevalidatingTest {
         val shown = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", holds = true, by = OPERATOR, proposition = proposition), t)
         assertEquals(Reply.ACCEPTED, shown.reply)
         assertEquals(proposition, shown.records(RecordKind.CONFIRMATION).single().entry.payload.get("proposition").textValue())
-        val bare = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), t)
+        // "It does not hold" needs no proposition (§8.3 guards only the confirmation that lets a dispatch go).
+        val bare = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", false, OPERATOR), t)
+        assertEquals(Reply.ACCEPTED, bare.reply)
         val payload = bare.records(RecordKind.CONFIRMATION).single().entry.payload
         assertTrue(payload.has("proposition") && payload.get("proposition").isNull, "a confirmation without a proposition says so: $payload")
+    }
+
+    @Test fun `a precondition confirmed to hold without the proposition it confirms is refused as a value, and nothing moves`() {
+        // §8.3: nobody confirms a proposition nobody wrote. The control plane refuses this fast (400), but its own view can be
+        // a step behind (a confirm sent while it still saw REVALIDATING lands here): the core holds the line, atomically.
+        val u = unknown()
+        val t = u.state.enteredAt.plusSeconds(10)
+        for (proposition in listOf(null, "", "   ")) {
+            val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", holds = true, by = OPERATOR, proposition = proposition), t)
+            assertEquals(Reply.REFUSED_NO_PROPOSITION, s.reply, "proposition=$proposition")
+            assertEquals(Phase.UNKNOWN_PRECONDITION, s.state.phase)
+            assertEquals(u.state.token, s.state.token)
+            assertEquals("no proposition (design §8.3)", s.records(RecordKind.IGNORED).single().entry.payload.get("why").textValue())
+            assertTrue(s.records(RecordKind.CONFIRMATION).isEmpty() && s.records(RecordKind.REVALIDATION).isEmpty())
+            assertTrue(s.commands.none { it is Command.RecordIntent || it is Command.Revalidate || it is Command.SetTimer })
+        }
+    }
+
+    @Test fun `a precondition confirmed not to hold needs no proposition`() {
+        val u = unknown()
+        val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", holds = false, by = OPERATOR, proposition = null), u.state.enteredAt.plusSeconds(10))
+        assertEquals(Reply.ACCEPTED, s.reply)
+        assertEquals(Phase.SUPERSEDED, s.state.phase)
+        assertEquals(false, s.records(RecordKind.CONFIRMATION).single().entry.payload.get("holds").booleanValue())
     }
 
     @Test fun `an unresolved precondition escalates at its deadline`() {
@@ -147,7 +176,7 @@ class RevalidatingTest {
     @Test fun `a policy approval the table no longer allows goes to a person before any intent`() {
         for (read in listOf(Episodes.policyV1(), Episodes.policy { put("bogus", 1) })) {
             val u = unknown()
-            val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), u.state.enteredAt.plusSeconds(10), read)
+            val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR, SHOWN), u.state.enteredAt.plusSeconds(10), read)
             assertEquals(Phase.AWAITING_APPROVAL, s.state.phase)
             assertNull(s.state.attempt!!.approval)
             assertTrue(s.commands.none { it is Command.RecordIntent })
@@ -173,11 +202,11 @@ class RevalidatingTest {
         val u2 = r2.revalidated(TriState.UNKNOWN, r2.at.plusSeconds(1))
         assertEquals(Phase.UNKNOWN_PRECONDITION, u2.state.phase)
 
-        val stale = u2.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR), u2.state.enteredAt.plusSeconds(5))
+        val stale = u2.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", true, OPERATOR, SHOWN), u2.state.enteredAt.plusSeconds(5))
         assertEquals(Reply.REFUSED_STALE, stale.reply)
         assertEquals(Phase.UNKNOWN_PRECONDITION, stale.state.phase)
         assertTrue(stale.commands.none { it is Command.RecordIntent })
-        val current = u2.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#2", true, OPERATOR), u2.state.enteredAt.plusSeconds(5))
+        val current = u2.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#2", true, OPERATOR, SHOWN), u2.state.enteredAt.plusSeconds(5))
         assertEquals(Reply.ACCEPTED, current.reply)
         assertEquals(Phase.DISPATCH_PENDING, current.state.phase)
     }

@@ -84,7 +84,11 @@ enum class TriState { TRUE, FALSE, UNKNOWN }
 enum class Timer { STATE, RECHECK, EPISODE, RETENTION }
 
 /** What an Update handler returns (design §7.2): refusals are values, recorded, never exceptions. */
-enum class Reply { ACCEPTED, REFUSED_NOT_AWAITING, REFUSED_STALE, REFUSED_SUBJECT_NOT_UNKNOWN, REFUSED_NOT_ESCALATED, REFUSED_CLOSED }
+enum class Reply {
+    ACCEPTED, REFUSED_NOT_AWAITING, REFUSED_STALE, REFUSED_SUBJECT_NOT_UNKNOWN, REFUSED_NOT_ESCALATED, REFUSED_CLOSED,
+    /** "The precondition holds" came without the proposition it confirms (§8.3): nobody confirms a proposition nobody wrote. */
+    REFUSED_NO_PROPOSITION,
+}
 
 /** RECORD_LAG is raised by the runtime when a record keeps failing (design §8.5); the core never emits it. */
 enum class NoticeKind { APPROVAL_NEEDED, CONFIRM_PRECONDITION, ESCALATED, POLICY_REJECTED, CONFIRM_OUTCOME, RECORD_LAG }

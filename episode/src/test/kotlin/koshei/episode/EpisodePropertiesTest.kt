@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -24,6 +25,8 @@ class EpisodePropertiesTest {
         var unblocked = 0
         /** Accepted confirmations of one episode-level item while the episode held another one besides. */
         var crowded = 0
+        /** "It holds" confirmations of the waiting proposal that came without a proposition and were refused for it (§8.3). */
+        var bareRefused = 0
     }
 
     /** Runs that start from UNKNOWN(OUTCOME) with two units in doubt, so the episode-level items are crowded from the first event. */
@@ -50,11 +53,12 @@ class EpisodePropertiesTest {
         val stats = Stats()
         for (seed in seeds) run(seed, stats, directed = false)
         assertEquals(Phase.entries.toSet(), stats.phases)
-        val seen = "dispatches=${stats.dispatches}, accepted=${stats.accepted}, unblocked=${stats.unblocked}, crowded=${stats.crowded}"
+        val seen = "dispatches=${stats.dispatches}, accepted=${stats.accepted}, unblocked=${stats.unblocked}, crowded=${stats.crowded}, bareRefused=${stats.bareRefused}"
         assertTrue(stats.dispatches > 100, "too few dispatches: $seen")
         assertTrue(stats.accepted >= 100, "too few accepted ConfirmedUnknown: $seen")
         assertTrue(stats.unblocked >= 10, "too few execution Dispatches that a confirmation unblocked: $seen")
         assertTrue(stats.crowded >= 2, "too few confirmations of one episode item among several: $seen")
+        assertTrue(stats.bareRefused >= 3, "too few precondition confirmations refused for want of a proposition: $seen")
         val directed = Stats()
         for (seed in directedSeeds) run(seed, directed, directed = true)
         assertTrue(directed.crowded >= 20, "too few confirmations of one episode item among several in the directed runs: crowded=${directed.crowded}")
@@ -185,6 +189,20 @@ class EpisodePropertiesTest {
                     "episodeUnknowns after $event",
                 )
             } else if (open) assertFalse(want, "refused a confirmation of something unknown: $event in ${s.phase}")
+        }
+        // §8.3: "the precondition holds" without the proposition it confirms is never accepted and never lets an intent be
+        // recorded. Naming the proposal that waits in UNKNOWN(PRECONDITION), it is refused for exactly that, and nothing moves.
+        if (event is EpisodeEvent.ConfirmedPrecondition && event.holds && event.proposition.isNullOrBlank() && before != null) {
+            assertNotEquals(Reply.ACCEPTED, step.reply, "accepted a precondition confirmed to hold without a proposition: $event in ${before.phase}")
+            assertTrue(step.commands.none { it is Command.RecordIntent }, "intent on a confirmation without a proposition: $event")
+            val a = before.attempt
+            if (before.phase == Phase.UNKNOWN_PRECONDITION && !escalatedByGlobalRow(before, s) && a != null &&
+                event.candidateId == a.candidate?.candidateId && event.proposalId == a.proposalId
+            ) {
+                assertEquals(Reply.REFUSED_NO_PROPOSITION, step.reply, "reply to $event")
+                assertEquals(Phase.UNKNOWN_PRECONDITION, s.phase, "a confirmation without a proposition moved the phase: $event")
+                stats.bareRefused++
+            }
         }
         // Without a person's confirmation the episode's items only grow, except where an outcome check ends the attempt
         // (design §9.4): that clears the candidate's own OUTCOME item and nothing else.

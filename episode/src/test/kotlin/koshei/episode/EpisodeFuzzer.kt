@@ -10,6 +10,8 @@ import kotlin.random.Random
  */
 internal class EpisodeFuzzer(seed: Long) {
     private val r = Random(seed)
+    /** Whether a precondition confirmation comes without its proposition: drawn apart from [r], whose draws stay as they were. */
+    private val bare = Random(seed xor 0x5EED_B3C2L)
 
     fun first(): Symptom = when (r.nextInt(12)) {
         0, 1, 2 -> Episodes.incident("incident-6")
@@ -153,9 +155,15 @@ internal class EpisodeFuzzer(seed: Long) {
         r.nextInt(3) != 0, Episodes.OPERATOR, RejectReason.entries.random(r), null,
     )
 
-    private fun confirmPrecondition(a: Attempt, stale: Boolean): EpisodeEvent = EpisodeEvent.ConfirmedPrecondition(
-        a.candidate?.candidateId ?: "ESCALATE", if (stale) "${a.request.episodeId}#0" else a.proposalId, r.nextBoolean(), Episodes.OPERATOR,
-    )
+    private fun confirmPrecondition(a: Attempt, stale: Boolean): EpisodeEvent {
+        val holds = r.nextBoolean()
+        // A confirmation that the precondition holds carries the card's proposition (§8.3) — except now and then, when the
+        // core must refuse it.
+        val proposition = if (holds && bare.nextInt(4) == 0) null else "fuzz proposition"
+        return EpisodeEvent.ConfirmedPrecondition(
+            a.candidate?.candidateId ?: "ESCALATE", if (stale) "${a.request.episodeId}#0" else a.proposalId, holds, Episodes.OPERATOR, proposition,
+        )
+    }
 
     private fun confirmOutcome(a: Attempt, stale: Boolean): EpisodeEvent = EpisodeEvent.ConfirmedOutcome(
         a.candidate?.candidateId ?: "ESCALATE", if (stale) "${a.request.episodeId}#0" else a.proposalId, r.nextBoolean(), Episodes.OPERATOR,
