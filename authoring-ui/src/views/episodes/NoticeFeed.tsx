@@ -8,16 +8,17 @@ import { mergeNotices, noticeText, overlapAfter } from "./episodes";
 
 export function NoticeFeed({ onSelect }: { onSelect: (instanceId: string) => void }) {
   const seen = useRef<FeedNotice[]>([]);
-  const inFlight = useRef(false);
   const [items, setItems] = useState<FeedNotice[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Both flags belong to this effect run (a ref would outlive StrictMode's re-run and skip its first tick).
     let alive = true;
+    let inFlight = false;
     const tick = async () => {
       // One read (with its paging) at a time: a slow one must not interleave with the next.
-      if (inFlight.current) return;
-      inFlight.current = true;
+      if (inFlight) return;
+      inFlight = true;
       try {
         let after = overlapAfter(seen.current);
         for (let i = 0; i < 10; i++) {
@@ -31,7 +32,7 @@ export function NoticeFeed({ onSelect }: { onSelect: (instanceId: string) => voi
       } catch (e) {
         if (alive) setError(describeFailure(e).text);
       } finally {
-        inFlight.current = false;
+        inFlight = false;
       }
     };
     void tick();

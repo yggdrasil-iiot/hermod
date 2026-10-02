@@ -9,7 +9,7 @@ import type { EpisodeDetailDto, RejectReason, Unknown } from "./episodeTypes";
 import { REJECT_REASONS } from "./episodeTypes";
 import { describeFailure, getEpisode, sendDecision } from "./episodeApi";
 import {
-  availableActions, closeBody, confirmableUnknown, decideBody, noticeText, operatorProblem, outcomeBody, parseCandidates,
+  availableActions, closeBody, confirmableUnknown, decideBody, escalationDetailText, noticeText, operatorProblem, outcomeBody, parseCandidates,
   parseHistory, phaseChip, preconditionBody, recordPayload, remainingText, replyText, unknownBody,
 } from "./episodes";
 import { OperatorCardView } from "./OperatorCardView";
@@ -136,7 +136,7 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
         <div className="banner err">
           <span>
             사람에게 넘어감 · escalated: {view.escalationReason}
-            {view.escalationDetail ? ` — ${view.escalationDetail}` : ""}
+            {view.escalationDetail ? ` — ${escalationDetailText(view.escalationDetail)}` : ""}
           </span>
         </div>
       )}

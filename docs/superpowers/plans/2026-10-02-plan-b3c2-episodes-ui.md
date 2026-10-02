@@ -1040,6 +1040,14 @@ git commit -m "feat(ui): Episodes tab - the list, the notice feed read with an o
 
 ### Task 6: 상세와 결정
 
+> **검토 뒤 바뀐 것(2026-10-02, 구현 기준).**
+> - `send` 는 `finally` 에서 `await refresh()` 한 뒤에 `setBusy(false)` 한다. 다시 읽은 상세가 오기 전에는 결정 버튼이 돌아오지 않는다.
+> - 폴링은 읽기가 진행 중이면 그 tick 을 건너뛴다. 목록 · 알림 흐름은 effect 실행마다 지역 변수(`let inFlight`)로 든다. ref 로 들면 StrictMode 의 재실행 첫 tick 이 빠진다.
+> - 상세는 읽기마다 `++seq` 로 번호를 매기고, 가장 최근 읽기의 답만 반영한다. `refresh()` 도 같은 번호를 쓴다. POST 앞에 나간 폴링이 POST 뒤의 다시 읽기를 덮지 않는다.
+> - `recordPayload` 는 늦게 온 답(`IGNORED` 의 `DiagnosisReturned`)의 `json` 도 뺀다. 제어면도 같은 칸을 가려 보낸다(`redactedPayload`, 설계 §9.5 구현(B3c)).
+> - 승인은 거절 사유 · 메모를 싣지 않는다(`decideBody(d, true)`). 남은 시간은 자기 1초 시계를 가진 `<Deadlines>` 가 그린다.
+> - 올려보낸 사유의 `picked: <값>` 은 「narrator 가 고른 후보 밖 값 · narrator's out-of-list pick」으로 이름 붙이고 200자로 자른다(`escalationDetailText`).
+
 **Files:**
 - Create: `authoring-ui/src/views/episodes/EpisodeDetail.tsx`
 - Modify: `authoring-ui/src/views/episodes/EpisodesView.tsx`(필요하면)
@@ -1134,6 +1142,11 @@ git commit -m "feat(ui): episode detail and decisions - offered from the card, r
 ## Chunk 3: e2e 와 마무리
 
 ### Task 7: 흉내 낸 API 로 화면 전체를 본다
+
+> **검토 뒤 바뀐 것(2026-10-02, 구현 기준).** 아래 13개에 7개를 더해 **20개**다.
+> - 더한 시험: 거절(사유 · 메모), 확인 불가 항목 확인, 취소한 인수, 다시 읽기 실패에도 남는 상세, 늦게 온 narrator 답이 기록에 없음, POST 앞 폴링이 다시 읽기를 덮지 않음, 다시 읽기가 올 때까지 결정 버튼이 막힘.
+> - `onePost` 는 결과가 보인 뒤에도 POST 가 하나뿐인지 다시 본다. `view()` 의 `diagnosisJson` 은 그려지면 안 되는 표지(`DIAG_SENTINEL`)를 싣는다.
+> - `stub` 은 답을 요청이 올 때 정하고, `delay` 로 늦출 수 있다. `failing(status, body)` 는 상세 GET 을 실패로 답한다.
 
 **Files:**
 - Create: `authoring-ui/e2e/episodes.spec.ts`
@@ -1257,7 +1270,7 @@ async function open(page: Page, operator = "op-1") {
 - [ ] **Step 2: 돌린다**
 
 Run: `npx playwright test e2e/episodes.spec.ts --project=chromium --no-deps`
-Expected: 13개 PASS
+Expected: 13개 PASS(검토 뒤 20개)
 
 실패하면 시험이 아니라 화면 쪽을 먼저 의심한다. 시험을 바꾼 경우에는 무엇을 왜 바꿨는지 보고한다.
 

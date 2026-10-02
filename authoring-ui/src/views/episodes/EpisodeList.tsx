@@ -1,7 +1,7 @@
 // EpisodeList = the left pane of the Episodes tab. Polls GET /api/episodes (~2s) so new episodes and phase
 // changes appear; clicking a row selects that episode by its instance id. A tick is skipped while one is in flight,
 // so a slow answer cannot land after a newer one.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { EpisodeSummary } from "./episodeTypes";
 import { describeFailure, listEpisodes } from "./episodeApi";
 import { phaseChip } from "./episodes";
@@ -9,20 +9,21 @@ import { phaseChip } from "./episodes";
 export function EpisodeList({ selectedId, onSelect }: { selectedId: string | null; onSelect: (instanceId: string) => void }) {
   const [rows, setRows] = useState<EpisodeSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const inFlight = useRef(false);
-
   useEffect(() => {
+    // Both flags belong to this effect run: a ref would outlive StrictMode's mount → cleanup → re-run and skip
+    // the re-run's first tick while the discarded run's answer is thrown away.
     let alive = true;
+    let inFlight = false;
     const tick = async () => {
-      if (inFlight.current) return;
-      inFlight.current = true;
+      if (inFlight) return;
+      inFlight = true;
       try {
         const list = await listEpisodes();
         if (alive) { setRows(list); setError(null); }
       } catch (e) {
         if (alive) setError(describeFailure(e).text);
       } finally {
-        inFlight.current = false;
+        inFlight = false;
       }
     };
     void tick();

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   splitInstance, episodePath, phaseChip, isTerminalPhase, replyText, failureText, mergeNotices, overlapAfter,
   noticeText, remainingText, operatorProblem, decideBody, preconditionBody, outcomeBody, unknownBody, closeBody,
-  availableActions, confirmableUnknown, recordPayload, foundInText, parseHistory, parseCandidates,
+  availableActions, confirmableUnknown, recordPayload, foundInText, parseHistory, parseCandidates, escalationDetailText,
 } from "./episodes";
 import type { EpisodeView, OperatorCard, FeedNotice } from "./episodeTypes";
 
@@ -209,6 +209,18 @@ describe("recordPayload", () => {
   it("leaves other records as they are", () => {
     expect(recordPayload("OPENED", { eventId: "e" })).toEqual({ eventId: "e" });
     expect(recordPayload("IGNORED", { event: "DispatchReturned", answer: "{}" })).toEqual({ event: "DispatchReturned", answer: "{}" });
+  });
+});
+
+describe("escalationDetailText", () => {
+  it("names the narrator's out-of-list pick as the narrator's, and keeps it short (R13)", () => {
+    expect(escalationDetailText("picked: robot-9")).toBe("narrator 가 고른 후보 밖 값 · narrator's out-of-list pick: robot-9");
+    const long = escalationDetailText("picked: " + "x".repeat(500));
+    expect(long.endsWith("x".repeat(200) + "…")).toBe(true);
+    expect(long).not.toContain("x".repeat(201));
+  });
+  it("leaves any other detail as it came", () => {
+    expect(escalationDetailText("saw v1, sent v2")).toBe("saw v1, sent v2");
   });
 });
 

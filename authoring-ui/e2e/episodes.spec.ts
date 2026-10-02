@@ -4,7 +4,8 @@ import { test, expect, type Page } from "@playwright/test";
 
 test.use({ channel: "chrome" });
 
-type Call = { method: string; path: string; headers: Record<string, string>; body?: unknown };
+/** One stubbed call. [answered] turns true once its answer has been sent back to the page. */
+type Call = { method: string; path: string; headers: Record<string, string>; body?: unknown; answered: boolean };
 type Answer = { status: number; body: unknown };
 
 const ID = "ep:k-1/r1";
@@ -47,24 +48,33 @@ const FAIL = Symbol("fail");
 /** A detail GET that fails with [status] and [body] (put in `details` in place of a detail). */
 const failing = (status: number, body: unknown) => ({ [FAIL]: true, status, body });
 
-/** Stubs /api/episodes**: GETs from [details], POSTs from [onPost]; every call is remembered in [calls]. */
-async function stub(page: Page, details: Record<string, unknown>, onPost: (path: string) => Answer, notices: unknown[] = []) {
+/**
+ * Stubs /api/episodes**: GETs from [details], POSTs from [onPost]; every call is remembered in [calls]. The answer is
+ * decided when the request arrives; [delay] may then hold it back (ms) before it is sent.
+ */
+async function stub(
+  page: Page, details: Record<string, unknown>, onPost: (path: string) => Answer, notices: unknown[] = [],
+  delay: (call: Call) => number = () => 0,
+) {
   const calls: Call[] = [];
   await page.route("**/api/episodes**", async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;   // keeps %3A
-    calls.push({ method: req.method(), path, headers: req.headers(), body: req.method() === "POST" ? req.postDataJSON() : undefined });
-    const json = (status: number, body: unknown) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-    if (req.method() === "GET" && path === "/api/episodes") return json(200, LIST);
-    if (req.method() === "GET" && path === "/api/episodes/notices") return json(200, notices);
-    const d = details[path];
-    if (req.method() === "GET" && d && typeof d === "object" && FAIL in d) {
-      const f = d as { status: number; body: unknown };
-      return json(f.status, f.body);
-    }
-    if (req.method() === "GET" && d) return json(200, d);
-    if (req.method() === "POST") { const a = onPost(path); return json(a.status, a.body); }
-    return json(404, { error: `no stub ${req.method()} ${path}` });
+    const call: Call = { method: req.method(), path, headers: req.headers(), body: req.method() === "POST" ? req.postDataJSON() : undefined, answered: false };
+    calls.push(call);
+    const answer = ((): Answer => {
+      if (req.method() === "GET" && path === "/api/episodes") return { status: 200, body: LIST };
+      if (req.method() === "GET" && path === "/api/episodes/notices") return { status: 200, body: notices };
+      const d = details[path];
+      if (req.method() === "GET" && d && typeof d === "object" && FAIL in d) return d as Answer;
+      if (req.method() === "GET" && d) return { status: 200, body: d };
+      if (req.method() === "POST") return onPost(path);
+      return { status: 404, body: { error: `no stub ${req.method()} ${path}` } };
+    })();
+    const ms = delay(call);
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+    await route.fulfill({ status: answer.status, contentType: "application/json", body: JSON.stringify(answer.body) });
+    call.answered = true;
   });
   return calls;
 }
@@ -167,6 +177,78 @@ test("Episodes: a failed re-read keeps the last detail and says the failure", as
   await expect(page.locator(".episodes-detail .banner.err")).toContainText("episode tables not found");
   await expect(page.getByTestId("operator-card")).toBeVisible();
   await expect(page.getByTestId("decide-approve")).toBeVisible();
+});
+
+test("Episodes: a poll sent before a decision never overwrites the re-read after it", async ({ page }) => {
+  const details: Record<string, unknown> = { [P]: detail(ID, view(), card()) };
+  let holdNext = false;
+  const calls = await stub(
+    page, details,
+    () => {
+      details[P] = detail(ID, view({ phase: "RESOLVED" }), card({ decision: null, unknowns: [] }));
+      return accepted();
+    },
+    [],
+    // The next detail poll is answered late, with the AWAITING_APPROVAL detail it read when it arrived.
+    (c) => {
+      if (holdNext && c.method === "GET" && c.path === P) { holdNext = false; return 2500; }
+      return 0;
+    },
+  );
+  await open(page);
+
+  holdNext = true;
+  await expect.poll(() => holdNext).toBe(false);
+  const held = gets(calls, P)[gets(calls, P).length - 1];
+
+  await page.evaluate(() => {
+    const w = window as unknown as { phases: string[] };
+    w.phases = [];
+    new MutationObserver(() => {
+      const t = document.querySelector('[data-testid="detail-phase"]')?.textContent;
+      if (t) w.phases.push(t);
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+
+  await page.getByTestId("decide-approve").click();
+  await expect(page.getByTestId("detail-phase")).toHaveText("RESOLVED");
+  expect(held.answered).toBe(false);   // the re-read landed while the older poll was still out
+
+  await expect.poll(() => held.answered).toBe(true);
+  await page.waitForTimeout(500);
+  const phases = await page.evaluate(() => (window as unknown as { phases: string[] }).phases);
+  expect(phases.slice(phases.indexOf("RESOLVED"))).not.toContain("AWAITING_APPROVAL");
+  await expect(page.getByTestId("detail-phase")).toHaveText("RESOLVED");
+});
+
+test("Episodes: the decision buttons come back only after the re-read lands", async ({ page }) => {
+  let posted = false;
+  let held = false;
+  const calls = await stub(
+    page, { [P]: detail(ID, view(), card()) },
+    () => { posted = true; return accepted(); },
+    [],
+    // The first detail read after the POST answers 1.5 s late.
+    (c) => {
+      if (posted && !held && c.method === "GET" && c.path === P) { held = true; return 1500; }
+      return 0;
+    },
+  );
+  await open(page);
+
+  const approve = page.getByTestId("decide-approve");
+  await approve.click();
+  await expect(page.getByTestId("decision-result")).toContainText("받아들여짐");
+  await expect(approve).toBeDisabled();
+
+  const reRead = () => {
+    const i = calls.findIndex((c) => c.method === "POST");
+    return calls.slice(i + 1).find((c) => c.method === "GET" && c.path === P);
+  };
+  await expect.poll(() => reRead() !== undefined).toBe(true);
+  expect(reRead()!.answered).toBe(false);
+  await expect(approve).toBeEnabled();
+  expect(reRead()!.answered).toBe(true);
 });
 
 test("Episodes: a refusal value is said in the operator's words", async ({ page }) => {

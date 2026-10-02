@@ -184,6 +184,18 @@ export function recordPayload(kind: string, payload: unknown): unknown {
   return payload;
 }
 
+const PICK_MAX = 200;
+
+/**
+ * An escalation's detail as the banner says it. "picked: <value>" (an OUT_OF_CANDIDATES escalation, Diagnosing.kt) is the
+ * narrator's own text, not a fact: it is labelled as the narrator's and cut to [PICK_MAX] characters (R13 spirit).
+ */
+export function escalationDetailText(detail: string): string {
+  if (!detail.startsWith("picked: ")) return detail;
+  const v = detail.slice("picked: ".length);
+  return `narrator 가 고른 후보 밖 값 · narrator's out-of-list pick: ${v.length > PICK_MAX ? v.slice(0, PICK_MAX) + "…" : v}`;
+}
+
 /** Where an unchecked number was found (§9.5): null says nothing, [] is "nowhere", ["query"] is "only in the query". */
 export function foundInText(foundIn: string[] | null): string {
   if (foundIn === null) return "";
