@@ -64,7 +64,7 @@ object EpisodeCli {
     fun symptom(open: OpenArgs): OpenSymptom {
         val export = when (val r = ExportSymptoms.read(open.export)) {
             is BundleRead.Ready -> r
-            is BundleRead.NotReady -> throw IllegalArgumentException("${r.why} — an export is read only once its manifest is there and complete")
+            is BundleRead.NotReady -> throw IllegalArgumentException("${r.why} — not ready yet; read again once the export is complete")
             is BundleRead.Broken -> throw IllegalArgumentException(r.why)
         }
         val line = export.lines.getValue(open.kind.file.name).singleOrNull { it.id == open.id }

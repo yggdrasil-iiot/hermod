@@ -38,7 +38,7 @@ class EpisodeCliTest {
         assertFailsWith<IllegalArgumentException> { open("--search", "search-1", "--incident", "incident-1") }
         assertFailsWith<IllegalArgumentException> { open() }
         val noRun = Files.createTempDirectory("norun")
-        Files.writeString(noRun.resolve("manifest.json"), """{"schemaVersion":"5"}""")
+        Files.writeString(noRun.resolve("manifest.json"), """{"schemaVersion":"5","counts":{"incidents":0,"remedySearches":1}}""")
         Files.copy(export.resolve("remedy-searches.jsonl"), noRun.resolve("remedy-searches.jsonl"))
         assertFailsWith<IllegalArgumentException> { EpisodeCli.symptom(EpisodeCli.parseOpen(arrayOf("--export", noRun.toString(), "--search", "search-1"))) }
     }
@@ -103,8 +103,20 @@ class EpisodeCliTest {
         assertFailsWith<IllegalArgumentException> { open("--search", "search-1", "--bogus", "x") }
     }
 
+    @Test fun `the export is read as the watcher reads it`() {
+        val schema = assertFailsWith<IllegalArgumentException> {
+            openIn(exportOf("""{"schemaVersion":"6","runId":"r1","counts":{"incidents":0,"remedySearches":1}}""", searches = listOf(s1)), "--search", "s1")
+        }
+        assertTrue(schema.message!!.contains("schemaVersion 6"), schema.message)
+        val noCounts = assertFailsWith<IllegalArgumentException> { openIn(exportOf("""{"schemaVersion":"5","runId":"r1"}""", searches = listOf(s1)), "--search", "s1") }
+        assertTrue(noCounts.message!!.contains("has no counts"), noCounts.message)
+        val brokenIncident = assertFailsWith<IllegalArgumentException> { openIn(exportOf(searches = listOf(s1), incidents = listOf("{not json")), "--search", "s1") }
+        assertTrue(brokenIncident.message!!.contains("incidents.jsonl") && brokenIncident.message!!.contains("line 1 is not one strict JSON object"), brokenIncident.message)
+    }
+
     @Test fun `duplicate keys are refused as the core refuses them`() {
-        assertFailsWith<IllegalArgumentException> { openIn(exportOf(searches = listOf("""{"searchId":"other","searchId":"s1"}""")), "--search", "s1") }
+        val line = assertFailsWith<IllegalArgumentException> { openIn(exportOf(searches = listOf("""{"searchId":"other","searchId":"s1"}""")), "--search", "s1") }
+        assertTrue(line.message!!.contains("Duplicate field 'searchId'"), line.message)
         assertFailsWith<IllegalArgumentException> { openIn(exportOf("""{"runId":"r0","runId":"r1"}""", searches = listOf(s1)), "--search", "s1") }
     }
 

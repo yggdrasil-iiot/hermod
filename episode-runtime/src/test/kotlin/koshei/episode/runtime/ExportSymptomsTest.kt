@@ -35,5 +35,7 @@ class ExportSymptomsTest {
         val line = BundleLine(1, "incident-x", """{"incidentId":"incident-x"}""", strictJson.readTree("""{"incidentId":"incident-x"}"""))
         val r = BundleRead.Ready("run", "{}", emptyMap())
         assertNull(ExportSymptoms.symptom(ExportKind.INCIDENT, r, line, 0))
+        val numeric = """{"incidentId":"incident-x","digest":5}"""
+        assertNull(ExportSymptoms.symptom(ExportKind.INCIDENT, r, BundleLine(1, "incident-x", numeric, strictJson.readTree(numeric)), 0))
     }
 }

@@ -76,7 +76,8 @@ object Bundles {
         }
 
         if (manifestJson.startsWith(Char(0xFEFF))) return BundleRead.Broken("$MANIFEST in $dir starts with a UTF-8 BOM")
-        val manifest = parse(manifestJson) ?: return BundleRead.Broken("$MANIFEST in $dir is not one strict JSON object")
+        val parsedManifest = parse(manifestJson)
+        val manifest = parsedManifest.node ?: return BundleRead.Broken("$MANIFEST in $dir ${parsedManifest.notObject}")
         val schema = manifest.textOf("schemaVersion")
         if (schema !in schemaVersions) return BundleRead.Broken("$MANIFEST in $dir: schemaVersion $schema, this reader knows $schemaVersions")
         val runId = manifest.textOf(runIdField) ?: return BundleRead.Broken("$MANIFEST in $dir has no $runIdField")
@@ -107,7 +108,8 @@ object Bundles {
             for ((i, line) in raw.take(count).withIndex()) {
                 val where = "${file.name} in $dir line ${i + 1}"
                 if (line.startsWith(Char(0xFEFF))) return broken("$where starts with a UTF-8 BOM")
-                val node = parse(line) ?: return broken("$where is not one strict JSON object")
+                val parsed = parse(line)
+                val node = parsed.node ?: return broken("$where ${parsed.notObject}")
                 val id = node.textOf(file.idField) ?: return broken("$where has no ${file.idField}")
                 if (uniqueIds && !seen.add(id)) return broken("$where repeats ${file.idField} '$id'")
                 read += BundleLine(i + 1, id, line, node)
@@ -131,9 +133,14 @@ object Bundles {
         null
     }
 
-    private fun parse(text: String): JsonNode? {
-        val node = try { reader.readTree(text) } catch (e: JsonProcessingException) { return null }
-        return node?.takeIf { it.isObject }
+    /** [node] is the object read, or null; then [notObject] says why, with Jackson's cause when parsing threw. */
+    private class Parsed(val node: JsonNode?, cause: String?) {
+        val notObject = "is not one strict JSON object" + (cause?.let { ": $it" } ?: "")
+    }
+
+    private fun parse(text: String): Parsed {
+        val node = try { reader.readTree(text) } catch (e: JsonProcessingException) { return Parsed(null, e.originalMessage) }
+        return Parsed(node?.takeIf { it.isObject }, null)
     }
 
     private fun JsonNode.textOf(field: String): String? = get(field)?.takeIf { it.isTextual }?.textValue()?.takeIf { it.isNotBlank() }
