@@ -60,7 +60,7 @@ open class WatchStore(private val connect: () -> Connection) {
      * (a BROKEN detail quotes untrusted line text): when jsonb cannot hold [detailJson] (a NUL, a lone surrogate — SQLState
      * class 22), the row is written with `{"unstorable":true}` as its detail, with the same [source] and [kind].
      */
-    fun log(source: String, kind: String, detailJson: String): Unit = connect().use { c ->
+    open fun log(source: String, kind: String, detailJson: String): Unit = connect().use { c ->
         try {
             insertLog(c, source, kind, detailJson)
         } catch (e: SQLException) {

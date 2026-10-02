@@ -1,12 +1,16 @@
 package koshei.episode.runtime
 
+import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import io.grpc.StatusRuntimeException
 import koshei.episode.Correlation
 import koshei.episode.CorrelationRule
 import koshei.episode.PolicyParse
 import koshei.episode.SymptomKind
 import koshei.episode.correlate
 import koshei.episode.parsePolicy
+import java.io.IOException
 import java.nio.file.Path
 import java.time.Instant
 
@@ -15,6 +19,11 @@ import java.time.Instant
  * `evidence` signals. It carries, it does not judge — the only choices it makes are the merge key ([correlate], pure)
  * and which workflow a JobResponse goes to (the order its dispatch intent named). At least once: the cursor moves only
  * after Temporal took the signal; the core drops repeats by `eventId` / `jobResponseId` (§6).
+ *
+ * A source is named by its directory's real path (resolved at every poll), so [exports] must be stable: another
+ * spelling of the same directory that resolves elsewhere would be a new source and send its lines again.
+ * Known limit: two export directories carrying the same runId collide on episode keys and eventIds (design §7.1 keys
+ * carry no path).
  */
 class EpisodeWatcher(
     private val exports: List<Path>,
@@ -34,19 +43,30 @@ class EpisodeWatcher(
         val rules = rules()
         var opened = 0
         for (dir in exports) {
-            val n = intake(dir.toAbsolutePath().normalize(), rules) ?: return PollReport(opened, 0)
-            opened += n
+            val intake = intake(stable(dir), rules)
+            opened += intake.opened
+            if (intake.stopped) return PollReport(opened, 0)
         }
-        val evidence = carry?.let { carryIn(it.toAbsolutePath().normalize()) ?: return PollReport(opened, 0) } ?: 0
+        val evidence = carry?.let { carryIn(stable(it)) ?: return PollReport(opened, 0) } ?: 0
         return PollReport(opened, evidence)
     }
 
-    /** Lines opened from [dir]; null when a signal failed and the pass must stop. */
-    private fun intake(dir: Path, rules: List<CorrelationRule>): Int? {
+    /** [opened] lines Temporal took from one directory; [stopped] when a signal failed and the pass must stop. */
+    private class Intake(val opened: Int, val stopped: Boolean)
+
+    /** The directory's real path; while it cannot be resolved (not there yet), its absolute normal form. */
+    private fun stable(dir: Path): Path = try {
+        dir.toRealPath()
+    } catch (e: IOException) {
+        dir.toAbsolutePath().normalize()
+    }
+
+    /** Carries [dir]'s new lines in; the lines sent before a failed signal count, and stay carried. */
+    private fun intake(dir: Path, rules: List<CorrelationRule>): Intake {
         val export = when (val r = ExportSymptoms.read(dir)) {
             is BundleRead.Ready -> r
-            is BundleRead.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return 0 }
-            is BundleRead.Broken -> { once("$dir", "BROKEN", "why" to r.why); return 0 }
+            is BundleRead.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return Intake(0, stopped = false) }
+            is BundleRead.Broken -> { once("$dir", "BROKEN", "why" to r.why); return Intake(0, stopped = false) }
         }
         var opened = 0
         for (kind in ExportKind.entries) {
@@ -69,14 +89,14 @@ class EpisodeWatcher(
                 try {
                     signals.open("ep:${correlation.key}", EpisodeStart(export.manifestJson), symptom)
                 } catch (e: RuntimeException) {
-                    once(source, "SIGNAL_FAILED", "why" to (e.message ?: e.javaClass.simpleName))
-                    return null
+                    signalFailed(source, e)
+                    return Intake(opened, stopped = true)
                 }
                 store.advance(source, export.runId, line.position, line.id)
                 opened++
             }
         }
-        return opened
+        return Intake(opened, stopped = false)
     }
 
     /**
@@ -95,7 +115,8 @@ class EpisodeWatcher(
     private fun rules(): List<CorrelationRule> {
         val read = policy.read()
         val why = when (read.kind) {
-            "FOUND" -> when (val p = runCatching { parsePolicy(strictJson.readTree(read.json)) }.getOrNull()) {
+            // Only text that is not JSON is "not JSON"; anything parsePolicy itself throws is a fault and goes up.
+            "FOUND" -> when (val p = read.json?.let(::jsonOrNull)?.let(::parsePolicy)) {
                 is PolicyParse.Valid -> { lastRules = p.policy.correlation; return p.policy.correlation }
                 is PolicyParse.Invalid -> "rejected: ${p.errors.joinToString("; ")}"
                 null -> "not JSON"
@@ -107,11 +128,42 @@ class EpisodeWatcher(
         return lastRules ?: emptyList()
     }
 
+    private fun jsonOrNull(text: String): JsonNode? = try {
+        strictJson.readTree(text)
+    } catch (e: JsonProcessingException) {
+        null
+    }
+
     /** The carry half — Task 7. */
     private fun carryIn(dir: Path): Int? = 0
 
-    private fun once(source: String, kind: String, vararg detail: Pair<String, Any>) {
-        if (said.add("$source|$kind|${detail.joinToString()}")) log(source, kind, *detail)
+    /**
+     * SIGNAL_FAILED once per kind of failure — the exception's class and, when Temporal's gRPC call failed, its status
+     * code — not per message: messages carry changing text (ids, times) and would log every poll while Temporal is down.
+     * The message is kept in the detail.
+     */
+    private fun signalFailed(source: String, e: RuntimeException) {
+        val status = generateSequence<Throwable>(e) { it.cause }.take(16)
+            .filterIsInstance<StatusRuntimeException>().firstOrNull()?.status?.code
+        val detail = buildList<Pair<String, Any>> {
+            add("why" to (e.message ?: e.javaClass.simpleName))
+            add("exception" to e.javaClass.name)
+            if (status != null) add("status" to status.name)
+        }
+        once(source, "SIGNAL_FAILED", *detail.toTypedArray(), key = "${e.javaClass.name}|$status")
+    }
+
+    /**
+     * Logs once per [source], [kind] and [key] (by default the whole detail) in this process. The key is remembered only
+     * after the log row was written, so a failed write is tried again at a later poll. [said] is bounded: when full it
+     * is cleared, and at worst a reason is logged once more.
+     */
+    private fun once(source: String, kind: String, vararg detail: Pair<String, Any>, key: String = detail.joinToString()) {
+        val k = "$source|$kind|$key"
+        if (k in said) return
+        log(source, kind, *detail)
+        if (said.size >= SAID_MAX) said.clear()
+        said += k
     }
 
     private fun log(source: String, kind: String, vararg detail: Pair<String, Any>) {
@@ -124,5 +176,10 @@ class EpisodeWatcher(
             }
         }
         store.log(source, kind, strictJson.writeValueAsString(node))
+    }
+
+    private companion object {
+        /** At most this many remembered reasons (see [once]). */
+        const val SAID_MAX = 1000
     }
 }
