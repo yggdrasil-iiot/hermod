@@ -3,9 +3,11 @@ package koshei.authoring
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.StreamReadFeature
 import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.cfg.CoercionAction
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.type.LogicalType
 import com.fasterxml.jackson.module.kotlin.jacksonMapperBuilder
 import io.grpc.Status
@@ -59,6 +61,20 @@ private const val MAX_OPERATOR = 128
 private const val MAX_LIMIT = 500
 private const val MAX_BODY_BYTES = 64 * 1024
 private const val TABLES_MISSING = "episode tables not found — no episode worker has run (KOSHEI_PICASSO)"
+
+/**
+ * A record as the control plane hands it to a screen (design §9.5). The narrator's answer is recorded only: a
+ * `DIAGNOSIS_RESULT` loses `response` and `rawText` (the `cause` among them), and a late answer — an `IGNORED`
+ * `DiagnosisReturned` — loses its verbatim `json`. The audit table keeps everything; every other record goes as it is.
+ */
+internal fun redactedPayload(kind: String, payload: JsonNode): JsonNode {
+    if (payload !is ObjectNode) return payload
+    return when {
+        kind == "DIAGNOSIS_RESULT" -> payload.deepCopy().apply { remove("response"); remove("rawText") }
+        kind == "IGNORED" && payload.path("event").asText() == "DiagnosisReturned" -> payload.deepCopy().apply { remove("json") }
+        else -> payload
+    }
+}
 
 /**
  * The episode control plane (design §4.2, §7.2, §7.3, §9.5): it reads and relays, and decides nothing. Lists and
@@ -126,7 +142,7 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
                 "view" to view,
                 "viewError" to viewError,
                 "card" to view?.let { operatorCard(it, events) },
-                "events" to events.map { linkedMapOf("seq" to it.seq, "kind" to it.kind, "payload" to trees.readTree(it.payloadJson), "at" to it.at) },
+                "events" to events.map { linkedMapOf("seq" to it.seq, "kind" to it.kind, "payload" to redactedPayload(it.kind, trees.readTree(it.payloadJson)), "at" to it.at) },
                 "notices" to notices.map(::noticeRow),
             ),
         )

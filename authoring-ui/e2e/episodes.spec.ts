@@ -285,6 +285,24 @@ test("Episodes: records never show the narrator's cause", async ({ page }) => {
   await expect(page.getByText("SECRET_CAUSE")).toHaveCount(0);
 });
 
+test("Episodes: records never show a late narrator answer", async ({ page }) => {
+  const events = [{
+    seq: 9, kind: "IGNORED",
+    payload: {
+      event: "DiagnosisReturned", phaseAtReceipt: "ESCALATED", phase: "ESCALATED", why: "late",
+      json: JSON.stringify({ outcome: "RECOMMENDED", cause: { text: "LATE_SECRET_CAUSE" }, rationale: "r" }),
+    },
+    at: "2026-10-02T00:00:00Z",
+  }];
+  await stub(page, { [P]: detail(ID, view(), card(), events) }, noPost);
+  await open(page);
+
+  await page.getByTestId("records").locator("summary").click();
+  await expect(page.getByTestId("records")).toContainText("IGNORED");
+  await expect(page.getByTestId("records")).toContainText("DiagnosisReturned");
+  await expect(page.getByText("LATE_SECRET_CAUSE")).toHaveCount(0);
+});
+
 test("Episodes: a person-task notice opens its episode", async ({ page }) => {
   const OTHER = "ep:k-2/r1";
   const OTHER_P = "/api/episodes/ep%3Ak-2/r1";

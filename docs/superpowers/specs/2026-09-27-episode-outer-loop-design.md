@@ -821,6 +821,8 @@ koshei 가 진단 응답(계약 0.6 §4)과 자기 상태로 그린다. narrator
   `unlocatedCitations`("확인 못 한 인용 n개(본문 없음)") · `unlocatedNumbers`("확인 못 한 숫자 n개(위치 모름)").
 - `identityAssurance` 는 PoC 동안 늘 `SELF_ASSERTED` 다. 카드는 읽는 것으로 실패하지 않는다 — JSON 이 아니거나 키가 겹친 기록은
   없는 것으로 본다.
+- 상세 응답의 기록(`events`)은 제어면이 가려서 내보낸다(`redactedPayload`): `DIAGNOSIS_RESULT` 는 `response` · `rawText` 를, 늦게 온 답
+  (`IGNORED` 의 `DiagnosisReturned`)은 `json` 을 뺀다. narrator 의 답(`cause` 포함)은 기록 표에만 남는다. 화면도 같은 칸을 한 번 더 뺀다.
 
 ---
 

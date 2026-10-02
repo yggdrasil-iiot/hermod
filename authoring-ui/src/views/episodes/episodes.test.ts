@@ -201,8 +201,14 @@ describe("recordPayload", () => {
     expect(JSON.stringify(shown)).not.toContain("SECRET_CAUSE");
     expect(shown).toEqual({ attempt: 1, verdict: "PROPOSED" });
   });
+  it("drops a late narrator answer kept verbatim in an IGNORED record (§9.5, §13)", () => {
+    const shown = recordPayload("IGNORED", { event: "DiagnosisReturned", why: "late", json: '{"cause":{"text":"LATE_SECRET_CAUSE"}}' });
+    expect(JSON.stringify(shown)).not.toContain("LATE_SECRET_CAUSE");
+    expect(shown).toEqual({ event: "DiagnosisReturned", why: "late" });
+  });
   it("leaves other records as they are", () => {
     expect(recordPayload("OPENED", { eventId: "e" })).toEqual({ eventId: "e" });
+    expect(recordPayload("IGNORED", { event: "DispatchReturned", answer: "{}" })).toEqual({ event: "DispatchReturned", answer: "{}" });
   });
 });
 

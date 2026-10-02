@@ -162,13 +162,26 @@ export function availableActions(view: EpisodeView | null, card: OperatorCard | 
   };
 }
 
-/** A record as the screen shows it: a diagnosis record loses its narrator answer — `cause`, refused and superseded answers stay recorded only (§9.5). */
+/**
+ * A record as the screen shows it: the narrator's answer stays recorded only (§9.5) — `cause`, refused and superseded
+ * answers included. A diagnosis record loses `response` and `rawText`; a late answer (an IGNORED `DiagnosisReturned`)
+ * loses its verbatim `json`. The control plane already redacts both; this is defence in depth.
+ */
 export function recordPayload(kind: string, payload: unknown): unknown {
-  if (kind !== "DIAGNOSIS_RESULT" || !payload || typeof payload !== "object") return payload;
-  const rest: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
-  delete rest.response;
-  delete rest.rawText;
-  return rest;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const p = payload as Record<string, unknown>;
+  if (kind === "DIAGNOSIS_RESULT") {
+    const rest = { ...p };
+    delete rest.response;
+    delete rest.rawText;
+    return rest;
+  }
+  if (kind === "IGNORED" && p.event === "DiagnosisReturned") {
+    const rest = { ...p };
+    delete rest.json;
+    return rest;
+  }
+  return payload;
 }
 
 /** Where an unchecked number was found (§9.5): null says nothing, [] is "nowhere", ["query"] is "only in the query". */

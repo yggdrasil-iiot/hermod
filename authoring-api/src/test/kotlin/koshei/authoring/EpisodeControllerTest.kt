@@ -39,6 +39,7 @@ import java.sql.SQLException
 import java.sql.SQLTransientConnectionException
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 
 private fun <T> anyNonNull(): T { ArgumentMatchers.any<T>(); @Suppress("UNCHECKED_CAST") return null as T }
@@ -89,6 +90,28 @@ class EpisodeControllerTest {
             .andExpect(jsonPath("$.events[0].payload.eventId").value("s-1"))
             .andExpect(jsonPath("$.notices[0].id").value(7))
             .andExpect(jsonPath("$.notices[0].notice.kind").value("APPROVAL_NEEDED"))
+    }
+
+    @Test fun `the records reach a screen without the narrator's answer, a late one included`() {
+        given(gateway.view(id)).willReturn(waiting)
+        given(reader.events(id)).willReturn(listOf(
+            StoredEvent(5, "DIAGNOSIS_RESULT",
+                """{"attempt":1,"verdict":"ESCALATE","candidateId":null,"reason":"DIAGNOSIS_FAILED","clean":null,"detail":"d","response":{"cause":{"text":"SECRET_CAUSE"},"rationale":"r"},"rawText":"RAW_SECRET"}""", t),
+            StoredEvent(6, "IGNORED",
+                """{"event":"DiagnosisReturned","phaseAtReceipt":"ESCALATED","phase":"ESCALATED","why":"late","json":"{\"cause\":{\"text\":\"LATE_SECRET_CAUSE\"}}"}""", t),
+            StoredEvent(7, "IGNORED", """{"event":"DispatchReturned","phaseAtReceipt":"ESCALATED","phase":"ESCALATED","why":"late","answer":"{}"}""", t),
+        ))
+        given(reader.noticeRows(id)).willReturn(emptyList())
+        val body = mvc.perform(get("/api/episodes/ep:a/r1")).andExpect(status().isOk)
+            .andExpect(jsonPath("$.events[0].payload.verdict").value("ESCALATE"))
+            .andExpect(jsonPath("$.events[0].payload.detail").value("d"))
+            .andExpect(jsonPath("$.events[0].payload.response").doesNotExist())
+            .andExpect(jsonPath("$.events[0].payload.rawText").doesNotExist())
+            .andExpect(jsonPath("$.events[1].payload.why").value("late"))
+            .andExpect(jsonPath("$.events[1].payload.json").doesNotExist())
+            .andExpect(jsonPath("$.events[2].payload.answer").value("{}"))
+            .andReturn().response.contentAsString
+        for (secret in listOf("SECRET_CAUSE", "RAW_SECRET", "LATE_SECRET_CAUSE")) assertFalse(body.contains(secret), secret)
     }
 
     @Test fun `an ended instance answers from its records, and an unknown one is not found`() {
