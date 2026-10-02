@@ -18,7 +18,8 @@ function view(over: Record<string, unknown> = {}) {
     proposalId: ID + "#1", candidateId: "APPROVE_REMEDY:r:j:pick_place", candidatesVersion: VERSION,
     stateDeadlineMillis: null, episodeDeadlineMillis: null, historyJson: "[]", unknownsJson: "[]", symptoms: 1,
     candidateJson: null, candidatesJson: JSON.stringify([{ candidateId: "ESCALATE", kind: "ESCALATE", ref: null }]),
-    diagnosisJson: null, joinedAfterSnapshot: 0, ...over,
+    // The live diagnosis: the screen must never render it (the card carries what may be shown, §9.5).
+    diagnosisJson: '{"cause":"DIAG_SENTINEL"}', joinedAfterSnapshot: 0, ...over,
   };
 }
 
@@ -42,6 +43,10 @@ function detail(id: string, v: Record<string, unknown> | null, c: Record<string,
   return { instanceId: id, view: v, viewError: null, card: c, events, notices: [] };
 }
 
+const FAIL = Symbol("fail");
+/** A detail GET that fails with [status] and [body] (put in `details` in place of a detail). */
+const failing = (status: number, body: unknown) => ({ [FAIL]: true, status, body });
+
 /** Stubs /api/episodes**: GETs from [details], POSTs from [onPost]; every call is remembered in [calls]. */
 async function stub(page: Page, details: Record<string, unknown>, onPost: (path: string) => Answer, notices: unknown[] = []) {
   const calls: Call[] = [];
@@ -52,7 +57,12 @@ async function stub(page: Page, details: Record<string, unknown>, onPost: (path:
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     if (req.method() === "GET" && path === "/api/episodes") return json(200, LIST);
     if (req.method() === "GET" && path === "/api/episodes/notices") return json(200, notices);
-    if (req.method() === "GET" && details[path]) return json(200, details[path]);
+    const d = details[path];
+    if (req.method() === "GET" && d && typeof d === "object" && FAIL in d) {
+      const f = d as { status: number; body: unknown };
+      return json(f.status, f.body);
+    }
+    if (req.method() === "GET" && d) return json(200, d);
     if (req.method() === "POST") { const a = onPost(path); return json(a.status, a.body); }
     return json(404, { error: `no stub ${req.method()} ${path}` });
   });
@@ -72,9 +82,11 @@ const gets = (calls: Call[], path: string) => calls.filter((c) => c.method === "
 const noPost = (): Answer => ({ status: 500, body: { error: "no POST expected" } });
 const accepted = (): Answer => ({ status: 200, body: { reply: "ACCEPTED" } });
 
-/** The one POST this test sent, once it has gone out. */
-async function onePost(calls: Call[]): Promise<Call> {
+/** The one POST this test sent: it has gone out, its answer is shown, and still no second one followed. */
+async function onePost(page: Page, calls: Call[]): Promise<Call> {
   await expect.poll(() => posts(calls).length).toBe(1);
+  await expect(page.getByTestId("decision-result")).toBeVisible();
+  expect(posts(calls)).toHaveLength(1);
   return posts(calls)[0];
 }
 
@@ -93,6 +105,7 @@ test("Episodes: the card in §9.5 order and wording", async ({ page }) => {
   await expect(page.getByTestId("card-guidance")).toBeVisible();
   await expect(page.getByText("근거 꾸러미에 있던 문서", { exact: false })).toBeVisible();
   await expect(page.getByTestId("card-identity")).toContainText("스스로 밝힌 신원");
+  await expect(page.getByText("DIAG_SENTINEL")).toHaveCount(0);
 
   // A candidate with ref: null still renders.
   await page.getByTestId("candidates").locator("summary").click();
@@ -103,14 +116,57 @@ test("Episodes: approve sends one POST with the operator in the header and no op
   const calls = await stub(page, { [P]: detail(ID, view(), card()) }, accepted);
   await open(page);
 
+  // Close is only for an escalated episode.
+  await expect(page.getByTestId("close-outcome")).toHaveCount(0);
+  await expect(page.getByTestId("close")).toHaveCount(0);
+
   await page.getByTestId("decide-approve").click();
   await expect(page.getByTestId("decision-result")).toContainText("받아들여짐");
 
-  const post = await onePost(calls);
+  const post = await onePost(page, calls);
   expect(post.path).toBe(P + "/decide");
   expect(post.headers["x-koshei-operator"]).toBe("op-1");
   expect(post.body).toEqual({ proposalId: ID + "#1", sawCandidatesVersion: VERSION, approve: true });
   expect(post.body).not.toHaveProperty("operatorId");
+});
+
+test("Episodes: reject needs a reason and sends it with the note", async ({ page }) => {
+  const calls = await stub(page, { [P]: detail(ID, view(), card()) }, accepted);
+  await open(page);
+
+  const reject = page.getByTestId("decide-reject");
+  await expect(reject).toBeDisabled();
+  await page.getByTestId("reject-reason").selectOption("NOT_NOW");
+  await page.getByTestId("reject-note").fill("later");
+  await expect(reject).toBeEnabled();
+  await reject.click();
+
+  const post = await onePost(page, calls);
+  expect(post.path).toBe(P + "/decide");
+  expect(post.body).toEqual({ proposalId: ID + "#1", sawCandidatesVersion: VERSION, approve: false, reason: "NOT_NOW", note: "later" });
+});
+
+test("Episodes: an unknown the core can take is confirmed with its subject and note", async ({ page }) => {
+  const calls = await stub(page, { [P]: detail(ID, view(), card()) }, accepted);
+  await open(page);
+
+  await page.getByTestId("unknown-note-0").fill("seen");
+  await page.getByTestId("confirm-unknown-0").click();
+
+  const post = await onePost(page, calls);
+  expect(post.path).toBe(P + "/confirm");
+  expect(post.body).toEqual({ kind: "UNKNOWN", subject: { robotId: "r" }, what: "OBSERVATION_ABSENT", holds: true, note: "seen" });
+});
+
+test("Episodes: a failed re-read keeps the last detail and says the failure", async ({ page }) => {
+  const details: Record<string, unknown> = { [P]: detail(ID, view(), card()) };
+  await stub(page, details, noPost);
+  await open(page);
+
+  details[P] = failing(503, { error: "episode tables not found" });
+  await expect(page.locator(".episodes-detail .banner.err")).toContainText("episode tables not found");
+  await expect(page.getByTestId("operator-card")).toBeVisible();
+  await expect(page.getByTestId("decide-approve")).toBeVisible();
 });
 
 test("Episodes: a refusal value is said in the operator's words", async ({ page }) => {
@@ -190,9 +246,11 @@ test("Episodes: confirming a precondition sends no proposition", async ({ page }
   await open(page);
 
   await expect(page.getByTestId("card-precondition")).toContainText(PRE);
+  // A confirm decision is not a decide decision.
+  await expect(page.getByTestId("decide-approve")).toHaveCount(0);
   await page.getByTestId("confirm-precondition-holds").click();
 
-  const post = await onePost(calls);
+  const post = await onePost(page, calls);
   expect(post.path).toBe(P + "/confirm");
   expect(post.body).toEqual({ kind: "PRECONDITION", candidateId: "APPROVE_REMEDY:r:j:pick_place", proposalId: ID + "#1", holds: true });
   expect(post.body).not.toHaveProperty("proposition");
@@ -215,7 +273,7 @@ test("Episodes: an unknown outcome is confirmed as OUTCOME, never as the candida
   await expect(page.getByTestId("confirm-unknown-0")).toHaveCount(0);
 
   await page.getByTestId("confirm-outcome-done").click();
-  const post = await onePost(calls);
+  const post = await onePost(page, calls);
   expect(post.path).toBe(P + "/confirm");
   expect(post.body).toEqual({ kind: "OUTCOME", candidateId: "APPROVE_REMEDY:r:j:pick_place", proposalId: ID + "#1", holds: true });
 });
@@ -223,19 +281,26 @@ test("Episodes: an unknown outcome is confirmed as OUTCOME, never as the candida
 test("Episodes: an escalated episode offers close, not takeover", async ({ page }) => {
   const calls = await stub(
     page,
-    { [P]: detail(ID, view({ phase: "ESCALATED", escalationReason: "TAKEN_OVER" }), card({ decision: null, unknowns: [] })) },
+    {
+      // A robot unknown the core could take — but not once a person has the episode.
+      [P]: detail(ID, view({ phase: "ESCALATED", escalationReason: "TAKEN_OVER" }), card({
+        decision: null,
+        unknowns: [{ subject: { robotId: "r" }, what: "OBSERVATION_ABSENT", since: null, source: "s" }],
+      })),
+    },
     accepted,
   );
   await open(page);
 
   await expect(page.getByTestId("close-outcome")).toBeVisible();
   await expect(page.getByTestId("takeover")).toHaveCount(0);
+  await expect(page.getByTestId("confirm-unknown-0")).toHaveCount(0);
   await expect(page.getByTestId("close-outcome")).toHaveValue("");
   await expect(page.getByTestId("close")).toBeDisabled();
 
   await page.getByTestId("close-outcome").fill("현장 처리");
   await page.getByTestId("close").click();
-  const post = await onePost(calls);
+  const post = await onePost(page, calls);
   expect(post.path).toBe(P + "/close");
   expect(post.body).toEqual({ outcome: "현장 처리" });
 });
@@ -244,11 +309,26 @@ test("Episodes: takeover of a running episode asks first and sends no body", asy
   const calls = await stub(page, { [P]: detail(ID, view({ phase: "DIAGNOSING" }), card({ decision: null })) }, accepted);
   await open(page);
 
-  page.once("dialog", (d) => void d.accept());
+  let asked = "";
+  page.once("dialog", (d) => { asked = d.message(); void d.accept(); });
   await page.getByTestId("takeover").click();
-  const post = await onePost(calls);
+  const post = await onePost(page, calls);
+  expect(asked).toContain("Take this episode over?");
   expect(post.path).toBe(P + "/takeover");
   expect(post.body ?? null).toBeNull();
+});
+
+test("Episodes: a takeover the operator cancels sends nothing", async ({ page }) => {
+  const calls = await stub(page, { [P]: detail(ID, view({ phase: "DIAGNOSING" }), card({ decision: null })) }, accepted);
+  await open(page);
+
+  let asked = false;
+  page.once("dialog", (d) => { asked = true; void d.dismiss(); });
+  await page.getByTestId("takeover").click();
+  await expect.poll(() => asked).toBe(true);
+  await page.waitForTimeout(500);
+  expect(posts(calls)).toHaveLength(0);
+  await expect(page.getByTestId("decision-result")).toHaveCount(0);
 });
 
 test("Episodes: a refused answer is named and its rationale is not shown; a missing rationale is said", async ({ page }) => {
