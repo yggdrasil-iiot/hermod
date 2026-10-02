@@ -31,13 +31,21 @@ sealed interface BundleRead {
  * rename. A live host rewrites the files whole as lines are added, so a file may be newer than the manifest: only the
  * first `counts.<key>` lines are taken, and the manifest is read again at the end — if it changed, the bundle is read
  * again later. JSON is read as strictly as the core reads it (duplicate keys refused, BOM refused, objects only).
+ *
+ * Nothing is called broken while the manifest is moving: a bundle replaced or rewritten under the reader can look
+ * broken (a file of the next snapshot, a file gone) and is not. Every verdict "broken" is first checked against a fresh
+ * read of the manifest, and a changed manifest turns it into "read again later".
  */
 object Bundles {
     const val MANIFEST = "manifest.json"
     const val MAX_FILE_BYTES = 64L * 1024 * 1024
+    const val MAX_MANIFEST_BYTES = 1L * 1024 * 1024
 
     /** The module's strict mapper, and no trailing tokens: one line is one JSON object and nothing after it. */
     private val reader = strictJson.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+
+    /** The file at [path] is not UTF-8. Carries the path so the verdict can name the file. */
+    private class NotUtf8(val path: Path) : Exception(path.toString(), null, false, false)
 
     fun read(
         dir: Path,
@@ -46,23 +54,27 @@ object Bundles {
         files: List<BundleFile>,
         uniqueIds: Boolean,
         readText: (Path) -> String = Files::readString,
-    ): BundleRead = try {
-        readBundle(dir, runIdField, schemaVersions, files, uniqueIds, readText)
-    } catch (e: CharacterCodingException) {
-        // Bytes that are not UTF-8 will not become readable by waiting: broken, not "not ready".
-        BundleRead.Broken("$dir: a file is not UTF-8 (${e.javaClass.simpleName})")
-    }
-
-    private fun readBundle(
-        dir: Path,
-        runIdField: String,
-        schemaVersions: Set<String>,
-        files: List<BundleFile>,
-        uniqueIds: Boolean,
-        readText: (Path) -> String,
     ): BundleRead {
         val manifestFile = dir.resolve(MANIFEST)
-        val manifestJson = text(manifestFile, readText) ?: return BundleRead.NotReady("no $MANIFEST in $dir")
+        val manifestSize = try { Files.size(manifestFile) } catch (e: NoSuchFileException) {
+            return BundleRead.NotReady("no $MANIFEST in $dir")
+        } catch (e: IOException) {
+            return BundleRead.NotReady("$MANIFEST in $dir: ${e.javaClass.simpleName}")
+        }
+        if (manifestSize > MAX_MANIFEST_BYTES) return BundleRead.Broken("$MANIFEST in $dir: $manifestSize bytes, over $MAX_MANIFEST_BYTES")
+        val manifestJson = try {
+            text(manifestFile, readText)
+        } catch (e: NotUtf8) {
+            // Bytes that are not UTF-8 will not become readable by waiting: broken, not "not ready".
+            return BundleRead.Broken("$MANIFEST in $dir is not UTF-8")
+        } ?: return BundleRead.NotReady("no $MANIFEST in $dir")
+
+        /** A verdict "broken" only if the manifest is still the one read; otherwise the bundle moved under us. */
+        fun broken(why: String): BundleRead {
+            val again = try { text(manifestFile, readText) } catch (e: NotUtf8) { null }
+            return if (again != manifestJson) BundleRead.NotReady("$MANIFEST in $dir changed while reading") else BundleRead.Broken(why)
+        }
+
         if (manifestJson.startsWith(Char(0xFEFF))) return BundleRead.Broken("$MANIFEST in $dir starts with a UTF-8 BOM")
         val manifest = parse(manifestJson) ?: return BundleRead.Broken("$MANIFEST in $dir is not one strict JSON object")
         val schema = manifest.textOf("schemaVersion")
@@ -75,41 +87,46 @@ object Bundles {
             val count = counts.get(file.countKey)?.takeIf { it.isInt && it.intValue() >= 0 }?.intValue()
                 ?: return BundleRead.Broken("$MANIFEST in $dir: counts.${file.countKey} is not a count")
             val path = dir.resolve(file.name)
-            val fileText = when {
-                count == 0 && !Files.exists(path) -> ""
-                else -> {
-                    val size = try { Files.size(path) } catch (e: NoSuchFileException) {
-                        return BundleRead.Broken("${file.name} in $dir: the manifest counts $count lines, there is no file")
-                    } catch (e: IOException) {
-                        return BundleRead.NotReady("${file.name} in $dir: ${e.javaClass.simpleName}")   // e.g. denied during the writer's rename
-                    }
-                    if (size > MAX_FILE_BYTES) return BundleRead.Broken("${file.name} in $dir: $size bytes, over $MAX_FILE_BYTES")
-                    text(path, readText) ?: return BundleRead.NotReady("${file.name} in $dir vanished while reading")
+            val fileText = if (count == 0) "" else {   // nothing counted: the file is not read at all
+                val size = try { Files.size(path) } catch (e: NoSuchFileException) {
+                    return broken("${file.name} in $dir: the manifest counts $count lines, there is no file")
+                } catch (e: IOException) {
+                    return BundleRead.NotReady("${file.name} in $dir: ${e.javaClass.simpleName}")   // e.g. denied during the writer's rename
                 }
+                if (size > MAX_FILE_BYTES) return broken("${file.name} in $dir: $size bytes, over $MAX_FILE_BYTES")
+                try {
+                    text(path, readText)
+                } catch (e: NotUtf8) {
+                    return broken("${file.name} in $dir is not UTF-8")
+                } ?: return BundleRead.NotReady("${file.name} in $dir could not be read (vanished or denied)")
             }
-            val raw = fileText.lines().filter { it.isNotBlank() }
+            val raw = fileText.lines().filter { !isBlankLine(it) }
             if (raw.size < count) return BundleRead.NotReady("${file.name} in $dir has ${raw.size} lines, the manifest counts $count")
             val read = ArrayList<BundleLine>(count)
             val seen = HashSet<String>()
             for ((i, line) in raw.take(count).withIndex()) {
                 val where = "${file.name} in $dir line ${i + 1}"
-                if (line.startsWith(Char(0xFEFF))) return BundleRead.Broken("$where starts with a UTF-8 BOM")
-                val node = parse(line) ?: return BundleRead.Broken("$where is not one strict JSON object")
-                val id = node.textOf(file.idField) ?: return BundleRead.Broken("$where has no ${file.idField}")
-                if (uniqueIds && !seen.add(id)) return BundleRead.Broken("$where repeats ${file.idField} '$id'")
+                if (line.startsWith(Char(0xFEFF))) return broken("$where starts with a UTF-8 BOM")
+                val node = parse(line) ?: return broken("$where is not one strict JSON object")
+                val id = node.textOf(file.idField) ?: return broken("$where has no ${file.idField}")
+                if (uniqueIds && !seen.add(id)) return broken("$where repeats ${file.idField} '$id'")
                 read += BundleLine(i + 1, id, line, node)
             }
             lines[file.name] = read
         }
-        if (text(manifestFile, readText) != manifestJson) return BundleRead.NotReady("$MANIFEST in $dir changed while reading")
+        val last = try { text(manifestFile, readText) } catch (e: NotUtf8) { null }
+        if (last != manifestJson) return BundleRead.NotReady("$MANIFEST in $dir changed while reading")
         return BundleRead.Ready(runId, manifestJson, lines)
     }
 
-    /** The file's text; null when it is absent or momentarily unreadable (read again later). Bad UTF-8 is thrown on. */
+    /** Blank is empty or JSON whitespace only. Other Unicode spaces (U+00A0 …) are a line, and a line that is not JSON. */
+    private fun isBlankLine(line: String): Boolean = line.all { it == ' ' || it == '\t' || it == '\r' }
+
+    /** The file's text; null when it is absent or momentarily unreadable (read again later). Bad UTF-8 is thrown as [NotUtf8]. */
     private fun text(path: Path, readText: (Path) -> String): String? = try {
         readText(path)
     } catch (e: CharacterCodingException) {
-        throw e
+        throw NotUtf8(path)
     } catch (e: IOException) {
         null
     }
