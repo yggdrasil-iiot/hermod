@@ -2436,3 +2436,44 @@ git commit -m "docs(design): plan C1 - watcher, merge keys, carry shape, drift a
 Run: `./gradlew :episode:test :episode-runtime:test :app:test :authoring-api:test`
 Expected: 모두 PASS. 모듈마다 수를 보고한다.
 
+## 검토 뒤 바뀐 것
+
+2026-10-02, 구현 기준(`f885319..83f2408`). 계획의 글과 코드가 일부러 다른 곳이다. 설계 문서의 「구현(C1)」 단락이 코드대로 적는다.
+마지막 확인(`KOSHEI_*` 없이): `:episode` 312, `:episode-runtime` 249, `:app` 35, `:authoring-api` 146, 모두 통과.
+
+- **근거 signal 은 run 에 고정한 stub 으로 보내지 않는다(Task 5).** Temporal Java SDK 1.25.1 은 run 에 고정한 stub 의 **signal** 에서 run id 를
+  떨군다(`WorkflowStub.signal` 은 지금 실행으로 간다). Update 와 질의는 고정을 지킨다. 그래서 `TemporalEpisodeSignals.evidence` 는 describe
+  (RUNNING) → 고정한 stub 의 `view().instanceId` 확인 → 워크플로 id 와 run id 를 적은 날 `SignalWorkflowExecutionRequest` 로 보낸다. NOT_FOUND 는
+  「그런 run 없음」(`false`)이지만 `NamespaceNotFoundFailure` 를 든 것은 다시 던진다. 제어면은 Update 를 쓰므로 영향이 없다. (설계 §7.2 · §12 구현(C1))
+- **`Bundles` 의 읽기 규칙(Task 2).**
+  - manifest 를 다시 읽어 글자 그대로 같아야 한다. 줄 파일을 읽다 나온 깨짐 판정도 그 사이 manifest 가 바뀌었으면 `NotReady` 다(갈아 쓰는
+    묶음은 깨져 보일 수 있다).
+  - UTF-8 이 아닌 바이트는 묶음 전체의 예외가 아니라 그 파일을 든 `Broken` 이다.
+  - manifest 는 1 MiB, 줄 파일은 64 MiB 까지만 읽는다(계획에는 줄 파일 상한만 있었다).
+  - 건너뛰는 줄은 비었거나 공백 · 탭 · CR 만 든 줄뿐이다(계획은 `isNotBlank`, 곧 유니코드 공백도 건너뛰었다).
+  - 센 수가 0 인 파일은 읽지 않는다.
+  - 깨짐의 사유에 Jackson 의 원인 글(`originalMessage`)을 붙인다.
+  - JSON 이 아니거나 id 가 없는 줄은 묶음 전체를 멈추고, 읽히지만 쓸 수 없는 줄(digest 없는 사건, 모양이 틀린 결과 통보 칸)은 그 파일을 그
+    줄에서 멈춘다 — 계획 그대로이고, 설계 §12 에 밝혀 적었다.
+- **CLI 의 NotReady 거절 글(Task 3).** 계획의 「an export is read only once its manifest is there and complete」 대신 사유 한 줄과 「not ready yet;
+  read again once the export is complete」다. 까닭이 여럿(manifest 없음, 줄이 모자람, 읽는 사이 바뀜)이라 하나로 짚지 않는다.
+- **커서와 감시 기록(Task 4).** `advance` 는 지금 자리 + 1 을 넘는 자리(빈틈)와 이미 있는 자리의 다른 id 를 거절한다. `log` 는 jsonb 가 detail 을
+  거절하면(NUL, 짝 없는 서로게이트 — SQLState 22 계열) 같은 원천 · 종류로 `{"unstorable":true}` 행을 쓴다.
+- **한 번만 남기기(Task 6 · 7).**
+  - 프로세스마다, 사유를 열쇠로 한다. 계획과 같다.
+  - `SIGNAL_FAILED` 의 열쇠는 글이 아니라 예외의 클래스와 gRPC 상태 코드다. 글은 detail 에 남는다.
+  - 기억은 1000개까지다. 차면 비운다.
+  - `UNROUTED` 는 (원천, run, 자리), `ROUTE_ENDED` 는 (원천, run, 자리, 인스턴스)마다 한 번이다. 계획은 줄마다의 사실이라 `once` 를 쓰지 않고
+    실패 뒤 다시 나른 줄이 한 번 더 남는 것을 받아들였다. 이제 한 줄에 한 번이다. `AMBIGUOUS` 는 계획대로 보낼 때마다 남는다.
+  - 사유는 그 행을 쓴 뒤에만 기억한다. 쓰기가 실패하면 다음 폴링에 다시 쓴다.
+- **원천 이름은 실제 경로(Task 6).** `toAbsolutePath().normalize()` 대신 폴링마다 `toRealPath()` 다(아직 없으면 절대 정규 경로). 그래서 내보내기
+  경로는 안정해야 한다. 알려진 한계: 같은 `runId` 를 든 내보내기 디렉터리 둘은 키와 `eventId` 가 부딪친다(설계 §7.1 의 키에는 경로가 없다).
+- **나른 수는 `Carried(count, stopped)` 하나로 센다(Task 6 · 7).** 계획은 신호가 실패하면 그 디렉터리의 수를 버렸다(`null`). 이제 실패 앞에 나른
+  줄도 `PollReport` 에 들고, 접수와 근거가 같은 결과를 쓴다.
+- **`CorrelationRule` 이 스스로 검사한다(Task 1).** 계획은 `data class` 만 두었다. 이제 `init` 에서 정책 읽개와 같은 모양(종류 하나 이상, 칸 1 ~ 4개,
+  칸 이름 모양, 겹침 없음)을 요구한다 — 칸 없는 규칙이 키 `<runId>:by` 로 모든 것을 묶는 일이 없게.
+- **`PolicyReader` 는 바꿀 수 없는 규칙을 만든다(Task 1).** `kinds` 와 `by` 를 `unmodifiableSet` · `unmodifiableList` 의 사본으로 싣는다.
+- **좁은 규칙과 넓은 규칙(Task 1, 설계 §7.1 · §10.1).** `[robotId]` 옆에 `[robotId, jobOrderId]` 를 두면 두 칸을 다 든 줄은 모두 애매하다. 좁은
+  규칙이 병합을 다듬지 않는다. 의도한 것이다(「서로 다르게 말하면 아무것도 묶지 않는다」). 문서에 밝혀 적었다.
+- **drift(Task 9).** 에피소드 모드에서도 `DISABLED=1` 이 `DISPATCH=1` 을 이긴다(꺼짐, 시작한다). 계획의 표 그대로이고, 설계 §14 구현(C1)에 표를 옮겼다.
+

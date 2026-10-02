@@ -95,6 +95,14 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 기존 경계 규칙을 그대로 따른다. `:conductor-runtime` 이 Temporal 을 모르게 분리된 것처럼, `:episode` 는 Temporal 을 모른다.
 에피소드는 **Temporal 전용**이다. 운영자가 그리는 것이 아니므로 엔진 중립 IR 과 Conductor 를 거치지 않는다.
 
+**구현(C1).** 감시자는 위 그림의 `EpisodeWatcherMain` 하나가 아니라 B3b 의 워커와 같은 모양으로 둘로 나뉘었다.
+- 로직: `:episode-runtime` 의 `EpisodeWatcher`(한 번의 폴링 `pollOnce`). 둘레에 `Bundles`(manifest 로 경계 지은 jsonl 읽기),
+  `ExportSymptoms`(내보내기 줄 → `symptom`), `CarriedEvidence`(결과 통보 줄 → `evidence`), `WatchStore`(커서 · 감시 기록 · 주문 찾기),
+  `EpisodeSignals`(Temporal 로 보내는 길)가 있다.
+- 프로세스: `:app` 의 `Watcher.kt`(`./gradlew :app:watcher`). 환경변수를 시작 때 한 번 읽고, DB 와 Temporal 에 붙어 폴링을 되풀이한다.
+- 병합 키 `correlate` 는 그림대로 `:episode` 의 순수 함수다(`Correlation.kt`).
+- 시험 전용 Mock 담는 쪽 `MockCarrier` 는 `:episode-runtime` 의 시험 코드에 있다.
+
 ### 4.2 프로세스와 큐
 
 | 프로세스 | 큐 / 표면 | 비고 |
@@ -121,6 +129,25 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 - picasso 창구는 `ApprovalWindow`(`revalidate`, `approve`)로 액티비티에 들어간다. 한 인스턴스를 동시에 도는 액티비티들이 함께 쓰므로
   구현은 스레드 안전해야 하고, `approve` 가 받는 의도 노드는 읽기 전용이다. 지금 구현은 `MockPicasso` 하나다. `register` 도 창구를
   이 인터페이스로 받고, 무엇을 만들지는 `PicassoMode` 가 고른다.
+
+**구현(C1).** 감시자 프로세스는 `./gradlew :app:watcher` 다(`koshei.app.WatcherKt`). 환경변수는 시작 때 한 번 읽고, 틀리면 시작을 멈춘다.
+
+| 변수 | 뜻 | 기본 |
+|---|---|---|
+| `KOSHEI_WATCH_EXPORTS` | picasso 내보내기 디렉터리들. `File.pathSeparator`(Windows `;`, 그 밖 `:`)로 나눈다. 빈 칸은 거절한다 | 필수 |
+| `KOSHEI_WATCH_CARRY` | 결과 통보 디렉터리(`koshei-carry-0`, §12 구현(C1)). 비었으면 거절한다 | 없음(근거를 나르지 않는다) |
+| `KOSHEI_WATCH_INTERVAL_MS` | 폴링 간격. 100 ~ 60000 | 2000 |
+| `KOSHEI_EPISODE_POLICY` | 병합 규칙을 읽을 정책 파일. 워커와 같은 파일 | `model/episode-policy/active.yaml`. `:app:watcher` 는 `:app:run` 처럼 저장소 뿌리의 절대경로를 넣어 준다 |
+| `KOSHEI_DB_*` | 커서 · 감시 기록 표. 워커와 같은 DB | `Db.connect()` 기본 |
+| `KOSHEI_PICASSO` | 에피소드 모드인가. 워커와 같은 해석(`PicassoMode.fromEnv`) | `off` 면 시작하지 않는다 |
+
+- 상대 경로는 프로세스의 작업 디렉터리 기준으로 풀린다. `:app:watcher` 의 작업 디렉터리는 `app/` 이다. 그래서 시작 줄에 절대 경로를 찍는다.
+- 감시자는 `KOSHEI_PICASSO=off` 면 시작하지 않는다. 에피소드를 돌릴 워커가 없는데 커서만 나아가면 증상이 아무도 열지 않은 채 지나간다.
+- authoring-api 도 이제 `KOSHEI_PICASSO` 를 읽는다(drift 의 자동 디스패치를 막는 판정, §14 구현(C1)). 모르는 값이면 워커처럼 시작을 멈춘다.
+- **각 프로세스는 제 환경만 본다.** 워커 · 감시자 · authoring-api 가 같은 `KOSHEI_PICASSO` 를 가져야 한다. 다른 셸에서 띄운 authoring-api 는
+  에피소드 모드를 모르고 drift 를 그대로 디스패치할 수 있다. Gradle 작업은 셸의 `KOSHEI_*` 를 넘기므로 한 셸에서 띄우면 맞는다.
+- 감시자도 시작 때 에피소드 스키마를 돌린다(`EpisodeStore.ensureSchema()`, 멱등, §13). 워커보다 먼저 떠도 된다.
+- 폴링 한 번이 DB 나 파일 시스템 오류로 실패하면 표준 오류에 한 줄을 찍고 다음 간격에 다시 한다. 마지막 커서 행 뒤의 것은 잃지 않는다.
 
 ---
 
@@ -358,6 +385,29 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 - **B3c 메모:** 지금 run 의 runId 를 인스턴스 id 에서 끌어내지 않는다. reset 한 run 에서는 둘이 다르다. runId 가 필요하면
   Temporal 에 묻는다(describe).
 
+**구현(C1).** 병합 키는 `:episode` 의 순수 함수 `correlate(kind, line, runId, id, rules)` 가 낸다(R10, §10.1 의 규칙).
+- 키의 모양:
+  - 제 키: `<runId>:<id>`. `id` 는 줄의 `incidentId` · `searchId` 다.
+  - 병합 키: `<runId>:by:<f1>:<v1>…`. 규칙의 칸 이름과 줄의 값을 규칙에 적힌 순서로 잇는다.
+  - 키 전체는 `CORRELATION_KEY`(`[A-Za-z0-9._:-]{1,200}`)에 맞아야 한다. 칸 값과 `id` 는 `[A-Za-z0-9._-]{1,64}`, 곧 `:` 가 없다 — 값이
+    칸 이름과 섞이거나 제 키가 병합 키 행세를 할 수 없다.
+  - `runId` 가 키에 들어가므로 병합은 한 구동 안에서만 일어난다.
+- 규칙은 제 종류(`kinds`)의 줄에만 걸린다. 칸 하나라도 없거나, 글자가 아니거나, 위 모양에 맞지 않으면 그 규칙은 걸리지 않는다(추측하지 않는다).
+- 걸린 규칙이 낸 키가 하나면 그 키로 묶는다(`Merged`). 하나도 없으면 제 키다. **서로 다른 키가 둘 이상이면 애매하다** — 묶지 않고 제 키를
+  쓰며, 감시 기록에 `AMBIGUOUS`(`eventId`, `key`, `related`)로 서로 참조를 남긴다. LLM 에 묻지 않는다.
+- 더 좁은 규칙을 넓은 규칙 옆에 두면(예: `[robotId]` 와 `[robotId, jobOrderId]`) 두 칸을 다 든 줄은 **모두 애매해진다.** 좁은 규칙이 병합을
+  다듬지 않는다. 의도한 것이다 — 규칙이 서로 다르게 말하면 아무것도 묶지 않는다. 다듬으려면 한 종류에 규칙 하나만 둔다.
+- 제 키조차 맞지 않으면(`id` 가 위 모양이 아니거나 — `:` 가 든 것 포함 — 키가 200자를 넘음) `correlate` 는 null 이고 감시자는 그 파일을 그 줄에서 멈춘다(`STUCK`, §12).
+
+알려진 한계:
+- 서로 참조는 감시 기록(`episode_watch_log`)에만 있고 에피소드 기록에는 붙지 않는다. §12 의 「서로 참조를 붙인다」를 반만 한 것이다. 화면은 계획 D.
+- 병합 규칙이 켜져도, 뒤 증상이 다음 폴링에 `correlatingMs` 를 넘겨 오면 이미 DIAGNOSING 에 간 에피소드에 합류만 한다(`SymptomJoined`,
+  다음 진단의 스냅샷에 들어간다). ESCALATED 면 기록만 한다(§5.2).
+- 신호가 Temporal 에 닿은 뒤 커서를 옮기기 전에 감시자가 죽고, 그 사이 에피소드가 끝났으면, 다시 보낸 증상은 같은 키로 새 에피소드를 연다
+  (`ALLOW_DUPLICATE`). 코어의 `eventId` 중복 제거는 열린 run 안에서만 먹는다. 좁은 틈이다.
+- 키에는 내보내기의 경로가 없다. 같은 `runId` 를 든 내보내기 디렉터리 둘은 키와 `eventId` 가 부딪친다.
+- 정책 v1 은 `correlation: []` 다. 지금은 증상마다 제 에피소드를 연다. 무엇을 한 원인으로 볼지는 운영 결정이다.
+
 ### 7.2 사람과 감시자의 입력
 
 | 입력 | 형태 | 보내는 쪽 |
@@ -425,6 +475,23 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
   - `episode agent-off <workflowId>`: 그 에피소드 **하나**에 `agentOff` signal 을 보낸다. §10.4 의 방송(계획 D)이 아니다. id 는
     `ep:<key>` 꼴만 받는다.
   - 인자는 Temporal 에 닿기 전에 모두 검사한다. 거절은 사용 오류이고, 내보내기를 못 읽거나 Temporal 에 못 닿으면 `ERROR` 로 끝난다.
+
+**구현(C1).**
+- 위 「계획 C 에서 감시자가 지킨다」를 닫는다. 감시자는 키를 `CORRELATION_KEY`(`[A-Za-z0-9._:-]{1,200}`, §7.1 구현(C1))로 지키고, 맞지
+  않으면 그 파일을 그 줄에서 멈춘다(`STUCK`, §12). 제어면은 여전히 따로 검사하지 않는다.
+- CLI 의 `--key` 는 글자 모양(`[A-Za-z0-9._:-]+`)만 보고 길이 상한이 없다. 감시자는 200자에서 멈추지만 CLI 는 더 긴 키로도 연다 — 손으로
+  여는 개발 도구라 그 차이를 둔다.
+- CLI 는 이제 감시자와 같은 `ExportSymptoms` · `Bundles` 로 읽는다(§12 구현(C1)). 그래서 CLI 가 보내는 줄은 감시자가 보낼 줄이고,
+  `eventId` 도 같다.
+  - manifest 에 `schemaVersion "5"` 와 `counts` 가 있어야 한다.
+  - `counts` 뒤의 줄은 읽지 않는다.
+  - 두 jsonl 파일 어디든 깨진 줄이나 겹친 id 가 있으면 열지 않는다. 깨진 사건 줄은 `--search` 도 막는다.
+  - 묶음이 아직 다 쓰이지 않았으면(manifest 없음, 줄이 모자람, 읽는 사이 manifest 가 바뀜) 사유 한 줄과 「not ready yet; read again once
+    the export is complete」로 거절한다. 원인을 하나로 짚지 않는다 — 까닭은 여럿이다.
+- 보내는 길은 `TemporalEpisodeSignals.open`(signalWithStart, `ALLOW_DUPLICATE`)이다. 감시자도 같은 것을 쓴다.
+- 완료 근거 `evidence` 는 감시자가 인스턴스의 run 에 고정해 보낸다(§12 구현(C1)). Temporal Java SDK 1.25.1 은 run 에 고정한 stub 으로
+  보낸 **signal** 에서 run id 를 떨군다 — `WorkflowStub.signal` 은 지금 실행으로 간다. Update 와 질의는 고정을 지킨다. 그래서 제어면의
+  결정(Update, 위 B3c)은 영향이 없고, 감시자의 `evidence` 만 날 요청(`SignalWorkflowExecutionRequest`)으로 run id 를 밝혀 보낸다.
 
 ### 7.3 쿼리
 
@@ -864,6 +931,24 @@ R6 검증("끈 유형은 자동 실행 없이 사람 승인으로")과 맞춘 �
 없고, 따라서 R6 의 "끄기" 대상도 아니다 — 원래 사람이 결정하는 과업이므로 끌 자동 실행이 없다. 과업 알림 자체를 줄이려면 병합
 규칙과 알림 규칙(R10)으로 한다.
 
+**구현(C1).** `correlation` 은 병합 규칙의 목록이다. 규칙 하나의 모양:
+
+```yaml
+correlation:
+  - { kinds: [INCIDENT, SEARCH], by: [robotId, jobOrderId] }   # 예시. v1 은 []
+```
+
+- `kinds`: `INCIDENT` · `SEARCH` 가운데 하나 이상. 모르는 값, 겹친 값은 거절한다.
+- `by`: 줄의 칸 이름 1 ~ 4개. 이름은 `[A-Za-z][A-Za-z0-9]{0,63}` 이다. 겹친 이름은 거절한다.
+- 그 밖의 키가 있거나 객체가 아니면 거절한다. 거절은 다른 칸의 오류처럼 판 전체를 무효로 한다(`parsePolicy` 의 `Invalid`, 오류 글에
+  `correlation[i]` 가 붙는다).
+- `parsePolicy` 는 검사를 지난 규칙을 바꿀 수 없는 `CorrelationRule` 로 만든다. `CorrelationRule` 도 만들 때 같은 모양을 스스로 검사한다 —
+  칸 없는 규칙이 키 `<runId>:by` 로 모든 것을 묶는 일이 코드 어디서도 없게.
+- 규칙이 키를 어떻게 내는지, 애매할 때 어떻게 하는지는 §7.1 구현(C1). 좁은 규칙을 넓은 규칙 옆에 두면 다듬는 것이 아니라 애매해진다.
+- 감시자는 폴링마다 정책 파일을 읽어 `correlation` 만 쓴다. 판을 쓸 수 없으면(없음, 읽을 수 없음, 무효) 마지막으로 유효했던 규칙을 쓰고,
+  그것도 없으면 규칙 없이(묶지 않고) 간다. 사유는 `POLICY_UNUSABLE` 로 한 번 기록한다. 꺼짐 · 만료는 감시자가 보지 않는다 — 워크플로가 본다(§7.1).
+- 커밋한 v1(`active.yaml`)은 `correlation: []` 그대로다.
+
 ### 10.2 검증 (`validate`, 순수 함수)
 
 - `diagnosis.scheduleToCloseMs ≥ maxAttempts × startToCloseMs`, `heartbeatMs < startToCloseMs`, `scheduleToCloseMs ≤ episodeMs` —
@@ -956,11 +1041,123 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 
   한 통보가 DONE 과 UNKNOWN 을 함께 말하면 UNKNOWN 이다. 모호한 통보로 자동 RESOLVED 하지 않는다. NOT_DONE 은 지금 결과 통보에서
   나오지 않는다 — 사람의 `ConfirmedOutcome` 만 낸다.
-- 결과 통보는 `APPROVED` 답의 `executionId` 로 이 시도에 잇는다(picasso main `584c6cd`). 결과 통보의 어느 단위가 이 조치의 대상인지는 답에 없다 — picasso 에 묻는다(§19). **그 답이 오기 전까지 결과 통보로는 DONE 에
+- 결과 통보는 `APPROVED` 답의 `executionId` 로 이 시도에 잇는다(picasso main `584c6cd`). (C1: picasso `JobResponse` 에는 이 칸이 없다 —
+  §12 구현(C1), §19.) 결과 통보의 어느 단위가 이 조치의 대상인지는 답에 없다 — picasso 에 묻는다(§19). **그 답이 오기 전까지 결과 통보로는 DONE 에
   닿을 수 없다.** 모든 실물 에피소드는 사람(`confirm`) 또는 기한으로 끝난다.
 - **파일 내보내기는 결과 통보를 싣지 않는다.** 담는 쪽이 설 때까지 감시자는 개발용으로 파일 내보내기에서 접수만 한다. 그 길에서는
   완료 근거가 오지 않아 AWAITING_EVIDENCE 가 `EVIDENCE_EXPIRED` 로 끝난다(모르면 끝내지 않는다). 근거 경로 시험은 Mock 담는 쪽
   (계획 C)이 결과 통보 모양으로 넣는다 — 답보다 먼저 온 것, 관계없는 것, `jobResponseId` 가 겹치는 것을 섞어 낸다.
+
+**구현(C1).** 감시자는 `EpisodeWatcher`(로직)와 `Watcher.kt`(프로세스, §4.2 구현(C1))다. 한 번의 폴링은 내보내기 디렉터리들을 차례로
+접수하고, 마지막에 결과 통보 디렉터리를 나른다. 판정은 하지 않는다. 감시자가 하는 판단은 둘뿐이고 둘 다 결정적이다: 병합 키(`correlate`,
+§7.1 구현(C1))와 결과 통보를 보낼 인스턴스(실행 의도 기록의 주문, 아래).
+
+*읽기 (`Bundles`).* 내보내기와 결과 통보가 같은 읽개를 쓴다. picasso `BundleWriter` 의 규율(jsonl 먼저, `manifest.json` 마지막, 각각 이름 바꾸기)을 전제한다.
+- manifest 가 없으면 아직이다(`NotReady`, 다음 폴링에 다시). manifest 는 1 MiB, 줄 파일은 64 MiB 까지만 읽는다. 넘으면 깨짐(`Broken`)이다.
+- manifest 의 `schemaVersion` 이 아는 판이어야 한다(내보내기 `"5"`, 결과 통보 `"koshei-carry-0"`). run 칸(`runId` / `carryRunId`)과
+  `counts` 가 있어야 한다.
+- 줄은 `counts.<키>` 만큼만 읽는다. 살아 있는 담는 쪽은 줄을 더할 때 파일을 통째로 다시 쓰므로 파일이 manifest 보다 새로울 수 있다. 그 뒤의
+  줄은 아직 manifest 가 쓰이지 않은 다음 판의 것이다. 줄이 모자라면 아직이다. 센 수가 0 이면 파일을 읽지 않는다.
+- 건너뛰는 줄은 비었거나 공백 · 탭 · CR 만 든 줄뿐이다. 다른 유니코드 공백(U+00A0 등)만 든 줄은 줄이고, JSON 이 아니므로 깨진 줄이다.
+- 줄은 코어처럼 엄격하게 읽는다: 키 중복과 BOM 을 거절하고, 객체만 받는다. 객체 뒤에 남은 토큰(`{"a":1} x`)도 깨짐이다. 깨짐의 사유에는
+  Jackson 의 원인 글이 붙는다.
+- UTF-8 이 아닌 바이트는 깨짐이고 사유가 그 파일을 든다 — 기다려도 읽히지 않는다. 그 밖의 입출력 오류(쓰는 쪽이 이름을 바꾸는 사이 Windows 의
+  접근 거부 등)는 아직이다.
+- JSON 객체가 아니거나 id 칸이 없는 줄은 **묶음 전체를 멈춘다** — 그 앞의 줄도, 다른 파일도 나르지 않는다. 내보내기에서는 같은 id 가 두 번
+  나와도 깨짐이다(결과 통보는 아니다, 아래).
+- 다 읽은 뒤 manifest 를 다시 읽어 **글자 그대로 같아야** 한다. 다르면 다음 폴링에 다시 읽는다. 줄 파일을 읽다 깨짐 판정이 나도, 그 사이
+  manifest 가 바뀌었으면 깨짐이 아니라 아직이다 — 갈아 쓰는 중인 묶음은 깨져 보일 수 있다(다음 판의 파일, 사라진 파일).
+
+*줄 → 신호.*
+- 내보내기는 사건 파일, 탐색 파일 순서로 나른다(`ExportSymptoms`). `eventId` 는 CLI 와 같다(§7.2 B3c): `incident:<runId>:<digest>`,
+  `search:<runId>:<searchId>`. 줄과 manifest 를 글자 그대로 싣는다(§7.1 B3b). 보내는 것은 `signalWithStart(ep:<key>)` 다.
+- 읽히지만 쓸 수 없는 줄은 **그 파일을 그 줄에서 멈춘다**(다른 파일은 간다): digest 없는 사건 줄(`BROKEN`), 키가 되지 않는 줄(`STUCK`),
+  결과 통보에서 칸 모양이 틀린 줄(`BROKEN`). 둘 다 — 묶음 전체를 멈추는 것과 파일을 멈추는 것 — 기록을 남기고, 건너뛰지 않는다.
+- **최소 한 번 나른다.** Temporal 이 신호를 받은 뒤에 커서를 옮긴다. 두 번 간 증상과 근거는 코어가 `eventId` 와 `jobResponseId` 로 지운다(§6).
+- 신호가 실패하면 `SIGNAL_FAILED` 를 남기고 **이번 폴링 전체를 멈춘다**(Temporal 이 닿지 않으면 다른 원천도 실패한다). 커서는 실패한 줄 앞에
+  있고 다음 폴링이 그 줄부터 다시 보낸다. 실패 앞에 나른 줄은 나른 수에 든다 — 접수와 근거가 같은 결과(`Carried(count, stopped)`)를 쓴다.
+
+*커서 (`episode_watch_cursor`, §13).*
+- (원천, run)마다 「몇 줄을 날랐나 + 마지막 줄의 id」다. 원천 이름은 `<디렉터리의 실제 경로>#<파일 이름>` 이다. 실제 경로(`toRealPath`)는
+  폴링마다 다시 푼다. 그래서 내보내기 경로는 안정해야 한다 — 다른 곳으로 풀리는 다른 철자는 새 원천이 되어 줄을 다시 보낸다.
+- 추가 전용이다. 나아갈 때마다 행을 하나 더하고, 커서는 자리가 가장 큰 행이다. 같은 자리에 같은 id 는 아무 일 없음(재시도)이고, 같은 자리에
+  다른 id 는 거절한다. 지금 자리 + 1 을 넘는 자리도 거절한다 — 커서는 줄을 건너뛰지 않는다.
+- 다시 읽을 때 커서 자리에 줄이 없거나 그 줄의 id 가 커서와 다르면 `STUCK` 을 남기고 그 파일을 넘어간다. 추측해서 다시 맞추지 않는다 — 사람이
+  표를 보고 정한다. id 의 모양(`incident-N`)은 분해하지 않는다.
+- 결과 통보 파일에는 같은 `jobResponseId` 가 두 번 나올 수 있다(담는 쪽은 최소 한 번 나른다). 그래서 결과 통보는 id 가 겹쳐도 깨짐이 아니고,
+  id 만으로는 자리를 못 정하므로 줄 수를 함께 둔다.
+
+*감시 기록 (`episode_watch_log`, §13).* 감시자가 나르지 못한 것, 묶지 않고 나른 것을 남긴다. 사람이 읽는다(화면은 계획 D).
+
+| 종류 | 언제 |
+|---|---|
+| `NOT_READY` | 묶음이 아직 다 쓰이지 않았다. manifest 가 없는 디렉터리도 한 번 남는다 — 경로를 잘못 적었을 때 보이게 |
+| `BROKEN` | 묶음이 깨졌다, 또는 그 줄에서 파일을 멈췄다 |
+| `STUCK` | 커서 자리의 줄이 바뀌었다, 또는 키가 되지 않는 줄 |
+| `AMBIGUOUS` | 병합 규칙이 서로 다른 키를 냈다 — 서로 참조(`eventId`, `key`, `related`, §7.1 구현(C1)) |
+| `UNROUTED` | 결과 통보에 주문이 없다(없음 · 빔 · 글자 아님), 또는 그 주문을 든 승인 의도가 없다 |
+| `ROUTE_ENDED` | 그 주문의 인스턴스가 더는 받지 않는다(끝남, 다음 run 으로 넘어감) |
+| `SIGNAL_FAILED` | Temporal 이 신호를 받지 않았다 |
+| `POLICY_UNUSABLE` | 정책 파일을 쓸 수 없다, 그리고 무엇을 쓰는지(마지막 유효 규칙 / 규칙 없음) |
+
+- detail 이 jsonb 에 들지 않으면(NUL, 짝 없는 서로게이트 — SQLState 22 계열) 같은 원천 · 종류로 `{"unstorable":true}` 행을 쓴다.
+  `BROKEN` 의 사유는 믿을 수 없는 줄 글을 옮기므로, 기록이 제 내용 때문에 막히지 않게 한다.
+- **한 번만 남긴다.** 프로세스 안의 기억이고, 열쇠는 (원천, 종류, 사유)다. 다시 시작하면 한 번 더 남는다. 사유가 A → B → A 로 돌아오면
+  두 번째 A 는 남기지 않는다 — 운영자는 처음의 A 를 이미 보았다.
+  - `SIGNAL_FAILED` 의 열쇠는 예외의 클래스와 (gRPC 호출이 실패했으면) 그 상태 코드다. 글은 바뀌는 id · 시각을 담아 Temporal 이 죽은 동안
+    폴링마다 남게 되므로 열쇠에 넣지 않는다. 글은 detail 에 남긴다.
+  - `UNROUTED` 는 (원천, run, 자리)마다, `ROUTE_ENDED` 는 (원천, run, 자리, 인스턴스)마다 한 번이다 — 실패 뒤 다시 나른 줄이 두 번 남지
+    않게. `AMBIGUOUS` 는 보낼 때마다 남는다.
+  - 행을 쓴 뒤에만 기억한다. 쓰기가 실패하면 다음 폴링에 다시 쓴다.
+  - 기억은 1000개까지다. 차면 비운다 — 그때는 한 사유가 한 번 더 남을 수 있다.
+- 알려진 한계: 같은 `runId` 를 든 내보내기 디렉터리 둘은 키와 `eventId` 가 부딪친다(§7.1 의 키에는 경로가 없다).
+
+*나르는 모양 `koshei-carry-0` (개발용, §19 C 전까지).*
+- 담는 쪽이 디렉터리에 `job-responses.jsonl` 과 `manifest.json` 을 picasso 내보내기와 같은 규율로 쓴다. manifest 는
+  `schemaVersion: "koshei-carry-0"`, `carryRunId`, `counts.jobResponses` 를 든다.
+- 줄은 picasso `JobResponse` 의 칸 이름 그대로다. 여기에 담는 쪽이 아는 `executionId` 를 덧붙인다. **picasso 의 `JobResponse` 에는
+  `executionId` 가 없다**(picasso `Model.kt:310-337`, `8ab5400`) — 주문은 `jobOrderId` 뿐이다. 코어는 이 칸으로 결과 통보를 시도에
+  잇는다(위). 누가 실을지는 §19 의 「결과 통보의 `executionId`」 행이다.
+- 읽는 칸: `jobResponseId`(줄의 id — 없으면 위의 읽기 규칙대로 묶음 전체를 멈춘다), `jobOrderId`(보낼 곳), `executionId` · `physicalState` · `reachedEvidence` ·
+  `completedUnits` · `inDoubtUnits` · `unverifiedUnits` · `operatorRequired`. 칸이 없거나 JSON null 이면 「보고 안 함」이다. 모양이
+  틀리면(글자 자리에 숫자, 글자 목록이 아닌 목록 …) 그 줄에서 멈춘다(`BROKEN`).
+- 싣지 않는 칸: `requiredEvidence`, `blockedBy`, `connection`, `autoResolvesInDoubt`, `incompleteUnits`. 코어가 아직 읽지 않는다.
+  picasso 에서 `connection` 이 끊김이면 결과가 확정되지 않았다는 뜻이다(picasso `Model.kt:335`). 지금은 결과 통보로 DONE 에 닿지 않으므로
+  (위) 확정되지 않은 결과로 끝나는 일도 없다. 나르는 모양(§19 C)과 함께 정한다.
+- Mock 담는 쪽 `MockCarrier`(시험 전용)가 이 모양으로 쓴다. 답보다 먼저 온 것, 다른 실행의 것, 모르는 주문의 것, `jobResponseId` 가
+  겹치는 것을 섞는다.
+
+*결과 통보 → 인스턴스.*
+- 주문으로 찾는다: `episode_event` 의 `DISPATCH_INTENT` 기록 가운데 후보 종류가 `APPROVE_REMEDY` 이고 `candidate.ref.jobOrderId` 가 그
+  주문인 인스턴스 전부(첫 의도 순, `WatchStore.instancesForOrder`). **`APPROVE_REMEDY` 의도만 본다** — `executionId` 를 받는 것은 승인뿐이다.
+  `CHOOSE_SOURCE` 도 주문을 들지만, 거기로 보내면 기록만 되고 아무 데도 닿지 않았다는 것이 가려진다.
+- 찾은 인스턴스마다 보낸다. 어느 시도의 통보인지는 코어가 `executionId` 로 가린다(§5.2).
+- **인스턴스에** 보낸다(`TemporalEpisodeSignals.evidence`). 워크플로 id 에 보내면 그 id 의 지금 run 이 받는다 — 앞 에피소드가 끝난 뒤 같은
+  키로 새 에피소드가 열렸으면 늦은 통보가 새 에피소드의 기록에 섞인다.
+  1. describe 로 지금 run 을 묻는다. 없거나 RUNNING 이 아니면 보내지 않는다.
+  2. 그 run 에 고정한 stub 으로 `view()` 를 묻는다. `instanceId` 가 다르면 보내지 않는다. run id 를 인스턴스 id 에서 끌어내지 않는다(§7.1).
+  3. 그 run 에 보낸다. Temporal Java SDK 1.25.1 은 run 에 고정한 stub 으로 보낸 **signal** 에서 run id 를 떨군다(`WorkflowStub.signal` 은
+     지금 실행으로 간다). Update 와 질의는 고정을 지킨다. 그래서 signal 만 날 요청 `SignalWorkflowExecutionRequest` 에 워크플로 id 와 run id 를
+     적어 보낸다. 값은 클라이언트의 변환기로 싣는다 — stub 이 싣는 것과 같다. 제어면은 Update 를 쓰므로 영향이 없다(§7.2 B3c).
+- NOT_FOUND 는 「그런 run 이 없다」(확인과 신호 사이에 끝남)이고, 보내지 않은 것이다. 단 `NamespaceNotFoundFailure` 를 든 NOT_FOUND 는 다시
+  던진다 — 네임스페이스가 없는 것을 에피소드가 끝난 것으로 읽지 않는다(`SIGNAL_FAILED`, 다음 폴링에 다시).
+- 보내지 않았으면 `ROUTE_ENDED` 다. 그래서 **같은 키의 다음 에피소드는 앞 에피소드의 통보를 받지 않는다.** 닫혔지만 아직 비우는 중인
+  run(상태는 RUNNING)은 인스턴스를 들고 있으므로 받고, 워크플로는 기록만 한다(`IGNORED`).
+- 주문이 없거나 그 주문의 승인 의도가 없으면 `UNROUTED` 를 남기고 나른 것으로 센다(커서가 나아간다).
+- 질의는 워커가 답해야 한다. 워커가 없으면 질의가 실패하고 `SIGNAL_FAILED` 로 남아 다음 폴링에 다시 보낸다 — 근거를 버리지 않는다.
+- 끝난 인스턴스는 목록에 남는다. 그 주문의 뒤 통보마다 끝난 인스턴스 하나에 describe 하나와 `ROUTE_ENDED` 한 줄을 치른다. PoC 규모라 받아들인다.
+
+알려진 한계:
+- **한 `executionId` 를 두 에피소드가 이을 수 있다.** picasso 는 같은 주문의 뒤 승인에 `executionId` 를 그대로 두고(`revise()`), 다시
+  시작하면 `exec-N` 을 되풀이한다. 코어의 `usedExecutionIds` 는 에피소드마다다. 결과 통보는 주문이 같은 모든 에피소드로 가므로 둘이 같은
+  통보를 이을 수 있다. 지금은 UNKNOWN 까지만 간다(`targetUnit` 이 null 이라 DONE 이 없다). §19 의 대상 단위 답이 오기 전에 시도별 구분자와
+  함께 푼다.
+- 결과 통보로는 여전히 DONE 에 닿지 않는다(위, §19). 결과 통보는 UNKNOWN(OUTCOME)으로만 몬다. 실물 에피소드는 사람의 `confirm` 이나 기한으로 끝난다.
+
+끝에서 끝까지 시험(`WatcherEndToEndTest`: 감시자 · `TemporalEpisodeSignals` · 실제 액티비티 · 시험 Postgres · Mock narrator · Mock picasso ·
+`MockCarrier`)이 보이는 것: 병합 규칙이 사건 줄과 탐색 줄을 한 에피소드로 묶어 사람에게 가는 것, 의심스러운 통보가 결과를 UNKNOWN 으로
+만들고 겹친 통보 · 다른 실행의 통보는 에피소드에 기록만 되고 모르는 주문은 감시 기록(`UNROUTED`)에만 남는 것, 답보다 먼저 온 통보가 보관됐다가 답 뒤에 세어지는 것, 끝난 에피소드의
+통보가 아무 데도 가지 않고 같은 키의 다음 에피소드에도 가지 않는 것.
 
 ---
 
@@ -989,6 +1186,20 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - 런타임 계정의 `UPDATE`/`DELETE` 권한 회수는 스크립트 주석으로 적어 두고 계획 D 에서 한다. koshei 는 이 표들의 행을 고치거나
   지우지 않는다.
 
+**구현(C1).** 같은 스크립트에 감시자의 표 둘과 색인 하나를 더했다. 표는 셋에서 다섯이 된다.
+- `episode_watch_cursor(source, run_id, position, last_id, at)`, 기본 키 `(source, run_id, position)`, `position > 0`. 감시자의 커서다(§12 구현(C1)).
+  추가 전용 — 나아갈 때마다 행을 하나 더하고, 커서는 자리가 가장 큰 행이다. `WatchStore.advance` 는 지금 자리 + 1 을 넘는 자리(빈틈)와 이미 있는
+  자리의 다른 id 를 거절한다. 빈틈 검사는 잠금 없이 읽고 쓴다 — 한 (원천, run)은 감시자 하나가 옮긴다. 둘이 겨루어도 기본 키가 한 자리의
+  두 id 를 막는다.
+- `episode_watch_log(id bigserial, source, kind, detail jsonb, at)`. 감시 기록이다(종류는 §12 구현(C1)). 스크립트 주석의 종류 목록에는
+  `NOT_READY` 가 빠져 있으나 감시자는 그것도 쓴다. jsonb 가 detail 을 담지 못하면(SQLState 22 계열) `{"unstorable":true}` 로 대신 쓴다 —
+  `episode_event` 의 `RecordUnstorable`(위 알려진 한계)과 달리 기록이 멈추지 않는다.
+- 색인 `episode_event_intent_order`: `DISPATCH_INTENT` 기록의 `payload -> 'candidate' -> 'ref' ->> 'jobOrderId'`(부분 색인). 결과 통보가 주문으로
+  인스턴스를 찾는다(§12). 이미 있는 DB 에서는 이 줄 뒤 첫 시작이 색인을 만들며 그동안 `episode_event` 쓰기를 붙든다 — PoC 규모라 받아들인다.
+- 두 표도 추가 전용이다. 계획 D 의 권한 회수(`UPDATE`/`DELETE`)에 함께 넣는다.
+- 스키마는 워커만이 아니라 **감시자도 시작 때 돌린다**(`EpisodeStore.ensureSchema()`). 멱등이고 advisory lock 으로 차례로 돈다(위). 그래서 워커와
+  감시자가 어느 쪽이 먼저 떠도 된다.
+
 ---
 
 ## 14. 기존 코드와의 충돌과 처리
@@ -1006,6 +1217,25 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | `schema.sql` 재실행 시 `comp_ledger`, `reconciliation_provenance` DROP (`schema.sql:3,52`), `RunStore` 가 행 DELETE (`RunStore.kt:92-94`) | R11 | 에피소드 기록은 별도 스크립트, 추가 전용 |
 | 끄기 스위치가 기능별 환경변수, 재시작 필요 (`AutoCorrectBean.kt:17`, `RunReconciler.kt:60`, `SoakSupervisorBean.kt:15`) | R5, R6 | 정책 표의 데이터 스위치 (§10.4) |
 | 제어면 한 프로세스에 승인·publish·폐기·스케줄러, 인증 없음 | R14 | 정책 편집을 CLI 로 분리, 제어면은 조회·결정 중계만. **인증 부재는 PoC 한계로 명시**, 기록에 `identityAssurance: SELF_ASSERTED` |
+
+**구현(C1).** drift 행: **에피소드 모드(`KOSHEI_PICASSO` ≠ `off`)에서는 drift 가 경보만 한다.** 새 스위치는 없다 — 워커가 이미 읽는
+`KOSHEI_PICASSO` 를 authoring-api 도 같은 해석(`PicassoMode.fromEnv`)으로 읽는다. 판정은 `AutoCorrectGate` 하나가 시작 때 한 번 내리고,
+20초 스케줄(`AutoCorrectBean`)과 단발 경로(`POST /api/autocorrect/sweep`, `AutoCorrectController`)가 그것을 따른다.
+
+| 설정 | 스케줄 | 단발 경로 |
+|---|---|---|
+| `KOSHEI_PICASSO` 가 `off` 거나 없음 | 지금 그대로(`DISABLED=1` 이면 꺼짐, `DISPATCH=1` 이면 디스패치, 아니면 경보만) | 지금 그대로(디스패치) |
+| 에피소드 모드 + `KOSHEI_AUTOCORRECT_DISABLED=1` | 꺼짐 | 409 `EPISODE_MODE` |
+| 에피소드 모드 + `KOSHEI_AUTOCORRECT_DISPATCH` 없음 | 경보만 | 409 `EPISODE_MODE` |
+| 에피소드 모드 + `DISPATCH=1`(+ `DISABLED` 아님) | **시작을 멈춘다** — 둘 중 하나가 조용히 지지 않게 | — |
+| `KOSHEI_PICASSO` 에 모르는 값 | **시작을 멈춘다**(워커와 같은 해석) | — |
+
+- `DISABLED=1` 이 `DISPATCH=1` 을 이긴다. 에피소드 모드에서도 둘 다 서 있으면 꺼짐이고 시작한다.
+- 에피소드 모드의 스케줄은 시작 때 「auto-correct: episode mode — alarm only」를 한 줄 남긴다. 경보는 지금처럼 로그로 간다.
+- 관문 스크립트 `scripts/run-fsm-autocorrect-dispatch-gate.sh` 는 `KOSHEI_PICASSO=off` 를 밝힌다. authoring-api 의 Gradle 작업은 셸의 `KOSHEI_*` 를
+  넘기므로, `KOSHEI_PICASSO=mock` 을 내보낸 셸에서 관문을 돌려도 단발 경로가 409 가 되어 엉뚱하게 실패하지 않는다.
+- drift 를 감시자의 둘째 입력으로 삼는 것(DETECTED 만)은 아직이다. 코어에 증상 종류 `DRIFT` 가 없고, drift 로 연 에피소드의 진단 요청 · 후보
+  투영(§9)을 먼저 설계해야 한다(§16 C1 끝).
 
 ---
 
@@ -1065,6 +1295,26 @@ Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 
 **B3c-2(화면) 끝(2026-10-02).** authoring-ui 에 탭 「07 Episodes」가 섰다: 목록, 상세(운영자 카드 · 결정 넷 · 이력 · 후보 · 기록),
 알림 흐름. e2e(`e2e/episodes.spec.ts`)는 `page.route` 로 흉내 낸 `/api/episodes…` 와 설치된 Google Chrome 으로 돈다.
 실제 백엔드를 띄운 e2e 는 아직 없다.
+
+**C1 끝(2026-10-02).** 계획 C 가운데 바깥 답을 기다리지 않는 것이 섰다: 감시자의 접수와 근거 운반(§12), 병합 키 `correlate`(§7.1, §10.1),
+감시 표 둘(§13), 감시자 프로세스 `:app:watcher`(§4.2), 개발용 나르는 모양 `koshei-carry-0` 과 시험 전용 Mock 담는 쪽(§12), 에피소드 모드에서
+drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열아홉)과 이 문서 커밋이다.
+- `:episode`: `correlate` 와 정책의 `correlation` 검사(`c179700`, `a1e29eb`).
+- `:episode-runtime`: `Bundles` · `ExportSymptoms`(`023db73`, `8d9b5c9`, `2457562`, `3ce8a49`), 감시 표 · `WatchStore`(`c173aac`, `7231da7`),
+  `EpisodeSignals`(`dcd984c`, `49ab4c8`), 접수(`ed3cf25`, `e3410a2`), 근거 운반과 `MockCarrier`(`c585735`, `72304e6`), 끝에서 끝까지 시험
+  (`389181f`, `9fc24b9`).
+- `:authoring-api`: `AutoCorrectGate`(`5f6b191`, `2a4a7c4`). `:app`: 감시자 프로세스(`83f2408`).
+- 시험(`KOSHEI_*` 없이, Testcontainers 와 `TestWorkflowEnvironment` 만): `:episode` 312, `:episode-runtime` 249, `:app` 35, `:authoring-api` 146,
+  모두 통과.
+
+계획 C 에 남은 것:
+- 실물 picasso 승인 창구 클라이언트(§19 C, B). picasso 창구가 schema `3` 으로 올랐다(§19 「schema 3」 행). 그때까지 `KOSHEI_PICASSO` 는 `off`
+  아니면 `mock` 이다.
+- drift 를 감시자의 둘째 입력으로 — 코어에 증상 종류 `DRIFT` 와 drift 로 연 에피소드의 진단 요청 · 후보 투영(§9)이 먼저 필요하다.
+- 결과 통보를 나르는 모양을 담는 쪽과 정하기(§19 C). 지금은 `koshei-carry-0` 이고 `executionId` 를 담는 쪽이 덧붙인다고 가정한다.
+- 제어면의 503 사유(`EpisodeController` 의 「no episode worker has run (KOSHEI_PICASSO)」)는 이제 감시자가 먼저 떠도 풀린다 — 감시자도 표를
+  만든다. 글을 고칠지는 계획 D 에서 본다.
+- 감시 기록(`episode_watch_log`)을 화면에 보이기, 애매한 병합의 서로 참조를 에피소드 기록에 붙이기 — 계획 D.
 
 ---
 
@@ -1134,6 +1384,9 @@ Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 
 - **사람 과업 종류(`CHOOSE_SOURCE`, `OPERATOR_DECISION`)에는 승인 단계가 없다.** 사람이 사람에게 줄 과업을 승인하는 것은 한 겹을 더할
   뿐이다. 과업을 받은 사람이 곧 결정한다.
 - **실행 의도 기록을 사건으로 되먹임.** "기록 없는 조치 없음"을 구동부의 약속이 아니라 전이 표의 성질로 만들어 순수 층에서 시험한다.
+- **에피소드 모드에서는 단발 `POST /api/autocorrect/sweep` 도 409 다 (C1).** §14 는 「자동 디스패치 끔」만 말한다. 단발 경로는 운영자의
+  명시적 행동이지만 늘 디스패치한다. 에피소드 모드에서 열어 두면 에피소드 밖에서 조치가 나가는 두 번째 길이 된다. 그래서 답은 409
+  `EPISODE_MODE` 다. 관문 스크립트는 `KOSHEI_PICASSO=off` 를 밝혀 그대로 돈다(§14 구현(C1)).
 
 ---
 
@@ -1148,12 +1401,14 @@ Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 
 | `PROPOSAL_CHANGED` 를 재진단 목록에 넣을지 — picasso 는 「다시 읽고 다시 시도」를 권한다(§7.3). 판 2 의 거절 값 열다섯은 picasso 코드로 확인했다(`584c6cd`, §8.4) | 사용자 결정 | 그 전까지 ESCALATED(`DISPATCH_REFUSED`) (§8.4 기본 갈래) |
 | 사건 줄 `resolution` 이 붙는 범위 — 「판단이 아직 안 실린 가장 최근 사건」이 판단한 (실행, 단위)의 사건과 늘 같은가 | picasso 에 물음 | `OPERATOR_DECISION` 의 근거로 `resolution` 을 쓰는 것 (§8.4) |
 | `NOT_DECLARED` 를 가르는 선언이 자격 선언과 같은 표인가 | picasso 에 물음 | §8.4 선언 행 |
-| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). 결과 통보의 어느 단위가 이 조치의 대상인가. 주의: 같은 `jobOrderId` 에 대한 뒤의 승인은 picasso 가 `revise()` 로 보내 같은 `executionId` 를 그대로 둔다(picasso `Middleware.kt` ~265) — 평소 동작이라 같은 주문의 둘째 조치는 결과 통보에 잇지 못한다. 또 picasso 의 `jobResponseId`(`resp-N`) · `executionId`(`exec-N`) 는 프로세스 안 셈이라 재시작하면 되풀이된다 — koshei 는 앞 시도가 쓴 `executionId` 가 다시 오면 잇지 않는다(fail-closed). 대상 단위를 잇기 전에 시도별 구분자(주문 판 등)가 필요하다 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
+| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). (C1: 결과 통보 쪽에는 그 칸이 없다 — 아래 「결과 통보의 `executionId`」 행.) 결과 통보의 어느 단위가 이 조치의 대상인가. 주의: 같은 `jobOrderId` 에 대한 뒤의 승인은 picasso 가 `revise()` 로 보내 같은 `executionId` 를 그대로 둔다(picasso `Middleware.kt` ~265) — 평소 동작이라 같은 주문의 둘째 조치는 결과 통보에 잇지 못한다. 또 picasso 의 `jobResponseId`(`resp-N`) · `executionId`(`exec-N`) 는 프로세스 안 셈이라 재시작하면 되풀이된다 — koshei 는 앞 시도가 쓴 `executionId` 가 다시 오면 잇지 않는다(fail-closed). 대상 단위를 잇기 전에 시도별 구분자(주문 판 등)가 필요하다 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
 | khala 변경 여섯: 프롬프트 지문 결함과 `prompt_version`, 브리지 구조화 출력, `answer_context`, `numbers[].found_in`, `corpus_version`, `search_fingerprint` | khala | R9 · R11 판 칸, `UNCITED` 재진단 조정 |
 | 개발용 동시 한도 | khala · narrator | narrator 워커 동시 실행 설정 (벽 순서는 계약 0.5 에서 정해짐) |
 | 고정 예제의 응답 넷 | narrator | §17 계약 시험 |
 | `APPROVE_REMEDY` 자동 승인을 다시 켤 조건 — 셋이 다 서면 사용자가 다시 정한다: ① 점수 매긴 사례에서 깨끗한 권고가 충분한 수로 옳다는 측정, ② 검색 고장(khala `degraded`)을 진단 응답에 싣고 그때는 깨끗하지 않다고 보는 것(계약 판 올림), ③ §19 C·E(담는 쪽, 증분 조회) | narrator 측정 · narrator 계약 · picasso · 사용자 | 정책의 `APPROVE_REMEDY.allowed: true` (v1 은 `false`, §18) |
 | 검색에 쓰지 않는 자료 칸 (권고 모드 전제, khala `answer_context`) | khala | 진단 Mock → 실연결 전환. 그 전에는 실물 호출이 khala 422 → narrator `unreachable`(비재시도) → `DIAGNOSIS_FAILED` 로 끝난다. 배선 시험은 이 실패 길까지는 끝까지 볼 수 있다 |
+| **picasso 승인 창구 schema `3`** (picasso `cf81e02` · `5881e24`, 2026-10-01) — `CONSUMED` 거절과 `consumed` 칸, 이미 실행이 선 주문의 승인 거절이 들어왔다. koshei 는 판 `2` 만 읽으므로(§5.2, §8.4) 실물 답은 모두 `DISPATCH_ANSWER_UNKNOWN` 이다. 판 올림은 §19 B(`CONSUMED` 를 읽을지)의 결정과 함께 한다 | 사용자 결정(B) 뒤 koshei 쪽 판 올림 | 실물 picasso 승인 창구 클라이언트 |
+| **결과 통보의 `executionId`** — picasso `JobResponse` 에는 이 칸이 없다(picasso `Model.kt:310-337`, `8ab5400`, 주문은 `jobOrderId` 뿐). 코어는 이 칸으로 결과 통보를 시도에 잇는다(§12). 담는 쪽이 덧붙일지, picasso 가 실을지 정한다 | picasso · 담는 쪽 (§19 C 와 함께) | 결과 통보를 시도에 잇는 것. 그 전까지 `koshei-carry-0` 은 담는 쪽이 덧붙인다고 가정한다(§12 구현(C1)) |
 
 narrator 쪽 현황(2026-09-28): 진단 워커가 섰다 — 큐 `narrator-tq`, 액티비티 `diagnose`, `python -m diagnose.worker`
 (narrator 커밋 `f71ca2e`). 실물 Temporal 에 붙여 돌린 적은 아직 없다.
@@ -1178,8 +1433,8 @@ narrator 쪽 현황(2026-09-28): 진단 워커가 섰다 — 큐 `narrator-tq`, 
 | # | 무엇 | 그 전까지 |
 |---|---|---|
 | A | 다섯째 후보 — 막는 결함을 감수하고 다음 단위로 갈지. 결과 통보의 `blockedBy` · `operatorRequired`(막힘 자체는 사건을 안 엶), 문은 `Middleware.release(executionId)` 로 프로세스 안에만 있다. 결과 통보를 접수 입력으로 삼을지(C 와 함께)도 여기서 정한다. 사람을 부르지만 문이 없는 경우 — `operatorRequired` 가 참이 되는 나머지(UNVERIFIED · 검증 불일치 · 출발 용기 불일치 · 취소 뒤 정리 실패)와 진행 정체 알림 — 도 같은 자리다. picasso 는 이것들을 NONE 과 같은 모양(누구에게 무엇을 확인시킬지)으로 권한다 | 후보로 내지 않는다. 결과 통보가 접수 입력이 아니므로 koshei 는 막는 결함과 위의 경우들을 보지 못한다 — 담는 쪽이나 라인이 사람을 부른다. 이미 열린 에피소드 안에서 보이면 `ESCALATE` 가 맡는다 |
-| B | picasso 가 제안한 거절 `CONSUMED` — `settle` 이 (기체, 주문)마다 소모 기록(승인자 · 시각 · executionId · 나간 걸음과 값)을 남기고 서 있는 제안이 없을 때 돌려준다. 창구 스키마 판 2 → 3, ADR 44 개정. picasso ADR 9(소비자 존재 원칙)상 koshei 가 실제로 읽겠다고 해야 들어온다. 대가: 기록이 재시작에 진다, 남의 승인자 id 가 인증 없는 창구에서 보인다. **전제:** 「한 (기체, 주문)에 한 승인자 id 로 시도 하나만」이면 소모 기록의 승인자로 「내 요청」을 가를 수 있다. picasso 가 권하는 순서는 값을 먼저 가르고, 그 가정이 안 설 때만 열쇠를 더하는 것이다. **koshei 는 지금 그 가정을 깬다** — `repeatedRemedyThreshold: 2` 라 같은 후보를 두 번 낼 수 있고, POLICY 자동 승인은 모두 같은 AGENT 승인자 id 로 간다 | `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` → UNKNOWN(OUTCOME) |
-| C | 담는 쪽의 자리. picasso 는 picasso 를 세우는 배치 호스트가 실시간 읽기와 승인 쓰기를 둘 다 담기를 권한다(koshei 는 아님). 배치 결정이다. 승인 창구는 루프백에만 붙으므로 **koshei 는 담는 쪽과 같은 기계에서 돌아야 한다.** 반응 시간(담는 쪽의 `pump()` 주기)과 결과 통보를 koshei 에 나르는 모양(A 와 함께)도 여기 딸린다 | 개발용으로만 파일 내보내기 + 감시자. 실물 완료 근거 없음(§12), 모든 실물 에피소드는 UNKNOWN(PRECONDITION)을 지난다(§8.3) |
+| B | picasso 가 제안한 거절 `CONSUMED` — `settle` 이 (기체, 주문)마다 소모 기록(승인자 · 시각 · executionId · 나간 걸음과 값)을 남기고 서 있는 제안이 없을 때 돌려준다. 창구 스키마 판 2 → 3, ADR 44 개정. picasso ADR 9(소비자 존재 원칙)상 koshei 가 실제로 읽겠다고 해야 들어온다. 대가: 기록이 재시작에 진다, 남의 승인자 id 가 인증 없는 창구에서 보인다. **전제:** 「한 (기체, 주문)에 한 승인자 id 로 시도 하나만」이면 소모 기록의 승인자로 「내 요청」을 가를 수 있다. picasso 가 권하는 순서는 값을 먼저 가르고, 그 가정이 안 설 때만 열쇠를 더하는 것이다. **koshei 는 지금 그 가정을 깬다** — `repeatedRemedyThreshold: 2` 라 같은 후보를 두 번 낼 수 있고, POLICY 자동 승인은 모두 같은 AGENT 승인자 id 로 간다. **2026-10-01 메모(C1):** picasso 가 `CONSUMED` 를 이미 냈다(창구 schema `3`, `cf81e02`). 결정은 그대로 사용자의 것이고, 위 기다리는 것 표의 「schema `3`」 행이 막는 항목이다 | `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` → UNKNOWN(OUTCOME) |
+| C | 담는 쪽의 자리. picasso 는 picasso 를 세우는 배치 호스트가 실시간 읽기와 승인 쓰기를 둘 다 담기를 권한다(koshei 는 아님). 배치 결정이다. 승인 창구는 루프백에만 붙으므로 **koshei 는 담는 쪽과 같은 기계에서 돌아야 한다.** 반응 시간(담는 쪽의 `pump()` 주기)과 결과 통보를 koshei 에 나르는 모양(A 와 함께)도 여기 딸린다 | 개발용으로만 파일 내보내기 + 감시자. 실물 완료 근거 없음(§12), 모든 실물 에피소드는 UNKNOWN(PRECONDITION)을 지난다(§8.3). C1: 개발용 나르는 모양 `koshei-carry-0`(담는 쪽이 `executionId` 를 덧붙인다고 가정)과 Mock 담는 쪽 `MockCarrier`(시험 전용)로 근거 경로를 시험한다(§12 구현(C1)) |
 | D | 카드 순서. picasso 의 WITHHELD 는 의도적 비자동화다 — 사람이 안쪽 루프의 진단을 먼저 보면 그것은 진단이 아니라 동의가 된다. picasso 는 안쪽 루프 진단을 적어 두되 사람 진단 뒤에 대조 재료로만 보이기를 권한다. 그런 대조용 진단을 부르고 기록해 둘지, 사람 진단이 기록된 뒤에 보일지가 D 의 일이다 | §9.5 그대로. 다만 스냅샷에 `WITHHELD` 탐색 줄이 있으면 DIAGNOSING 에 들어가는 순간 `diagnose` 를 부르지 않고 ESCALATED(`WITHHELD_HUMAN_FIRST`). 카드는 사실과 `ESCALATE` 과업만 |
 | E | picasso 쪽 변경 후보: ② `resolve` 가 승인자를 받아 AGENT 를 거절하고 누가 눌렀는지 남김(문을 여는 변경과 함께) ③ 보류 단위가 있는 실행의 재할당 막기 ④ 대장의 증분 조회 `after`. (① 은 B) | 셋 다 없다고 보고 짓는다 — `resolve` · `reassign` 을 부르지 않고(§8.4), 실시간 대장 읽기가 없다(§8.3). ③ 전까지 보류 단위의 재할당 빈 곳을 막는 장치는 없다 — koshei 가 부르지 않는 것뿐이다 |
 
