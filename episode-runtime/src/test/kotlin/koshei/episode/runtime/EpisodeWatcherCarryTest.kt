@@ -60,8 +60,11 @@ class EpisodeWatcherCarryTest {
     @Test fun `a broken line stops the carry there`() {
         carrier.report("resp-1", "PATROL-1", "exec-2").raw("""{"jobResponseId":"resp-2","jobOrderId":"PATROL-1","inDoubtUnits":"u"}""")
             .report("resp-3", "PATROL-1", "exec-2").snapshot()
-        assertEquals(1, watcher().pollOnce().evidence)
-        assertEquals(1, watch.logs(10).count { it.kind == "BROKEN" })
+        val w = watcher()
+        assertEquals(1, w.pollOnce().evidence)
+        assertEquals(0, w.pollOnce().evidence, "the broken line still stops it")
+        assertEquals(1, watch.logs(10).count { it.kind == "BROKEN" }, "said once")
+        assertEquals(2, signals.evidence.size, "resp-1 to both episodes; resp-3 never sent")
     }
 
     @Test fun `a carry of an unknown shape is not read`() {
@@ -88,5 +91,20 @@ class EpisodeWatcherCarryTest {
         assertEquals(1, watch.logs(10).count { it.kind == "SIGNAL_FAILED" }, "keyed by kind of failure, not by its text")
         assertEquals(1, watcher().pollOnce().evidence, "only resp-2 is sent again")
         assertEquals(listOf("resp-1", "resp-1", "resp-2", "resp-2"), signals.evidence.map { it.second.jobResponseId })
+    }
+
+    @Test fun `a failure partway through one line's episodes sends the whole line again - at least once`() {
+        carrier.report("resp-1", "PATROL-1", "exec-2").snapshot()
+        val failing = object : EpisodeSignals {
+            override fun open(workflowId: String, start: EpisodeStart, symptom: SymptomSignal): String = error("not used")
+            override fun evidence(instanceId: String, signal: EvidenceSignal): Boolean {
+                if (instanceId == "ep:b/r2" && signal.jobResponseId == "resp-1") throw IllegalStateException("temporal down")
+                return signals.evidence(instanceId, signal)
+            }
+        }
+        assertEquals(0, watcher(failing).pollOnce().evidence, "the line is not carried until every episode took it")
+        assertEquals(1, watch.logs(10).count { it.kind == "SIGNAL_FAILED" })
+        assertEquals(1, watcher().pollOnce().evidence)
+        assertEquals(listOf("ep:a/r1", "ep:a/r1", "ep:b/r2"), signals.evidence.map { it.first }, "ep:a/r1 got resp-1 twice; the core drops the second")
     }
 }

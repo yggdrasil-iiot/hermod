@@ -23,44 +23,48 @@ object CarriedEvidence {
     fun of(node: JsonNode, receivedAtMillis: Long): Line {
         val id = node.get("jobResponseId")?.takeIf { it.isTextual && it.textValue().isNotBlank() }?.textValue()
             ?: return Line.Broken("no jobResponseId")
-        fun text(f: String): Result<String?> = node.get(f).let { v ->
+        // Each field reader returns null for absent or JSON null ("not reported") and throws [WrongShape] otherwise.
+        fun text(f: String): String? = node.get(f).let { v ->
             when {
-                v == null || v.isNull -> Result.success(null)
-                v.isTextual -> Result.success(v.textValue())
-                else -> Result.failure(IllegalArgumentException("$f is not text"))
+                v == null || v.isNull -> null
+                v.isTextual -> v.textValue()
+                else -> throw WrongShape("$f is not text")
             }
         }
-        fun units(f: String): Result<List<String>?> = node.get(f).let { v ->
+        fun units(f: String): List<String>? = node.get(f).let { v ->
             when {
-                v == null || v.isNull -> Result.success(null)
-                v.isArray && v.all { it.isTextual } -> Result.success(v.map { it.textValue() })
-                else -> Result.failure(IllegalArgumentException("$f is not a list of text"))
+                v == null || v.isNull -> null
+                v.isArray && v.all { it.isTextual } -> v.map { it.textValue() }
+                else -> throw WrongShape("$f is not a list of text")
             }
         }
-        val operatorRequired = node.get("operatorRequired").let { v ->
+        fun flag(f: String): Boolean? = node.get(f).let { v ->
             when {
                 v == null || v.isNull -> null
                 v.isBoolean -> v.booleanValue()
-                else -> return Line.Broken("$id: operatorRequired is not true or false")
+                else -> throw WrongShape("$f is not true or false")
             }
         }
         val signal = try {
             EvidenceSignal(
                 jobResponseId = id,
-                executionId = text("executionId").getOrThrow(),
-                physicalState = text("physicalState").getOrThrow(),
-                reachedEvidence = text("reachedEvidence").getOrThrow(),
-                completedUnits = units("completedUnits").getOrThrow(),
-                inDoubtUnits = units("inDoubtUnits").getOrThrow(),
-                unverifiedUnits = units("unverifiedUnits").getOrThrow(),
-                operatorRequired = operatorRequired,
+                executionId = text("executionId"),
+                physicalState = text("physicalState"),
+                reachedEvidence = text("reachedEvidence"),
+                completedUnits = units("completedUnits"),
+                inDoubtUnits = units("inDoubtUnits"),
+                unverifiedUnits = units("unverifiedUnits"),
+                operatorRequired = flag("operatorRequired"),
                 receivedAtMillis = receivedAtMillis,
             )
-        } catch (e: IllegalArgumentException) {
+        } catch (e: WrongShape) {
             return Line.Broken("$id: ${e.message}")
         }
         val order = node.get("jobOrderId")?.takeIf { it.isTextual && it.textValue().isNotBlank() }?.textValue()
             ?: return Line.Unrouted(id)
         return Line.Routed(order, signal)
     }
+
+    /** A field of a shape this reader does not know. */
+    private class WrongShape(why: String) : Exception(why, null, false, false)
 }

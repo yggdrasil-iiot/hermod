@@ -152,11 +152,15 @@ class EpisodeWatcher(
         for (line in lines.drop(from)) {
             when (val e = CarriedEvidence.of(line.node, clock().toEpochMilli())) {
                 is CarriedEvidence.Line.Broken -> { once(source, "BROKEN", "runId" to bundle.runId, "position" to line.position, "why" to e.why); break }
-                is CarriedEvidence.Line.Unrouted -> log(source, "UNROUTED", "jobResponseId" to e.jobResponseId, "why" to "no jobOrderId")
+                is CarriedEvidence.Line.Unrouted -> once(source, "UNROUTED", "jobResponseId" to e.jobResponseId,
+                    "why" to "no jobOrderId (absent, blank or not text)", key = "${bundle.runId}|${line.position}")
                 is CarriedEvidence.Line.Routed -> {
+                    // Ended instances stay in this list for good: each later report for the order costs one describe per
+                    // ended instance and one ROUTE_ENDED row. Acceptable at PoC scale.
                     val instances = store.instancesForOrder(e.jobOrderId)
                     if (instances.isEmpty())
-                        log(source, "UNROUTED", "jobResponseId" to e.signal.jobResponseId, "jobOrderId" to e.jobOrderId, "why" to "no remedy intent named this order")
+                        once(source, "UNROUTED", "jobResponseId" to e.signal.jobResponseId, "jobOrderId" to e.jobOrderId,
+                            "why" to "no remedy intent named this order", key = "${bundle.runId}|${line.position}")
                     for (instanceId in instances) {
                         val delivered = try {
                             signals.evidence(instanceId, e.signal)
@@ -164,7 +168,8 @@ class EpisodeWatcher(
                             signalFailed(source, x)
                             return Carried(carried, stopped = true)
                         }
-                        if (!delivered) log(source, "ROUTE_ENDED", "jobResponseId" to e.signal.jobResponseId, "instanceId" to instanceId)
+                        if (!delivered) once(source, "ROUTE_ENDED", "jobResponseId" to e.signal.jobResponseId, "instanceId" to instanceId,
+                            key = "${bundle.runId}|${line.position}|$instanceId")   // a line sent again after a failure logs it once
                     }
                 }
             }
