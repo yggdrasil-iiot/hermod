@@ -44,15 +44,15 @@ class EpisodeWatcher(
         var opened = 0
         for (dir in exports) {
             val intake = intake(stable(dir), rules)
-            opened += intake.opened
+            opened += intake.count
             if (intake.stopped) return PollReport(opened, 0)
         }
-        val evidence = carry?.let { carryIn(stable(it)) ?: return PollReport(opened, 0) } ?: 0
+        val evidence = carry?.let { carryIn(stable(it)).count } ?: 0   // the carry is last: a stop there ends the pass anyway
         return PollReport(opened, evidence)
     }
 
-    /** [opened] lines Temporal took from one directory; [stopped] when a signal failed and the pass must stop. */
-    private class Intake(val opened: Int, val stopped: Boolean)
+    /** [count] lines carried from one directory; [stopped] when a signal failed and the pass must stop. */
+    private class Carried(val count: Int, val stopped: Boolean)
 
     /** The directory's real path; while it cannot be resolved (not there yet), its absolute normal form. */
     private fun stable(dir: Path): Path = try {
@@ -62,11 +62,11 @@ class EpisodeWatcher(
     }
 
     /** Carries [dir]'s new lines in; the lines sent before a failed signal count, and stay carried. */
-    private fun intake(dir: Path, rules: List<CorrelationRule>): Intake {
+    private fun intake(dir: Path, rules: List<CorrelationRule>): Carried {
         val export = when (val r = ExportSymptoms.read(dir)) {
             is BundleRead.Ready -> r
-            is BundleRead.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return Intake(0, stopped = false) }
-            is BundleRead.Broken -> { once("$dir", "BROKEN", "why" to r.why); return Intake(0, stopped = false) }
+            is BundleRead.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return Carried(0, stopped = false) }
+            is BundleRead.Broken -> { once("$dir", "BROKEN", "why" to r.why); return Carried(0, stopped = false) }
         }
         var opened = 0
         for (kind in ExportKind.entries) {
@@ -90,13 +90,13 @@ class EpisodeWatcher(
                     signals.open("ep:${correlation.key}", EpisodeStart(export.manifestJson), symptom)
                 } catch (e: RuntimeException) {
                     signalFailed(source, e)
-                    return Intake(opened, stopped = true)
+                    return Carried(opened, stopped = true)
                 }
                 store.advance(source, export.runId, line.position, line.id)
                 opened++
             }
         }
-        return Intake(opened, stopped = false)
+        return Carried(opened, stopped = false)
     }
 
     /**
@@ -134,8 +134,45 @@ class EpisodeWatcher(
         null
     }
 
-    /** The carry half — Task 7. */
-    private fun carryIn(dir: Path): Int? = 0
+    /**
+     * Carries [dir]'s new JobResponse lines to every episode instance whose remedy intent named the line's order — the
+     * core picks the attempt by `executionId` (§12). A line read but with nowhere to go is logged (UNROUTED) and counts
+     * as carried. The lines sent before a failed signal count, and stay carried.
+     */
+    private fun carryIn(dir: Path): Carried {
+        val bundle = when (val r = Bundles.read(dir, "carryRunId", CarriedEvidence.SCHEMA_VERSIONS, listOf(CarriedEvidence.FILE), uniqueIds = false)) {
+            is BundleRead.Ready -> r
+            is BundleRead.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return Carried(0, stopped = false) }
+            is BundleRead.Broken -> { once("$dir", "BROKEN", "why" to r.why); return Carried(0, stopped = false) }
+        }
+        val source = "$dir#${CarriedEvidence.FILE.name}"
+        val lines = bundle.lines.getValue(CarriedEvidence.FILE.name)
+        val from = resume(source, bundle.runId, lines) ?: return Carried(0, stopped = false)
+        var carried = 0
+        for (line in lines.drop(from)) {
+            when (val e = CarriedEvidence.of(line.node, clock().toEpochMilli())) {
+                is CarriedEvidence.Line.Broken -> { once(source, "BROKEN", "runId" to bundle.runId, "position" to line.position, "why" to e.why); break }
+                is CarriedEvidence.Line.Unrouted -> log(source, "UNROUTED", "jobResponseId" to e.jobResponseId, "why" to "no jobOrderId")
+                is CarriedEvidence.Line.Routed -> {
+                    val instances = store.instancesForOrder(e.jobOrderId)
+                    if (instances.isEmpty())
+                        log(source, "UNROUTED", "jobResponseId" to e.signal.jobResponseId, "jobOrderId" to e.jobOrderId, "why" to "no remedy intent named this order")
+                    for (instanceId in instances) {
+                        val delivered = try {
+                            signals.evidence(instanceId, e.signal)
+                        } catch (x: RuntimeException) {
+                            signalFailed(source, x)
+                            return Carried(carried, stopped = true)
+                        }
+                        if (!delivered) log(source, "ROUTE_ENDED", "jobResponseId" to e.signal.jobResponseId, "instanceId" to instanceId)
+                    }
+                }
+            }
+            store.advance(source, bundle.runId, line.position, line.id)
+            carried++
+        }
+        return Carried(carried, stopped = false)
+    }
 
     /**
      * SIGNAL_FAILED once per kind of failure — the exception's class and, when Temporal's gRPC call failed, its status
