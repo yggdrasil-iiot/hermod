@@ -63,6 +63,13 @@ class PolicyTest {
         }
     }
 
+    @Test fun `correlation errors carry the exact path and message`() {
+        val unknownKind = Policies.errors { set<JsonNode>("correlation", rules("""[{"kinds":["DRIFT"],"by":["robotId"]}]""")) }
+        assertTrue("correlation[0].kinds: unknown kind 'DRIFT'" in unknownKind, "$unknownKind")
+        val badField = Policies.errors { set<JsonNode>("correlation", rules("""[{"kinds":["SEARCH"],"by":["robot-id"]}]""")) }
+        assertTrue("correlation[0].by: 'robot-id' is not a field name" in badField, "$badField")
+    }
+
     @Test fun `expiresAt reads an ISO instant and rejects anything else`() {
         assertEquals(Instant.parse("2026-12-31T00:00:00Z"), Policies.valid { put("expiresAt", "2026-12-31T00:00:00Z") }.expiresAt)
         Policies.errors { put("expiresAt", "next week") }.has("expiresAt: expected an ISO-8601 instant or null")

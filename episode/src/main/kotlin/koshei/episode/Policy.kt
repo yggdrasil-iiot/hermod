@@ -255,7 +255,10 @@ private class PolicyReader {
             if (by.toSet().size != by.size) errors += "$path.by: a field is repeated"
         }
         if (errors.size != before || kinds == null || by == null) return null
-        return CorrelationRule(kinds.map { SymptomKind.valueOf(it) }.toSet(), by)
+        return CorrelationRule(
+            java.util.Collections.unmodifiableSet(LinkedHashSet(kinds.map { SymptomKind.valueOf(it) })),
+            java.util.Collections.unmodifiableList(ArrayList(by)),
+        )
     }
 
     fun listOrEmpty(parent: JsonNode, key: String, path: String): List<JsonNode>? {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class CorrelationTest {
@@ -63,6 +64,44 @@ class CorrelationTest {
             Correlation.Merged("$run:by:robotId:hum-02:jobOrderId:PATROL-1"),
             correlate(SymptomKind.SEARCH, search1, run, "search-1", listOf(byRobotOrder, again)),
         )
+    }
+
+    @Test fun `of three rules two give one key - the ambiguity lists exactly two keys in first-seen order`() {
+        val byRobot = CorrelationRule(setOf(SymptomKind.SEARCH), listOf("robotId"))
+        val again = CorrelationRule(setOf(SymptomKind.SEARCH), listOf("robotId", "jobOrderId"))
+        assertEquals(
+            Correlation.Own("$run:search-1", listOf("$run:by:robotId:hum-02:jobOrderId:PATROL-1", "$run:by:robotId:hum-02")),
+            correlate(SymptomKind.SEARCH, search1, run, "search-1", listOf(byRobotOrder, again, byRobot)),
+        )
+    }
+
+    @Test fun `the order of the cross-references follows the order of the rules`() {
+        val byRobot = CorrelationRule(setOf(SymptomKind.SEARCH), listOf("robotId"))
+        val byOrder = CorrelationRule(setOf(SymptomKind.SEARCH), listOf("jobOrderId"))
+        assertEquals(
+            Correlation.Own("$run:search-1", listOf("$run:by:jobOrderId:PATROL-1", "$run:by:robotId:hum-02")),
+            correlate(SymptomKind.SEARCH, search1, run, "search-1", listOf(byOrder, byRobot)),
+        )
+    }
+
+    @Test fun `the 64-character boundary - an id of 65 is null, a field value of 65 leaves the rule out`() {
+        val id64 = "a".repeat(64)
+        assertEquals(Correlation.Own("$run:$id64", emptyList()), correlate(SymptomKind.SEARCH, search1, run, id64, emptyList()))
+        assertNull(correlate(SymptomKind.SEARCH, search1, run, "a".repeat(65), emptyList()))
+        val value64 = line("""{"searchId":"s","robotId":"hum-02","jobOrderId":"${"a".repeat(64)}"}""")
+        val value65 = line("""{"searchId":"s","robotId":"hum-02","jobOrderId":"${"a".repeat(65)}"}""")
+        assertEquals(Correlation.Merged("$run:by:robotId:hum-02:jobOrderId:${"a".repeat(64)}"), correlate(SymptomKind.SEARCH, value64, run, "s", listOf(byRobotOrder)))
+        assertEquals(Correlation.Own("$run:s", emptyList()), correlate(SymptomKind.SEARCH, value65, run, "s", listOf(byRobotOrder)))
+    }
+
+    @Test fun `a rule built directly must be well-formed - an empty by would merge every symptom`() {
+        listOf<() -> Any>(
+            { CorrelationRule(emptySet(), listOf("robotId")) },
+            { CorrelationRule(setOf(SymptomKind.SEARCH), emptyList()) },
+            { CorrelationRule(setOf(SymptomKind.SEARCH), listOf("a", "b", "c", "d", "e")) },
+            { CorrelationRule(setOf(SymptomKind.SEARCH), listOf("robot-id")) },
+            { CorrelationRule(setOf(SymptomKind.SEARCH), listOf("robotId", "robotId")) },
+        ).forEach { build -> assertFailsWith<IllegalArgumentException> { build() } }
     }
 
     @Test fun `an own key outside the charset is null - the watcher stops, it does not guess`() {

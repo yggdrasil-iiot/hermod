@@ -6,7 +6,15 @@ import com.fasterxml.jackson.databind.JsonNode
  * One merge rule (design §10.1, §12): symptoms of [kinds] whose lines carry every field of [by] with the same values
  * belong to one episode. A rule never guesses — a missing, non-text or unsafe value means it does not apply.
  */
-data class CorrelationRule(val kinds: Set<SymptomKind>, val by: List<String>)
+data class CorrelationRule(val kinds: Set<SymptomKind>, val by: List<String>) {
+    init {
+        // The same shape the policy parser enforces: a rule with no fields would give the key `<runId>:by` and merge everything.
+        require(kinds.isNotEmpty()) { "a correlation rule names at least one kind" }
+        require(by.size in 1..RULE_MAX_FIELDS) { "a correlation rule names 1 to $RULE_MAX_FIELDS fields, was ${by.size}" }
+        require(by.all { RULE_FIELD.matches(it) }) { "a correlation rule field is not a field name: $by" }
+        require(by.toSet().size == by.size) { "a correlation rule repeats a field: $by" }
+    }
+}
 
 /** What [correlate] decided. The workflow id is `ep:<key>` (design §7.1). */
 sealed interface Correlation {
