@@ -1060,6 +1060,10 @@ Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 
 - 실물 picasso 승인 창구 클라이언트 — 그대로 §19 C 뒤.
 - B3c-2 — 화면. 위 경로와 알림 흐름을 읽어 카드를 그리고 결정을 보낸다.
 
+**B3c-2(화면) 끝(2026-10-02).** authoring-ui 에 탭 「07 Episodes」가 섰다: 목록, 상세(운영자 카드 · 결정 넷 · 이력 · 후보 · 기록),
+알림 흐름. e2e(`e2e/episodes.spec.ts`)는 `page.route` 로 흉내 낸 `/api/episodes…` 와 설치된 Google Chrome 으로 돈다.
+실제 백엔드를 띄운 e2e 는 아직 없다.
+
 ---
 
 ## 17. 시험 전략
