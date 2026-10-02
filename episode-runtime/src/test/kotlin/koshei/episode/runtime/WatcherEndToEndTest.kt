@@ -15,13 +15,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** The Mock window, held at `approve` until [gate] opens: the episode stays DISPATCHED meanwhile. [asked] opens when it is reached. */
+/**
+ * The Mock window, held at `approve` until [gate] opens: the episode stays DISPATCHED meanwhile. [asked] opens when it is
+ * reached. A gate that stays shut for 30 s fails the call rather than letting it through unnoticed.
+ */
 private class GatedWindow(private val inner: ApprovalWindow, val gate: CountDownLatch) : ApprovalWindow {
     val asked = CountDownLatch(1)
     override fun revalidate(candidateJson: String): String = inner.revalidate(candidateJson)
     override fun approve(intent: JsonNode, approverKind: String?): String {
         asked.countDown()
-        gate.await(30, TimeUnit.SECONDS)
+        check(gate.await(30, TimeUnit.SECONDS)) { "test: the gate was never opened" }
         return inner.approve(intent, approverKind)
     }
 }
@@ -133,6 +136,9 @@ class WatcherEndToEndTest {
             ),
             events.evidence(),
         )
+        val transition = events.single { it.kind == "TRANSITION" && it.json().path("to").asText() == "UNKNOWN_OUTCOME" }.json()
+        assertEquals("AWAITING_EVIDENCE", transition.path("from").asText(), "$transition")
+        assertEquals("JobResponse resp-1 in doubt", transition.path("detail").asText(), "the doubtful report is the cause: $transition")
         val unrouted = logs("UNROUTED")
         assertEquals(1, unrouted.size, "$unrouted")
         assertTrue("resp-3" in unrouted.single().detailJson && "NOPE" in unrouted.single().detailJson, unrouted.single().detailJson)
@@ -154,12 +160,15 @@ class WatcherEndToEndTest {
             ep.decide(DecideRequest(waiting.proposalId!!, waiting.candidatesVersion!!, true, "op-1"))
             // While the gate is closed, wall clock only: advancing test time past dispatchMs would end the dispatch as
             // Uncertain and reach UNKNOWN_OUTCOME for the wrong reason.
-            assertTrue(window.asked.await(20, TimeUnit.SECONDS), "picasso was asked")
-            eventually(describe = { "view ${ep.view()}" }) { ep.view().takeIf { it.phase == "DISPATCHED" } }
+            // Each wait is 8 s at most, so all of them end well inside the gate's 30 s.
+            assertTrue(window.asked.await(8, TimeUnit.SECONDS), "picasso was asked")
+            eventually(seconds = 8, describe = { "view ${ep.view()}" }) { ep.view().takeIf { it.phase == "DISPATCHED" } }
             carrier.report("resp-1", "PATROL-1", "mock-exec-1", inDoubtUnits = listOf("u-1")).snapshot()
             assertEquals(1, w.pollOnce().evidence)
             assertEquals(emptyList(), logs("UNROUTED"), "the intent is stored before picasso is asked, so the order finds it (§12)")
-            stored(instanceId) { r -> r.evidence().any { it == Triple("resp-1", "kept until the answer", false) } }
+            eventually(seconds = 8, describe = { "events ${store.events(instanceId).map { it.kind }}" }) {
+                store.events(instanceId).takeIf { r -> r.evidence().any { it == Triple("resp-1", "kept until the answer", false) } }
+            }
             assertEquals("DISPATCHED", ep.view().phase)
         } finally {
             window.gate.countDown()
@@ -192,15 +201,19 @@ class WatcherEndToEndTest {
         assertTrue("resp-9" in ended.single().detailJson && first in ended.single().detailJson, ended.single().detailJson)
 
         // The next episode on the same workflow id, before any decision: policy v1 gives it no intent yet.
-        TemporalEpisodeSignals(client).open("ep:run-A:search-1", EpisodeStart(Picasso.manifest), searchSignal("search-2"))
-        val next = episode("ep:run-A:search-1").until(e) { it.instanceId != first && it.phase != "OPENING" }.instanceId
+        val nextRun = TemporalEpisodeSignals(client).open("ep:run-A:search-1", EpisodeStart(Picasso.manifest), searchSignal("search-2"))
+        assertTrue(nextRun != first.substringAfterLast('/'), "a new run")
+        episode("ep:run-A:search-1").until(e) { it.instanceId != first && it.phase != "OPENING" }
         carrier.report("resp-10", "PATROL-1", "mock-exec-1").snapshot()
         assertEquals(1, w.pollOnce().evidence)
         val endedAgain = logs("ROUTE_ENDED")
         assertEquals(2, endedAgain.size, "$endedAgain")
         assertTrue("resp-10" in endedAgain.first().detailJson && first in endedAgain.first().detailJson, endedAgain.first().detailJson)
-        val records = stored(next) { r -> r.isNotEmpty() }
-        assertEquals(emptyList(), records.filter { it.kind == "EVIDENCE" }, "the earlier instance's reports stay out: ${records.map { it.kind }}")
+        // The run's history does not lag as the records may: no evidence signal ever reached the successor's run.
+        val signaled = client.fetchHistory("ep:run-A:search-1", nextRun).events
+            .filter { it.hasWorkflowExecutionSignaledEventAttributes() }.map { it.workflowExecutionSignaledEventAttributes.signalName }
+        assertTrue("symptom" in signaled, "the history is the successor's: $signaled")
+        assertTrue("evidence" !in signaled, "the earlier instance's reports stay out: $signaled")
         assertEquals(emptyList(), logs("UNROUTED"))
     }
 }
