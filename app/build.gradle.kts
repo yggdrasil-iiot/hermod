@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":delegation"))   // conformance: DelegationPolicy/DelegationPolicyValidator
     implementation(project(":episode-runtime"))   // the episode outer loop's worker (design §4.1)
     implementation(libs.temporal.sdk)
+    implementation(libs.jackson.kotlin)   // episode CLI reads the picasso export's manifest and lines
     implementation(libs.slf4j.simple)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
