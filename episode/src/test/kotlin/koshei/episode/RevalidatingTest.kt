@@ -136,6 +136,14 @@ class RevalidatingTest {
         }
     }
 
+    @Test fun `a stale card is refused as stale before its missing proposition is looked at`() {
+        val u = unknown()
+        val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#0", holds = true, by = OPERATOR, proposition = null), u.state.enteredAt.plusSeconds(10))
+        assertEquals(Reply.REFUSED_STALE, s.reply)
+        assertEquals(Phase.UNKNOWN_PRECONDITION, s.state.phase)
+        assertEquals("stale confirmation: $INSTANCE#0", s.records(RecordKind.IGNORED).single().entry.payload.get("why").textValue())
+    }
+
     @Test fun `a precondition confirmed not to hold needs no proposition`() {
         val u = unknown()
         val s = u.on(EpisodeEvent.ConfirmedPrecondition(REMEDY, "$INSTANCE#1", holds = false, by = OPERATOR, proposition = null), u.state.enteredAt.plusSeconds(10))

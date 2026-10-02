@@ -29,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
 import org.springframework.http.MediaType.APPLICATION_JSON
+import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
@@ -37,6 +38,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.sql.SQLException
 import java.sql.SQLTransientConnectionException
 import java.time.Instant
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 private fun <T> anyNonNull(): T { ArgumentMatchers.any<T>(); @Suppress("UNCHECKED_CAST") return null as T }
@@ -148,7 +150,8 @@ class EpisodeControllerTest {
         mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isGatewayTimeout)
             .andExpect(jsonPath("$.error").value("EPISODE_TIMEOUT")).andExpect(jsonPath("$.outcome").value("UNKNOWN"))
             .andExpect(jsonPath("$.instanceId").value(id))
-        answer(WorkflowQueryException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", StatusRuntimeException(Status.DEADLINE_EXCEEDED)))
+        // A cause that no other handler maps, so only the query-failure handler can make this a 503.
+        answer(WorkflowQueryException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", RuntimeException("query failed")))
         mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isServiceUnavailable)
         answer(WorkflowServiceException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", StatusRuntimeException(Status.UNAVAILABLE)))
         mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isServiceUnavailable)
@@ -213,6 +216,40 @@ class EpisodeControllerTest {
         given(reader.noticeRows(id)).willReturn(emptyList())
         mvc.perform(get("/api/episodes/ep:a/r1")).andExpect(status().isOk)
             .andExpect(jsonPath("$.view").doesNotExist()).andExpect(jsonPath("$.events[0].kind").value("OPENED"))
+    }
+
+    @Test fun `when Temporal does not answer and nothing is recorded, the detail says why rather than not found`() {
+        given(gateway.view(id)).willThrow(StatusRuntimeException(Status.UNAVAILABLE))
+        given(reader.events(id)).willReturn(emptyList())
+        given(reader.noticeRows(id)).willReturn(emptyList())
+        mvc.perform(get("/api/episodes/ep:a/r1")).andExpect(status().isOk)
+            .andExpect(jsonPath("$.view").doesNotExist()).andExpect(jsonPath("$.viewError").exists())
+    }
+
+    @Test fun `an instance with notices but no events is found`() {
+        given(gateway.view(id)).willReturn(null)
+        given(reader.events(id)).willReturn(emptyList())
+        given(reader.noticeRows(id)).willReturn(listOf(StoredNotice(3, id, """{"kind":"RECORD_LAG"}""", t)))
+        mvc.perform(get("/api/episodes/ep:a/r1")).andExpect(status().isOk)
+            .andExpect(jsonPath("$.notices[0].notice.kind").value("RECORD_LAG"))
+    }
+
+    @Test fun `a chunked body - no declared length - over 64 KiB is refused too`() {
+        val controller = EpisodeController(gateway, reader)
+        val chunked = object : MockHttpServletRequest("POST", "/api/episodes/ep:a/r1/decide") {
+            override fun getContentLengthLong(): Long = -1
+            override fun getContentLength(): Int = -1
+        }
+        chunked.setContent("""{"proposalId":"p","sawCandidatesVersion":"v","approve":true,"note":"${"x".repeat(64 * 1024)}"}""".toByteArray())
+        assertEquals(-1L, chunked.contentLengthLong)
+        val e = assertThrows<RuntimeException> { controller.read(chunked, DecideBody::class.java) }
+        assertEquals("request body over 65536 bytes", e.message)
+        val small = object : MockHttpServletRequest("POST", "/api/episodes/ep:a/r1/decide") {
+            override fun getContentLengthLong(): Long = -1
+            override fun getContentLength(): Int = -1
+        }
+        small.setContent("""{"proposalId":"p","sawCandidatesVersion":"v","approve":true}""".toByteArray())
+        assertEquals(DecideBody("p", "v", true), controller.read(small, DecideBody::class.java))
     }
 
     @Test fun `an unknown run of a known workflow is not found`() {

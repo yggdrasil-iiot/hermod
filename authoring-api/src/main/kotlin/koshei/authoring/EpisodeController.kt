@@ -190,7 +190,7 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
     }
 
     /** The body, at most [MAX_BODY_BYTES] of it (a declared length over that is refused unread), as one strict JSON object. */
-    private fun <T> read(request: HttpServletRequest, type: Class<T>): T {
+    internal fun <T> read(request: HttpServletRequest, type: Class<T>): T {
         if (request.contentLengthLong > MAX_BODY_BYTES) throw EpisodeBodyTooLarge()
         val bytes = request.inputStream.readNBytes(MAX_BODY_BYTES + 1)
         if (bytes.size > MAX_BODY_BYTES) throw EpisodeBodyTooLarge()
