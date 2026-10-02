@@ -363,7 +363,7 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 | 입력 | 형태 | 보내는 쪽 |
 |---|---|---|
 | 승인·거절 `decide` | **Update**. validator: 해독·형식만. handler: 현재 상태가 AWAITING_APPROVAL 이 아니면 `REFUSED_NOT_AWAITING`, 제안 id·후보 판이 다르면 `REFUSED_STALE` 를 **값으로** 반환 | 제어면 (사람) |
-| 현물 확인 `confirm(subject, result)` | Update, PERSON 만. 받는 subject: UNKNOWN 상태의 대상, `unknowns` 의 항목, **AWAITING_EVIDENCE 에서 실행한 대상**(결과 `DONE \| NOT_DONE` → `ConfirmedOutcome`, 사람 과업 종류가 끝나는 길, §5.2). 셋 어디에도 없으면 `REFUSED_SUBJECT_NOT_UNKNOWN`. ESCALATED 에서도 `REFUSED_SUBJECT_NOT_UNKNOWN` 으로 답한다(새 값을 만들지 않고 그대로 쓴다). UNKNOWN(PRECONDITION) 의 `holds` 는 카드가 보인 명제(§8.3)를 확인한 것으로 기록한다 | 제어면 |
+| 현물 확인 `confirm(subject, result)` | Update, PERSON 만. 받는 subject: UNKNOWN 상태의 대상, `unknowns` 의 항목, **AWAITING_EVIDENCE 에서 실행한 대상**(결과 `DONE \| NOT_DONE` → `ConfirmedOutcome`, 사람 과업 종류가 끝나는 길, §5.2). 셋 어디에도 없으면 `REFUSED_SUBJECT_NOT_UNKNOWN`. ESCALATED 에서도 `REFUSED_SUBJECT_NOT_UNKNOWN` 으로 답한다(새 값을 만들지 않고 그대로 쓴다). UNKNOWN(PRECONDITION) 의 `holds` 는 카드가 보인 명제(§8.3)를 확인한 것으로 기록한다. 명제 없이 「맞음」이 오면 `REFUSED_NO_PROPOSITION`(B3c) | 제어면 |
 | 인수 `takeover` | Update. **진행 중에도 먹는다**: 대기점은 조건에 포함, 진단 중이면 액티비티 취소 | 제어면 |
 | 종료 `close(outcome)` | Update, ESCALATED 에서만 | 제어면 |
 | 완료 근거 `evidence` | signal, `eventId` 로 중복 제거 | 감시자 |
@@ -377,9 +377,79 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 - **승인자 신원**: 요청 헤더 `X-Koshei-Operator` 의 값을 싣고, 기록에 `identityAssurance: SELF_ASSERTED` 를 함께 남긴다. 인증이 없는
   PoC 한계를 감사 기록에도 드러내기 위해서다(picasso 승인 창구도 같은 한계를 스스로 적어 둔다).
 
+**구현(B3c).** 제어면은 `:authoring-api` 의 `EpisodeController` 와 `EpisodeGateway` 다. 읽고 나르기만 하고 판정하지 않는다.
+- 경로: 인스턴스 id `<workflowId>/<run>` 을 경로의 두 마디로 쓴다 — `GET /api/episodes/{workflowId}/{run}`,
+  `POST /api/episodes/{workflowId}/{run}/decide|confirm|takeover|close`. 여기서 `{run}` 은 인스턴스 id 의 뒷부분일 뿐 run id 로 쓰지
+  않는다(§7.1). 워크플로 id 는 `ep:<key>` 이고 key 는 `[A-Za-z0-9._:-]+` 다 — 한 마디에 들어가야 하므로 `/` · `;` · `%` · `?` 가
+  없다. 지금은 개발용 CLI(아래)가 이것을 지키고, 계획 C 에서 감시자가 지킨다. 제어면은 따로 검사하지 않는다.
+- 신원은 머리글 `X-Koshei-Operator` 에서만 온다. 앞뒤 공백을 떼고, 없거나 비었거나 128자를 넘으면 400 이다.
+- 본문은 Spring 의 매퍼(모르는 칸을 그냥 넘긴다)가 아니라 엄격한 매퍼로 읽는다. 모르는 칸(본문의 `operatorId` · `proposition`
+  포함), 두 번 나온 키, 객체 뒤에 남은 토큰, 깃발 자리의 숫자나 글자(불로 바꿔 읽지 않는다)는 모두 400 이다. `decide` 의
+  `approve` 와 `confirm` 의 `holds` 는 필수다 — 빠졌거나 철자가 틀린 칸이 거절이나 「안 맞음」으로 읽히지 않게. 본문은 64 KiB 까지만
+  읽고, 넘으면 413 이다(선언한 길이가 넘으면 읽지도 않는다).
+- 결정은 워크플로의 **현재 run 이 살아 있고(RUNNING) 그 run 이 운영자가 본 인스턴스를 들고 있을 때만** 보낸다. run id 는
+  인스턴스 id 에서 끌어내지 않고 Temporal 에 묻는다(describe, §7.1 B3c 메모). 확인(질의)과 Update 는 그 run 에 고정한 stub 하나로
+  보낸다 — 그 사이 끝났거나 continue-as-new 한 run 은 Update 를 받지 않고(409 `EPISODE_ENDED`), 다음 에피소드가 대신 받는 일은 없다.
+- Update 는 30초까지 기다린다. 넘으면 504 `{"error":"EPISODE_TIMEOUT","outcome":"UNKNOWN","instanceId":…}` 다 — 거절이 아니라
+  **결과를 모른다**는 뜻이다. Update 는 이미 나갔고 아직 먹을 수 있다. 운영자는 상세를 다시 읽고 나서 다시 결정한다. 이미 먹은
+  결정을 다시 보내면 코어가 값으로 거절한다(예: `REFUSED_NOT_AWAITING`).
+- 응답 갈래:
+
+| 상태 | 언제 | 본문 |
+|---|---|---|
+| 200 | Update 가 답했다. 거절도 값이다: `ACCEPTED` · `REFUSED_NOT_AWAITING` · `REFUSED_STALE` · `REFUSED_SUBJECT_NOT_UNKNOWN` · `REFUSED_NOT_ESCALATED` · `REFUSED_CLOSED` · `REFUSED_NO_PROPOSITION` | `{"reply": "<값>"}` |
+| 400 | 머리글이나 본문이 위 규칙에 어긋남 · Update validator 의 거절(해독·형식, 이력에 남지 않는다 — §3.1) · 명제 없는 「전제 맞음」의 빠른 길(아래) | `{"error": …}` |
+| 404 | 그 워크플로가 Temporal 에 없다 | `{"error": …}` |
+| 409 | `EPISODE_MOVED`: 현재 run 이 다른 인스턴스를 들고 있다(`currentInstanceId` 를 함께 준다). `EPISODE_ENDED`: run 이 끝났다(확인과 Update 사이에 끝난 것 포함) | `{"error": "EPISODE_MOVED" \| "EPISODE_ENDED", …}` |
+| 413 | 본문이 64 KiB 를 넘는다 | `{"error": …}` |
+| 503 | Temporal 에 닿지 못함(gRPC `UNAVAILABLE` · `DEADLINE_EXCEEDED`) · 결정 앞의 질의가 실패함(답할 워커가 없다) · 에피소드 표가 아직 없음(SQLState `42P01` — 제어면은 표를 만들지 않는다, R14) · DB 연결을 얻지 못함(Hikari 의 `SQLTransientConnectionException`) | `{"error": …}` |
+| 504 | Update 가 30초 안에 답하지 않았다 — 결과 모름 | `{"error": "EPISODE_TIMEOUT", "outcome": "UNKNOWN", "instanceId": …}` |
+
+  그 밖의 실패(다른 gRPC 코드, validator 가 아닌 Update 실패, 다른 SQL 오류)는 500 으로 둔다. 「다시 해 보라」 뒤에 숨기지 않는다.
+- 전제 확인의 명제: 본문에는 명제 칸이 없다(있으면 모르는 칸으로 400). `kind: PRECONDITION` 이면 제어면이 지금 상태를 질의해,
+  그것이 UNKNOWN_PRECONDITION 이고 본문의 `candidateId` · `proposalId` 가 자기 카드의 제안과 같을 때만 카드의 명제(§8.3, §9.5)를
+  채워 보낸다. 그때 `holds: true` 인데 카드에 명제가 없으면 400 이다. 그 밖의 확인은 명제 없이 그대로 보내고 코어가 판정한다 —
+  제어면이 코어를 대신하지 않는다. 질의는 에피소드보다 한 걸음 늦을 수 있으므로 **지키는 것은 코어 쪽 검사**다: UNKNOWN(PRECONDITION)
+  에서 명제 없이(비었거나 공백뿐) 「맞음」이 오면 같은 전이 안에서 `REFUSED_NO_PROPOSITION` 을 값으로 답하고 `IGNORED` 로 기록한다.
+  「안 맞음」에는 명제가 필요 없다. 받아들인 확인은 `CONFIRMATION` 기록에 `proposition` 을 확인자 · `assurance` 와 함께 남긴다.
+- 개발용 CLI(`:app`, `./gradlew :app:cli --args="…"`, 작업 디렉터리는 `app/`)가 위 표의 `symptom` · `agentOff` 를 손으로 보낸다.
+  감시자(계획 C)가 아니다.
+  - `episode open --export <dir> (--search <searchId> | --incident <incidentId>) [--key <correlationKey>]`: picasso 내보내기 한 벌에서
+    줄 하나를 골라 `koshei-episode-tq` 에 `signalWithStart(ep:<key>, symptom)` 을 보낸다(id 재사용 `ALLOW_DUPLICATE`, §7.1).
+    `manifest.json` 이 있어야 읽고(§12), 그 `runId` 가 없으면 거절한다. 줄은 글자 그대로 싣고, manifest 는 시작 인자와 signal 양쪽에
+    싣는다(§7.1 B3b).
+  - `eventId` 는 감시자와 같은 재료다(§12): 탐색 줄 `search:<runId>:<searchId>`, 사건 줄 `incident:<runId>:<digest>`(digest 가 없으면
+    거절). `--key` 가 없으면 key 는 `<runId>:<id>` 이고, 그것이 `[A-Za-z0-9._:-]+` 에 맞지 않으면 `--key` 를 요구한다.
+  - JSON 은 코어처럼 엄격하게 읽는다(키 중복 거절, BOM 거절, 객체만). jsonl 어디든 읽지 못하는 줄이 있으면 열지 않는다 — 건너뛰지
+    않는다. 같은 id 를 든 줄이 둘 이상이면 고르지 않는다.
+  - `episode agent-off <workflowId>`: 그 에피소드 **하나**에 `agentOff` signal 을 보낸다. §10.4 의 방송(계획 D)이 아니다. id 는
+    `ep:<key>` 꼴만 받는다.
+  - 인자는 Temporal 에 닿기 전에 모두 검사한다. 거절은 사용 오류이고, 내보내기를 못 읽거나 Temporal 에 못 닿으면 `ERROR` 로 끝난다.
+
 ### 7.3 쿼리
 
 현재 상태 · 시도 이력(§9.4 모양) · 현재 권고와 후보 목록 · 남은 기한들.
+
+**구현(B3c).**
+- `view` 질의(`EpisodeView`)에 넷을 더했다.
+  - `candidateJson`: 이 시도의 후보(`Candidate.toJson()`). 카드는 제안을 이것의 `kind` · `ref` 로 그린다.
+  - `candidatesJson`: 이 시도의 진단 요청이 내놓은 후보 목록.
+  - `diagnosisJson`: 받은 narrator 답 그대로. 판정이 `Proposed` 일 때만 있다 — 올려보낸 판정은 그 시도를 같은 걸음에서 닫으므로
+    여기 없고, 카드가 기록에서 읽는다(§9.5).
+  - `joinedAfterSnapshot`: 이 시도의 스냅샷 뒤에 합류한 증상 수. 시도가 없으면 `null`.
+
+  기록은 늦을 수 있으나(§8.5) 질의는 늦지 않는다. 그래서 지금 상태와 narrator 답은 질의에서 읽는다.
+- 상세 `GET /api/episodes/{workflowId}/{run}` 의 모양: `{instanceId, view, viewError, card, events, notices}`. `events` 는
+  `[{seq, kind, payload, at}]`(기록, seq 순, `at` 은 기록한 시각), `notices` 는 `[{id, at, notice}]` 다. `view` 와 `card` 는 그
+  인스턴스가 워크플로의 살아 있는 현재 run 일 때만 있다. Temporal 이 답하지 못하면(닿지 못함, 질의 실패) `view` 는 `null` 이고
+  `viewError` 가 까닭을 적는다 — 기록은 그래도 답한다. 살아 있는 것도, 기록도, 알림도 없으면 404 다.
+- 끝난 run, 그리고 현재 run 이 들고 있지 않은 인스턴스는 질의하지 않는다 — 끝난 run 에 질의하려면 워커가 재생해야 한다. 기록과
+  알림만으로 답한다(`view` · `card` 는 `null`).
+- 목록 `GET /api/episodes?limit=`(기본 50, 1..500, 밖이면 400)은 `episode_event` 에서 만든다(§13 — 감사 표가 목록의 원천이다).
+  인스턴스마다 `instanceId` · `workflowId` · `openedAt`(첫 기록) · `lastAt`(마지막 기록) · `lastPhase`(마지막 `TRANSITION` 기록의
+  `to`, 그 전에는 `null`) · `notices`(알림 수) · `recordLag`(`RECORD_LAG` 알림이 있었나)를 싣고, 마지막 기록이 최근인 순으로 준다.
+  `lastPhase` 는 기록이 늦은 만큼 늦게 보인다. `recordLag` 가 서 있으면 끝내 닿지 않은 기록이 있으므로 `lastPhase` 를 믿지 않는다 —
+  지금 상태는 상세의 `view` 다.
 
 ### 7.4 타이머
 
@@ -479,7 +549,7 @@ false` 가 글자 그대로 있으면 마지막 유효 판으로 돌아가지 �
 | 왜 따로 보나 | 승인 요청의 `sawSkillTypes` 는 조치 유형의 열만 대조한다. 같은 모양의 새 제안은 같은 것으로 지나간다 |
 | 규칙 | 후보는 자기를 만든 탐색 줄의 `searchId` 를 `ref` 에 든다(§9.2). 원천에 그 (기체, 주문)의 **더 새 탐색 줄**이 있으면 낡음 → FALSE (§5.2 REVALIDATING FALSE). 「더 새」는 같은 `runId` 의 내보내기에서 그 줄보다 뒤에 적힌 줄이다. `searchId` 는 분해해 견주지 않고(§12) 그 줄을 찾는 데만 쓴다. 구동마다 되풀이되므로 `runId` 를 넘어 견주지 않는다 |
 | 지금 기준 읽기 | 읽은 대장이 시간창 안(지금 기준)이 아니면 UNKNOWN 이다. **낡은 읽기로 TRUE 를 내지 않는다** — 더 새 줄이 아직 안 적혔을 수 있다. 이 규칙은 `APPROVE_REMEDY` 만이 아니라 원천을 다시 읽는 **모든 실물 종류**(`CHOOSE_SOURCE`, `OPERATOR_DECISION`, `SAGA_ACTION` 의 원천 재조회)에 걸린다 |
-| 사람이 확인할 명제 | UNKNOWN(PRECONDITION) 의 카드와 과업은 사람이 확인할 명제를 후보의 `ref` 값으로 채워 그대로 적는다. 명제는 **거짓으로 드러날 수 있는 세계의 사실**이어야 한다 — 「줄이 그대로다」 같은 명제는 쓰지 않는다. 종류별: `APPROVE_REMEDY` 「(기체, 주문)에 `searchId` X 뒤로 더 새 탐색 줄이 없다」(위 규칙과 같은 판정, 예: (hum-02, PATROL-1)) + 스냅샷 뒤에 합류한 증상을 함께 보인다 · `CHOOSE_SOURCE` 「주문 O 의 자재 M 이 아직 결품이고 대체 위치 B 가 아직 쓸 수 있다」 · `OPERATOR_DECISION` 「실행 ex 의 단위 u 가 아직 운영자 보류이고 판단이 나지 않았다」 · `SAGA_ACTION` 조치 목록 항목에 선언한 전제(계획 D) — 여기서 확인하면 자식 사가가 자동으로 돈다. 사람도 그 명제를 관측할 수 없으면 카드가 그렇다고 적고, `unknownMs` 가 지나게 둔다. 명제 없이 「전제 맞음」만 누르게 하지 않는다 — `ConfirmedPrecondition(true)` 가 도장 찍기가 되지 않게 |
+| 사람이 확인할 명제 | UNKNOWN(PRECONDITION) 의 카드와 과업은 사람이 확인할 명제를 후보의 `ref` 값으로 채워 그대로 적는다. 명제는 **거짓으로 드러날 수 있는 세계의 사실**이어야 한다 — 「줄이 그대로다」 같은 명제는 쓰지 않는다. 종류별: `APPROVE_REMEDY` 「(기체, 주문)에 `searchId` X 뒤로 더 새 탐색 줄이 없다」(위 규칙과 같은 판정, 예: (hum-02, PATROL-1)) + 스냅샷 뒤에 합류한 증상을 함께 보인다 · `CHOOSE_SOURCE` 「주문 O 의 자재 M 이 아직 결품이고 대체 위치 B 가 아직 쓸 수 있다」 · `OPERATOR_DECISION` 「실행 ex 의 단위 u 가 아직 운영자 보류이고 판단이 나지 않았다」 · `SAGA_ACTION` 조치 목록 항목에 선언한 전제(계획 D) — 여기서 확인하면 자식 사가가 자동으로 돈다. 사람도 그 명제를 관측할 수 없으면 카드가 그렇다고 적고, `unknownMs` 가 지나게 둔다. 명제 없이 「전제 맞음」만 누르게 하지 않는다 — `ConfirmedPrecondition(true)` 가 도장 찍기가 되지 않게(코어는 `REFUSED_NO_PROPOSITION` 으로 거절한다, §7.2 B3c) |
 | 보수 쪽으로 틀림 | 탐색 줄은 제안 표가 아니다. NONE · SOURCE_MISSING 은 서 있던 FOUND 제안을 지우지 않는다(지우는 것은 접수 뒤 `settle` 하나). FOUND 뒤에 NONE 이 적히면 제안이 서 있어도 낡음으로 본다. 받아들인다 |
 | FOUND 밖 후보 | picasso 쪽 낡음 검사가 없다. `resolve` · `release` 는 대상이 이미 그 상태가 아니면 `false` 뿐이라 「이미 누가 했다」와 「처음부터 아니었다」가 접힌다(`NO_PROPOSAL` 과 같은 접힘). koshei 는 둘 다 부르지 않는다(§8.4) |
 
@@ -567,6 +637,13 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
 - **B3c 메모:** `episode_notice` 의 알림 모양은 둘이다. 화면은 `kind` 로 가른다.
   - `noticeJson` 이 만든 것: `kind` · `phase` · `reason` · `detail`
   - 사람 과업: `kind: PERSON_TASK` · `idempotencyKey` · `intent`
+
+**구현(B3c).** 알림 흐름은 `GET /api/episodes/notices?after=<id>&limit=`(기본 `after=0` · `limit=100`, `limit` 은 1..500)이다.
+`after` 뒤의 `episode_notice` 행을 에피소드를 가리지 않고 id 순으로 `[{id, instanceId, at, notice}]` 로 준다. `notice` 는 적힌 JSON
+그대로이고, 두 모양(위 B3c 메모)은 `kind` 로 가른다. 한 인스턴스의 알림은 상세(§7.3)의 `notices` 에도 있다.
+- id 는 bigserial 이라 **커밋 순서가 아니다** — 작은 id 가 늦게 커밋될 수 있다. 그래서 읽는 쪽은 겹쳐 다시 읽고(예: `after` = 마지막으로
+  본 id − 50) 이미 본 id 를 지운다.
+- 알림은 최소 한 번이다(B3b). 같은 알림이 다른 id 로 두 줄 될 수 있고, 그것은 id 로 지워지지 않는다.
 
 ---
 
@@ -714,6 +791,36 @@ koshei 가 진단 응답(계약 0.6 §4)과 자기 상태로 그린다. narrator
   다섯이 이것이었다.
 - khala 의 벡터 검색이 시간을 넘겨 죽은 채로 선 진단도 깨끗하게 나올 수 있다. 계약 0.6 의 응답에는 검색 고장을 알릴 칸이 없다.
 그래서 정책 v1 은 `APPROVE_REMEDY` 자동 승인을 끈다(§10.1, §18).
+
+**구현(B3c).** 카드는 `:episode-runtime` 의 순수 함수 `operatorCard(view, events)` 가 그린다. 상세 응답(§7.3)의 `card` 이고, 살아
+있는 view 가 있을 때만 그린다. 순서는 위 표 그대로다(§19 D 전까지, 확인 불가가 맨 위).
+- 출처: narrator 칸(이유 · 지침 · 인용 · 인용 없는 문장 · 확인 못 한 주장)과 확인 불가(`unknowns`) · 결정 칸은 살아 있는 질의에서
+  읽는다 — 기록은 늦을 수 있다(§8.5). 사실(도착한 증상 줄 — `OPENED` · `SYMPTOM_JOINED` 기록의 `line`)은 기록에서 읽는다. 기록된
+  증상 줄이 질의가 센 증상 수보다 적으면 `factsBehind: true` 다 — 카드의 사실이 늦다.
+- ESCALATED 에는 살아 있는 답이 없다(올려보낸 판정은 그 시도를 같은 걸음에서 닫는다, §7.3). 그때만 마지막 `DIAGNOSIS_RESULT` 기록을
+  읽되, **이 에피소드를 올려보낸 답일 때만** 싣는다: 판정이 `ESCALATE` 이고, 사유가 에피소드의 올려보낸 사유와 같고, 마지막으로 요청한
+  시도의 답이어야 한다. 많은 올려보냄(진단 실패나 만료, 인수, `ATTEMPTS_EXHAUSTED`, `APPROVAL_EXPIRED`, `REPEATED_REMEDY` …)은 새
+  결과를 쓰지 않으므로, 마지막 결과는 흔히 앞서 대체된 제안의 것이고 그것을 이유로 보이면 안 된다. 기록에서 읽었으면
+  `diagnosisFromRecord: true` 다.
+- 판정이 거절한 답 — 누구의 답인지(계약 · 에피소드 · 시도)가 맞지 않거나 계약 §4 를 어긴 `DIAGNOSIS_FAILED`, 다른 후보 목록에 답한
+  `CANDIDATES_VERSION_MISMATCH` — 은 narrator 의 말로 보이지 않는다. `diagnosisRefused`(사유)와 `diagnosisRefusedDetail`(기록의
+  `detail`)만 싣는다. 계약 0.6 으로 읽을 수 없는 답은 `responseUnreadable: true` 이고, narrator 칸은 비고 사실은 남는다.
+- `diagnosisAttempt`: narrator 칸이 보이는 답의 시도 번호(살아 있으면 지금 시도, 기록이면 그 기록의 `attempt`). 보이는 답이 없으면
+  `null` 이다.
+- `WITHHELD_HUMAN_FIRST` 로 올려보낸 에피소드는 사실(증상 줄, `unknowns`)만 싣는다. 제안도 narrator 칸도 없다(위 문단, §19 D).
+- 제안은 후보의 `kind` · `ref` 로 싣고 식별자를 분해하지 않는다. 이유가 없으면 `rationaleMissing: true`(화면은 "이유 없음").
+  `cause` 는 싣지 않는다 — 기록에만 있다.
+- 확인할 전제(`precondition`)는 UNKNOWN_PRECONDITION 에서만, §8.3 의 종류별 명제를 후보 `ref` 값으로 채운 것이다. 종류에 명제가
+  없거나(`SAGA_ACTION` 은 계획 D) 명제가 부르는 값이 비었으면 `null` 이다 — **명제를 지어내지 않는다.** `APPROVE_REMEDY` 면 이 시도의
+  `DIAGNOSIS_REQUESTED` 기록 뒤의 `SYMPTOM_JOINED` 줄을 `joinedAfterSnapshot` 으로, 질의가 센 수를 `joinedAfterSnapshotCount` 로
+  함께 싣는다 — 줄이 수보다 적으면 기록이 늦은 것이다.
+- 결정 칸 `decision` 은 `{update, proposalId, candidatesVersion, deadlineMillis}`(`deadlineMillis` 는 상태 기한)이고 제안이 있어야
+  선다. `update` 는 AWAITING_APPROVAL 이면 `decide`, UNKNOWN_PRECONDITION 이고 명제가 있으면 `confirm` 이다. 그 밖에는 결정 칸이
+  없다 — AWAITING_EVIDENCE 의 현물 확인(`confirm` 의 `OUTCOME`)은 view 의 `proposalId` · `candidateId` 로 보낸다.
+- 확인 못 한 주장은 `CITATION` 과 `NUMBER` 로 나눠 `{text, foundIn}` 으로 싣는다. 본문(`text`)이 없는 것은 줄로 싣지 않고 센다:
+  `unlocatedCitations`("확인 못 한 인용 n개(본문 없음)") · `unlocatedNumbers`("확인 못 한 숫자 n개(위치 모름)").
+- `identityAssurance` 는 PoC 동안 늘 `SELF_ASSERTED` 다. 카드는 읽는 것으로 실패하지 않는다 — JSON 이 아니거나 키가 겹친 기록은
+  없는 것으로 본다.
 
 ---
 
@@ -946,6 +1053,12 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 끝까지 시험과 재생 시험(§7.5). 계획 B 에 남은 것:
 - 실물 picasso 승인 창구 클라이언트 — §19 C 뒤. 그때까지 `KOSHEI_PICASSO` 는 `off` 아니면 `mock` 이다.
 - B3c 제어면 — `/api/episodes…` 와 알림 표를 읽는 화면.
+
+**B3c(API·CLI) 끝(2026-10-02).** 제어면 `/api/episodes…` 가 섰다: 목록과 상세(§7.3), 운영자 카드(§9.5), `X-Koshei-Operator` 아래의
+결정 넷(§7.2), 알림 흐름(§8.5). 개발용 CLI `episode open` · `episode agent-off`(§7.2)도 섰다. 코어에는 `REFUSED_NO_PROPOSITION`
+(§7.2, §8.3)이 더해졌다. 계획 B 에 남은 것:
+- 실물 picasso 승인 창구 클라이언트 — 그대로 §19 C 뒤.
+- B3c-2 — 화면. 위 경로와 알림 흐름을 읽어 카드를 그리고 결정을 보낸다.
 
 ---
 
