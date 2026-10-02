@@ -1315,7 +1315,8 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
   `EpisodeSignals`(`dcd984c`, `49ab4c8`), 접수(`ed3cf25`, `e3410a2`), 근거 운반과 `MockCarrier`(`c585735`, `72304e6`), 끝에서 끝까지 시험
   (`389181f`, `9fc24b9`).
 - `:authoring-api`: `AutoCorrectGate`(`5f6b191`, `2a4a7c4`). `:app`: 감시자 프로세스(`83f2408`).
-- 시험(`KOSHEI_*` 없이, Testcontainers 와 `TestWorkflowEnvironment` 만): `:episode` 312, `:episode-runtime` 249, `:app` 35, `:authoring-api` 146,
+- 최종 검토 뒤 수정(`471b60e`): `SIGNAL_FAILED` 가 막힌 줄을 밝히고, `AMBIGUOUS` 는 전달된 뒤에 한 번만 남는다.
+- 시험(`KOSHEI_*` 없이, Testcontainers 와 `TestWorkflowEnvironment` 만): `:episode` 312, `:episode-runtime` 251, `:app` 35, `:authoring-api` 146,
   모두 통과.
 
 계획 C 에 남은 것:
