@@ -51,8 +51,8 @@ CREATE TABLE IF NOT EXISTS episode_watch_cursor (
     PRIMARY KEY (source, run_id, position)
 );
 
--- What the watcher did not carry, or carried without merging (design §12): BROKEN, STUCK, AMBIGUOUS, UNROUTED,
--- ROUTE_ENDED, SIGNAL_FAILED, POLICY_UNUSABLE. Read by people (plan D shows it).
+-- What the watcher did not carry, or carried without merging (design §12): NOT_READY, BROKEN, STUCK, AMBIGUOUS,
+-- UNROUTED, ROUTE_ENDED, SIGNAL_FAILED, POLICY_UNUSABLE. Read by people (plan D shows it).
 CREATE TABLE IF NOT EXISTS episode_watch_log (
     id                  bigserial   PRIMARY KEY,
     source              text        NOT NULL,

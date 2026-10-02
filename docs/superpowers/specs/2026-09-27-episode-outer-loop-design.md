@@ -1191,8 +1191,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
   추가 전용 — 나아갈 때마다 행을 하나 더하고, 커서는 자리가 가장 큰 행이다. `WatchStore.advance` 는 지금 자리 + 1 을 넘는 자리(빈틈)와 이미 있는
   자리의 다른 id 를 거절한다. 빈틈 검사는 잠금 없이 읽고 쓴다 — 한 (원천, run)은 감시자 하나가 옮긴다. 둘이 겨루어도 기본 키가 한 자리의
   두 id 를 막는다.
-- `episode_watch_log(id bigserial, source, kind, detail jsonb, at)`. 감시 기록이다(종류는 §12 구현(C1)). 스크립트 주석의 종류 목록에는
-  `NOT_READY` 가 빠져 있으나 감시자는 그것도 쓴다. jsonb 가 detail 을 담지 못하면(SQLState 22 계열) `{"unstorable":true}` 로 대신 쓴다 —
+- `episode_watch_log(id bigserial, source, kind, detail jsonb, at)`. 감시 기록이다(종류 여덟은 §12 구현(C1)). jsonb 가 detail 을 담지 못하면(SQLState 22 계열) `{"unstorable":true}` 로 대신 쓴다 —
   `episode_event` 의 `RecordUnstorable`(위 알려진 한계)과 달리 기록이 멈추지 않는다.
 - 색인 `episode_event_intent_order`: `DISPATCH_INTENT` 기록의 `payload -> 'candidate' -> 'ref' ->> 'jobOrderId'`(부분 색인). 결과 통보가 주문으로
   인스턴스를 찾는다(§12). 이미 있는 DB 에서는 이 줄 뒤 첫 시작이 색인을 만들며 그동안 `episode_event` 쓰기를 붙든다 — PoC 규모라 받아들인다.
