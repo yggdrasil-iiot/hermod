@@ -1,19 +1,14 @@
 package koshei.app
 
-import io.temporal.api.common.v1.WorkflowExecution
-import io.temporal.api.enums.v1.WorkflowIdReusePolicy
 import io.temporal.client.WorkflowClient
-import io.temporal.client.WorkflowOptions
 import io.temporal.serviceclient.WorkflowServiceStubs
-import io.temporal.workflow.Functions
 import koshei.episode.runtime.BundleRead
-import koshei.episode.runtime.EPISODE_TASK_QUEUE
-import koshei.episode.runtime.EpisodeResult
 import koshei.episode.runtime.EpisodeStart
 import koshei.episode.runtime.EpisodeWorkflow
 import koshei.episode.runtime.ExportKind
 import koshei.episode.runtime.ExportSymptoms
 import koshei.episode.runtime.SymptomSignal
+import koshei.episode.runtime.TemporalEpisodeSignals
 import koshei.runtime.DataConverterSupport
 import java.nio.file.Path
 
@@ -89,17 +84,8 @@ object EpisodeCli {
      * signalWithStart on the episode queue, as the watcher will (design §7.1). Typed, so renaming the workflow or
      * signal method breaks this at compile time.
      */
-    fun open(s: OpenSymptom): WorkflowExecution = withClient { client ->
-        val options = WorkflowOptions.newBuilder()
-            .setTaskQueue(EPISODE_TASK_QUEUE)
-            .setWorkflowId(s.workflowId)
-            .setWorkflowIdReusePolicy(WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
-            .build()
-        val stub = client.newWorkflowStub(EpisodeWorkflow::class.java, options)
-        val batch = client.newSignalWithStartRequest()
-        batch.add(Functions.Func1<EpisodeStart, EpisodeResult> { stub.run(it) }, s.start)
-        batch.add(Functions.Proc1<SymptomSignal> { stub.symptom(it) }, s.signal)
-        client.signalWithStart(batch)
+    fun open(s: OpenSymptom): String = withClient { client ->
+        TemporalEpisodeSignals(client).open(s.workflowId, s.start, s.signal)
     }
 
     fun agentOff(workflowId: String) = withClient { client ->
