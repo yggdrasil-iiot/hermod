@@ -1,5 +1,7 @@
 package koshei.episode
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import koshei.episode.Policies.obj
 import java.time.Instant
@@ -34,6 +36,31 @@ class PolicyTest {
         assertEquals(true, p.autoApprove[CandidateKind.APPROVE_REMEDY]!!.requireClean)
         assertEquals(emptyList(), p.correlation)
         assertNull(p.expiresAt)
+    }
+
+    private fun rules(json: String): JsonNode = ObjectMapper().readTree(json)
+
+    @Test fun `correlation rules are read and checked`() {
+        val p = Policies.valid { set<JsonNode>("correlation", rules("""[{"kinds":["SEARCH","INCIDENT"],"by":["robotId","jobOrderId"]}]""")) }
+        assertEquals(listOf(CorrelationRule(setOf(SymptomKind.SEARCH, SymptomKind.INCIDENT), listOf("robotId", "jobOrderId"))), p.correlation)
+    }
+
+    @Test fun `a malformed correlation rule rejects the table`() {
+        listOf(
+            """[{"kinds":[],"by":["robotId"]}]""" to "correlation[0].kinds",
+            """[{"kinds":["DRIFT"],"by":["robotId"]}]""" to "correlation[0].kinds",
+            """[{"kinds":["SEARCH","SEARCH"],"by":["robotId"]}]""" to "correlation[0].kinds",
+            """[{"kinds":["SEARCH"],"by":[]}]""" to "correlation[0].by",
+            """[{"kinds":["SEARCH"],"by":["a","b","c","d","e"]}]""" to "correlation[0].by",
+            """[{"kinds":["SEARCH"],"by":["robot-id"]}]""" to "correlation[0].by",
+            """[{"kinds":["SEARCH"],"by":["robotId","robotId"]}]""" to "correlation[0].by",
+            """[{"kinds":["SEARCH"],"by":["robotId"],"window":5}]""" to "correlation[0].window",
+            """[{"by":["robotId"]}]""" to "correlation[0].kinds",
+            """["robotId"]""" to "correlation[0]",
+        ).forEach { (json, path) ->
+            val errors = Policies.errors { set<JsonNode>("correlation", rules(json)) }
+            assertTrue(errors.any { it.startsWith(path) }, "$json → $errors")
+        }
     }
 
     @Test fun `expiresAt reads an ISO instant and rejects anything else`() {

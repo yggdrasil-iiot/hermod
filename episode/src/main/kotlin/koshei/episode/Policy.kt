@@ -43,8 +43,8 @@ class PolicyTable internal constructor(
     val maxAttemptsPerEpisode: Int,
     val repeatedRemedyThreshold: Int,
     val snapshotMaxBytes: Long,
-    /** Merge rules; their meaning is plan C's. v1 only checks that this is a list. */
-    val correlation: List<JsonNode>,
+    /** Merge rules (design §12), checked. */
+    val correlation: List<CorrelationRule>,
     source: JsonNode,
 ) {
     private val sourceCopy: JsonNode = source.deepCopy()
@@ -113,7 +113,10 @@ fun parsePolicy(root: JsonNode): PolicyParse {
     r.listOrEmpty(top, "actionCatalog", "")?.let {
         if (it.isNotEmpty()) r.errors += "actionCatalog: SAGA_ACTION entries are not supported before plan D"
     }
-    val correlation = r.listOrEmpty(top, "correlation", "")
+    val correlation = r.listOrEmpty(top, "correlation", "")?.let { nodes ->
+        val rules = nodes.mapIndexedNotNull { i, node -> r.correlationRule(node, "correlation[$i]") }
+        if (rules.size == nodes.size) rules else null
+    }
 
     val deadlines = r.obj(top.get("deadlines"), "deadlines", DEADLINE_KEYS.toSet())?.let { d ->
         val v = DEADLINE_KEYS.map { r.duration(d, it, "deadlines") }
@@ -167,7 +170,7 @@ fun parsePolicy(root: JsonNode): PolicyParse {
             version!!, expiresAt, agentLayerEnabled!!,
             java.util.Collections.unmodifiableMap(LinkedHashMap(autoApprove)),
             deadlines!!, diagnosis!!, maxAttemptsPerEpisode!!, repeatedRemedyThreshold!!, snapshotMaxBytes!!,
-            correlation!!.map { it.deepCopy<JsonNode>() },
+            correlation!!.toList(),
             root.deepCopy(),
         ),
     )
@@ -233,6 +236,26 @@ private class PolicyReader {
             errors += "${at(path, key)}: expected a list of non-blank strings"; return null
         }
         return v.map { it.textValue() }
+    }
+
+    fun correlationRule(node: JsonNode, path: String): CorrelationRule? {
+        if (!node.isObject) { errors += "$path: expected an object { kinds, by }"; return null }
+        val before = errors.size
+        obj(node, path, setOf("kinds", "by"))
+        val kinds = textList(node, "kinds", path)
+        val by = textList(node, "by", path)
+        if (kinds != null) {
+            if (kinds.isEmpty()) errors += "$path.kinds: name at least one of ${SymptomKind.entries.map { it.name }}"
+            kinds.filter { k -> SymptomKind.entries.none { it.name == k } }.forEach { errors += "$path.kinds: unknown kind '$it'" }
+            if (kinds.toSet().size != kinds.size) errors += "$path.kinds: a kind is repeated"
+        }
+        if (by != null) {
+            if (by.isEmpty() || by.size > RULE_MAX_FIELDS) errors += "$path.by: 1 to $RULE_MAX_FIELDS field names"
+            by.filterNot { RULE_FIELD.matches(it) }.forEach { errors += "$path.by: '$it' is not a field name" }
+            if (by.toSet().size != by.size) errors += "$path.by: a field is repeated"
+        }
+        if (errors.size != before || kinds == null || by == null) return null
+        return CorrelationRule(kinds.map { SymptomKind.valueOf(it) }.toSet(), by)
     }
 
     fun listOrEmpty(parent: JsonNode, key: String, path: String): List<JsonNode>? {
