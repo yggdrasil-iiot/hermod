@@ -8,12 +8,16 @@ import { mergeNotices, noticeText, overlapAfter } from "./episodes";
 
 export function NoticeFeed({ onSelect }: { onSelect: (instanceId: string) => void }) {
   const seen = useRef<FeedNotice[]>([]);
+  const inFlight = useRef(false);
   const [items, setItems] = useState<FeedNotice[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     const tick = async () => {
+      // One read (with its paging) at a time: a slow one must not interleave with the next.
+      if (inFlight.current) return;
+      inFlight.current = true;
       try {
         let after = overlapAfter(seen.current);
         for (let i = 0; i < 10; i++) {
@@ -26,6 +30,8 @@ export function NoticeFeed({ onSelect }: { onSelect: (instanceId: string) => voi
         if (alive) { setItems([...seen.current].reverse()); setError(null); }
       } catch (e) {
         if (alive) setError(describeFailure(e).text);
+      } finally {
+        inFlight.current = false;
       }
     };
     void tick();
@@ -42,7 +48,7 @@ export function NoticeFeed({ onSelect }: { onSelect: (instanceId: string) => voi
         <div key={n.id} className="console-run" data-testid={"notice-" + n.id}>
           <div className="row1">
             <span>{noticeText(n.notice)}</span>
-            {n.notice.kind === "PERSON_TASK" && <span className="chip await">PERSON_TASK</span>}
+            {n.notice.kind === "PERSON_TASK" && <span className="chip await">사람 과업 · PERSON_TASK</span>}
           </div>
           <div className="muted mono">{n.at}</div>
           <button type="button" className="btn ghost mono" data-testid={"notice-open-" + n.id} onClick={() => onSelect(n.instanceId)}>

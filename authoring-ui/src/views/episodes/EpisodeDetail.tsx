@@ -2,10 +2,10 @@
 // shows the head, the operator card, the decisions the card and the live phase offer, and the folded history,
 // candidates and records. The server decides: a refusal or a failure is only said in the operator's words.
 // It never renders view.diagnosisJson, never sends a proposition, and shows records through recordPayload
-// (a diagnosis record without its narrator answer, design §9.5). Mounted with key={instanceId}, so inputs and
-// results never leak from one episode to another.
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { EpisodeDetailDto, RejectReason } from "./episodeTypes";
+// (no narrator answer, design §9.5). Mounted with key={instanceId}, so inputs and results never leak from one
+// episode to another.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EpisodeDetailDto, RejectReason, Unknown } from "./episodeTypes";
 import { REJECT_REASONS } from "./episodeTypes";
 import { describeFailure, getEpisode, sendDecision } from "./episodeApi";
 import {
@@ -18,6 +18,25 @@ type Action = "decide" | "confirm" | "takeover" | "close";
 type Result = { text: string; ok: boolean; movedTo?: string };
 
 const SENDING = "보내는 중… · sending…";
+
+/** An unknown's note is keyed by what it is, not by its place on the card: the card may reorder between polls. */
+const unknownKey = (u: Unknown) => u.what + JSON.stringify(u.subject);
+
+/** The two countdowns, with their own 1s clock so the rest of the pane does not re-render every second. */
+function Deadlines({ state, episode }: { state: number | null; episode: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = state != null || episode != null;
+  useEffect(() => {
+    if (!ticking) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [ticking]);
+  return (
+    <div className="muted" data-testid="deadlines">
+      상태 · state: {remainingText(state, now) ?? "—"} · 에피소드 · episode: {remainingText(episode, now) ?? "—"}
+    </div>
+  );
+}
 
 export function EpisodeDetail({ instanceId, operator, onSelect }: {
   instanceId: string;
@@ -32,34 +51,37 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
   const [rejectReason, setRejectReason] = useState<RejectReason | "">("");
   const [rejectNote, setRejectNote] = useState("");
   const [closeOutcome, setCloseOutcome] = useState("");
-  const [unknownNotes, setUnknownNotes] = useState<Record<number, string>>({});
-  const [now, setNow] = useState(() => Date.now());
+  const [unknownNotes, setUnknownNotes] = useState<Record<string, string>>({});
   const mounted = useRef(true);
+  /** The latest load issued; only its answer is applied, so a poll sent before a POST never overwrites the re-read after it. */
+  const seq = useRef(0);
+  /** Loads in flight; a poll tick is skipped while one is out. */
+  const inFlight = useRef(0);
 
   const load = useCallback(async (isAlive: () => boolean) => {
+    const mine = ++seq.current;
+    inFlight.current += 1;
     try {
       const d = await getEpisode(instanceId);
-      if (isAlive()) { setDetail(d); setLoadError(null); }
+      if (isAlive() && mine === seq.current) { setDetail(d); setLoadError(null); }
     } catch (e) {
       // Keep the last detail that was read well; only say the failure.
-      if (isAlive()) setLoadError(describeFailure(e).text);
+      if (isAlive() && mine === seq.current) setLoadError(describeFailure(e).text);
+    } finally {
+      inFlight.current -= 1;
     }
   }, [instanceId]);
 
+  /** One immediate read, sequenced with the polls. */
   const refresh = useCallback(() => load(() => mounted.current), [load]);
 
   useEffect(() => {
     let alive = true;
     mounted.current = true;
     void load(() => alive);
-    const id = setInterval(() => void load(() => alive), 1500);
+    const id = setInterval(() => { if (inFlight.current === 0) void load(() => alive); }, 1500);
     return () => { alive = false; mounted.current = false; clearInterval(id); };
   }, [load]);
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   async function send(key: string, action: Action, body?: object) {
     setBusy(true);
@@ -72,10 +94,19 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
       const f = describeFailure(e, true);
       if (mounted.current) setResult({ text: f.text, ok: false, movedTo: f.movedTo });
     } finally {
+      // Re-read before the buttons come back, so the next decision is made on what the core now holds.
+      await refresh();
       if (mounted.current) { setBusy(false); setPressed(null); }
-      void refresh();
     }
   }
+
+  const view = detail?.view ?? null;
+  const history = useMemo(() => (view ? parseHistory(view) : []), [view]);
+  const candidates = useMemo(() => (view ? parseCandidates(view) : []), [view]);
+  const records = useMemo(
+    () => (detail?.events ?? []).map((ev) => ({ ev, shown: JSON.stringify(recordPayload(ev.kind, ev.payload), null, 2) })),
+    [detail],
+  );
 
   if (detail === null) {
     return (
@@ -86,15 +117,11 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
     );
   }
 
-  const { view, card, viewError } = detail;
+  const { card, viewError } = detail;
   const chip = phaseChip(view?.phase ?? null);
   const actions = availableActions(view, card);
   const blocked = operatorProblem(operator) != null || busy;
   const label = (key: string, text: string) => (busy && pressed === key ? SENDING : text);
-  const history = view ? parseHistory(view) : [];
-  const candidates = view ? parseCandidates(view) : [];
-  const stateLeft = remainingText(card?.decision?.deadlineMillis ?? view?.stateDeadlineMillis ?? null, now);
-  const episodeLeft = remainingText(view?.episodeDeadlineMillis ?? null, now);
   const anyAction = Object.values(actions).some(Boolean);
   const close = closeBody(closeOutcome);
 
@@ -113,9 +140,7 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
           </span>
         </div>
       )}
-      <div className="muted" data-testid="deadlines">
-        상태 · state: {stateLeft ?? "—"} · 에피소드 · episode: {episodeLeft ?? "—"}
-      </div>
+      <Deadlines state={card?.decision?.deadlineMillis ?? view?.stateDeadlineMillis ?? null} episode={view?.episodeDeadlineMillis ?? null} />
       {viewError && (
         <div className="banner info">지금 상태를 읽지 못함 — 기록만 보임 · live state unavailable, records only: {viewError}</div>
       )}
@@ -140,11 +165,13 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
                 onClick={() => void send("decide-approve", "decide", decideBody(card.decision!, true))}>
                 {label("decide-approve", "✓ 승인 · Approve")}
               </button>
-              <select data-testid="reject-reason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value as RejectReason | "")}>
+              <select data-testid="reject-reason" aria-label="거절 사유 · reject reason" value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value as RejectReason | "")}>
                 <option value="">거절 사유 · reject reason</option>
                 {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
-              <input type="text" data-testid="reject-note" placeholder="메모 · note" value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
+              <input type="text" data-testid="reject-note" aria-label="거절 메모 · reject note" placeholder="메모 · note"
+                value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
               <button type="button" className="btn danger" data-testid="decide-reject" disabled={blocked || !rejectReason}
                 onClick={() => void send("decide-reject", "decide", decideBody(card.decision!, false, rejectReason || undefined, rejectNote))}>
                 {label("decide-reject", "✕ 거절 · Reject")}
@@ -180,15 +207,16 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
 
           {actions.confirmUnknowns && card && card.unknowns.map((u, i) => {
             if (!confirmableUnknown(u)) return null;
-            const key = "confirm-unknown-" + i;
+            const k = unknownKey(u);
+            const testKey = "confirm-unknown-" + i;
             return (
-              <span key={i} className="episodes-decisions">
+              <span key={k} className="episodes-decisions">
                 <span className="mono">{u.what}</span>
-                <input type="text" data-testid={"unknown-note-" + i} placeholder="메모 · note" value={unknownNotes[i] ?? ""}
-                  onChange={(e) => setUnknownNotes((m) => ({ ...m, [i]: e.target.value }))} />
-                <button type="button" className="btn" data-testid={key} disabled={blocked}
-                  onClick={() => void send(key, "confirm", unknownBody(u, unknownNotes[i]))}>
-                  {label(key, "확인함 · confirmed")}
+                <input type="text" data-testid={"unknown-note-" + i} aria-label={`확인 메모 · note for ${u.what}`} placeholder="메모 · note"
+                  value={unknownNotes[k] ?? ""} onChange={(e) => setUnknownNotes((m) => ({ ...m, [k]: e.target.value }))} />
+                <button type="button" className="btn" data-testid={testKey} disabled={blocked}
+                  onClick={() => void send(testKey, "confirm", unknownBody(u, unknownNotes[k]))}>
+                  {label(testKey, "확인함 · confirmed")}
                 </button>
               </span>
             );
@@ -203,7 +231,8 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
 
           {actions.close && (
             <>
-              <input type="text" data-testid="close-outcome" placeholder="결과 · outcome" value={closeOutcome} onChange={(e) => setCloseOutcome(e.target.value)} />
+              <input type="text" data-testid="close-outcome" aria-label="닫는 결과 · close outcome" placeholder="결과 · outcome"
+                value={closeOutcome} onChange={(e) => setCloseOutcome(e.target.value)} />
               <button type="button" className="btn" data-testid="close" disabled={blocked || close == null}
                 onClick={() => { if (close) void send("close", "close", close); }}>
                 {label("close", "닫기 · Close")}
@@ -251,11 +280,11 @@ export function EpisodeDetail({ instanceId, operator, onSelect }: {
       </details>
 
       <details data-testid="records">
-        <summary>기록 · records ({detail.events.length})</summary>
-        {detail.events.map((ev) => (
+        <summary>기록 · records ({records.length})</summary>
+        {records.map(({ ev, shown }) => (
           <div key={ev.seq}>
             <div className="mono">{[String(ev.seq), ev.kind, ev.at].filter(Boolean).join(" · ")}</div>
-            <pre className="mono" style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(recordPayload(ev.kind, ev.payload), null, 2)}</pre>
+            <pre className="mono" style={{ whiteSpace: "pre-wrap" }}>{shown}</pre>
           </div>
         ))}
       </details>
