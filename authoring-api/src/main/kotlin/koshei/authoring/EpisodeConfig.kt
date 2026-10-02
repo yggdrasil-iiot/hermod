@@ -12,7 +12,8 @@ import org.springframework.context.annotation.Configuration
 /** The episode control plane's beans. Lazy like EngineConfig: the context starts without Temporal or the database. */
 @Configuration
 class EpisodeConfig {
-    @Bean fun episodeGateway(): EpisodeGateway =
+    /** Closed with the context: its Update threads stop, and the stubs go if the client was ever made. */
+    @Bean(destroyMethod = "close") fun episodeGateway(): EpisodeGateway =
         EpisodeGateway(lazy { WorkflowClient.newInstance(WorkflowServiceStubs.newLocalServiceStubs(), DataConverterSupport.clientOptions()) })
 
     /** Read only (R14): the episode worker creates and writes the tables (design §13). */

@@ -2,6 +2,10 @@ package koshei.authoring
 
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
+import io.temporal.api.common.v1.WorkflowExecution
+import io.temporal.client.WorkflowQueryException
+import io.temporal.client.WorkflowServiceException
+import jakarta.servlet.ServletException
 import koshei.episode.runtime.CloseRequest
 import koshei.episode.runtime.ConfirmRequest
 import koshei.episode.runtime.DecideRequest
@@ -13,6 +17,7 @@ import koshei.episode.runtime.StoredNotice
 import koshei.episode.runtime.TakeoverRequest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.mockito.ArgumentMatchers
 import org.mockito.BDDMockito.given
 import org.mockito.BDDMockito.willThrow
@@ -30,7 +35,9 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.sql.SQLException
+import java.sql.SQLTransientConnectionException
 import java.time.Instant
+import kotlin.test.assertIs
 
 private fun <T> anyNonNull(): T { ArgumentMatchers.any<T>(); @Suppress("UNCHECKED_CAST") return null as T }
 
@@ -139,6 +146,124 @@ class EpisodeControllerTest {
         mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isServiceUnavailable)
         answer(EpisodeTimeout(id))
         mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isGatewayTimeout)
+            .andExpect(jsonPath("$.error").value("EPISODE_TIMEOUT")).andExpect(jsonPath("$.outcome").value("UNKNOWN"))
+            .andExpect(jsonPath("$.instanceId").value(id))
+        answer(WorkflowQueryException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", StatusRuntimeException(Status.DEADLINE_EXCEEDED)))
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isServiceUnavailable)
+        answer(WorkflowServiceException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", StatusRuntimeException(Status.UNAVAILABLE)))
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isServiceUnavailable)
+    }
+
+    @Test fun `a Temporal failure that is not about reaching Temporal stays a server error`() {
+        val body = """{"proposalId":"p","sawCandidatesVersion":"v","approve":true}"""
+        willThrow(WorkflowServiceException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", StatusRuntimeException(Status.PERMISSION_DENIED)))
+            .given(gateway).decide(anyNonNull(), anyNonNull())
+        val e = assertThrows<ServletException> { mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)) }
+        assertIs<WorkflowServiceException>(e.cause)
+        willThrow(StatusRuntimeException(Status.INTERNAL)).given(gateway).decide(anyNonNull(), anyNonNull())
+        assertIs<StatusRuntimeException>(assertThrows<ServletException> { mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)) }.cause)
+    }
+
+    @Test fun `a body is strict - no number or text for a flag, no duplicated field, nothing after it`() {
+        for (body in listOf(
+            """{"proposalId":"p","sawCandidatesVersion":"v","approve":0}""",
+            """{"proposalId":"p","sawCandidatesVersion":"v","approve":1}""",
+            """{"proposalId":"p","sawCandidatesVersion":"v","approve":"true"}""",
+            """{"proposalId":"p","sawCandidatesVersion":"v","approve":false,"approve":true}""",
+            """{"proposalId":"p","sawCandidatesVersion":"v","approve":true} {"approve":false}""",
+            """{"proposalId":"p","sawCandidatesVersion":"v","approve":true}x""",
+            "null",
+            "",
+        )) mvc.perform(postJson("/api/episodes/ep:a/r1/decide", body)).andExpect(status().isBadRequest)
+        mvc.perform(postJson("/api/episodes/ep:a/r1/confirm", """{"kind":"OUTCOME","candidateId":"c","proposalId":"p","holds":"false"}"""))
+            .andExpect(status().isBadRequest)
+        verifyNoInteractions(gateway)
+    }
+
+    @Test fun `a body over 64 KiB is refused before it is read as JSON`() {
+        val note = "x".repeat(64 * 1024)
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", """{"proposalId":"p","sawCandidatesVersion":"v","approve":true,"note":"$note"}"""))
+            .andExpect(status().isPayloadTooLarge)
+        verifyNoInteractions(gateway)
+        val fits = "x".repeat(60 * 1024)
+        given(gateway.decide(id, DecideRequest("p", "v", true, "op-1", null, fits))).willReturn("ACCEPTED")
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", """{"proposalId":"p","sawCandidatesVersion":"v","approve":true,"note":"$fits"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.reply").value("ACCEPTED"))
+    }
+
+    @Test fun `the operator header is trimmed, and a long one is told so`() {
+        given(gateway.decide(id, DecideRequest("p", "v", true, "op-1", null, null))).willReturn("ACCEPTED")
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", """{"proposalId":"p","sawCandidatesVersion":"v","approve":true}""", operator = "  op-1 \t"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.reply").value("ACCEPTED"))
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", """{"proposalId":"p","sawCandidatesVersion":"v","approve":true}""", operator = "x".repeat(129)))
+            .andExpect(status().isBadRequest).andExpect(jsonPath("$.error").value("X-Koshei-Operator is longer than 128 characters (design §7.2)"))
+        mvc.perform(postJson("/api/episodes/ep:a/r1/decide", """{"proposalId":"p","sawCandidatesVersion":"v","approve":true}""", operator = null))
+            .andExpect(status().isBadRequest).andExpect(jsonPath("$.error").value("X-Koshei-Operator is required (design §7.2)"))
+    }
+
+    @Test fun `the notice feed limit is bounded`() {
+        mvc.perform(get("/api/episodes/notices?limit=0")).andExpect(status().isBadRequest)
+        mvc.perform(get("/api/episodes/notices?limit=501")).andExpect(status().isBadRequest)
+        verifyNoInteractions(reader)
+    }
+
+    @Test fun `a workflow Temporal no longer has still answers from its records`() {
+        given(gateway.view(id)).willThrow(EpisodeNotFound("ep:a"))
+        given(reader.events(id)).willReturn(listOf(StoredEvent(1, "OPENED", "{}", t)))
+        given(reader.noticeRows(id)).willReturn(emptyList())
+        mvc.perform(get("/api/episodes/ep:a/r1")).andExpect(status().isOk)
+            .andExpect(jsonPath("$.view").doesNotExist()).andExpect(jsonPath("$.events[0].kind").value("OPENED"))
+    }
+
+    @Test fun `an unknown run of a known workflow is not found`() {
+        given(gateway.view("ep:a/nope")).willReturn(null)   // the workflow runs, but this is not its run
+        given(reader.events("ep:a/nope")).willReturn(emptyList())
+        given(reader.noticeRows("ep:a/nope")).willReturn(emptyList())
+        mvc.perform(get("/api/episodes/ep:a/nope")).andExpect(status().isNotFound)
+    }
+
+    @Test fun `any Temporal failure on the live view leaves the detail to its records`() {
+        given(reader.events(id)).willReturn(listOf(StoredEvent(1, "OPENED", "{}", t)))
+        given(reader.noticeRows(id)).willReturn(emptyList())
+        for (e in listOf(
+            WorkflowServiceException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", StatusRuntimeException(Status.PERMISSION_DENIED)),
+            WorkflowQueryException(WorkflowExecution.getDefaultInstance(), "EpisodeWorkflow", RuntimeException("no worker")),
+            EpisodeTimeout(id),
+        )) {
+            reset(gateway)
+            given(gateway.view(id)).willThrow(e)
+            mvc.perform(get("/api/episodes/ep:a/r1")).andExpect(status().isOk)
+                .andExpect(jsonPath("$.view").doesNotExist()).andExpect(jsonPath("$.viewError").exists())
+        }
+    }
+
+    @Test fun `unreachable database connections are a 503`() {
+        given(reader.instances(50)).willAnswer { throw SQLTransientConnectionException("pool exhausted") }
+        mvc.perform(get("/api/episodes")).andExpect(status().isServiceUnavailable).andExpect(jsonPath("$.error").value("pool exhausted"))
+    }
+
+    @Test fun `a precondition confirmation that does not name the card's proposal goes on without a proposition`() {
+        val unknown = waiting.copy(phase = "UNKNOWN_PRECONDITION")   // the card has a proposition for c / ep:a/r1#1
+        given(gateway.view(id)).willReturn(unknown)
+        given(reader.events(id)).willReturn(emptyList())
+        given(gateway.confirm(id, ConfirmRequest("PRECONDITION", "c", "$id#0", true, emptyMap(), "", "op-1", null, null))).willReturn("REFUSED_STALE")
+        mvc.perform(postJson("/api/episodes/ep:a/r1/confirm", """{"kind":"PRECONDITION","candidateId":"c","proposalId":"$id#0","holds":true}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.reply").value("REFUSED_STALE"))
+        given(gateway.confirm(id, ConfirmRequest("PRECONDITION", "d", "$id#1", true, emptyMap(), "", "op-1", null, null))).willReturn("REFUSED_SUBJECT_NOT_UNKNOWN")
+        mvc.perform(postJson("/api/episodes/ep:a/r1/confirm", """{"kind":"PRECONDITION","candidateId":"d","proposalId":"$id#1","holds":true}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.reply").value("REFUSED_SUBJECT_NOT_UNKNOWN"))
+    }
+
+    @Test fun `'the precondition does not hold' needs no proposition`() {
+        val noProposition = waiting.copy(
+            phase = "UNKNOWN_PRECONDITION",
+            candidateJson = """{"candidateId":"c","kind":"APPROVE_REMEDY","ref":{"robotId":"r","jobOrderId":"j","searchId":null},"sawSkillTypes":[]}""",
+        )
+        given(gateway.view(id)).willReturn(noProposition)
+        given(reader.events(id)).willReturn(emptyList())
+        given(gateway.confirm(id, ConfirmRequest("PRECONDITION", "c", "$id#1", false, emptyMap(), "", "op-1", null, null))).willReturn("ACCEPTED")
+        mvc.perform(postJson("/api/episodes/ep:a/r1/confirm", """{"kind":"PRECONDITION","candidateId":"c","proposalId":"$id#1","holds":false}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.reply").value("ACCEPTED"))
     }
 
     @Test fun `missing tables are a 503, not a 500`() {

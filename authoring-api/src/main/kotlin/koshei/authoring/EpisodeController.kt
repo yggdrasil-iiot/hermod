@@ -1,12 +1,19 @@
 package koshei.authoring
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.core.StreamReadFeature
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.databind.cfg.CoercionAction
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape
+import com.fasterxml.jackson.databind.type.LogicalType
+import com.fasterxml.jackson.module.kotlin.jacksonMapperBuilder
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
+import io.temporal.client.WorkflowException
 import io.temporal.client.WorkflowQueryException
 import io.temporal.client.WorkflowServiceException
+import jakarta.servlet.http.HttpServletRequest
 import koshei.episode.runtime.CloseRequest
 import koshei.episode.runtime.ConfirmRequest
 import koshei.episode.runtime.DecideRequest
@@ -21,7 +28,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -45,8 +51,13 @@ data class CloseBody(val outcome: String = "")
 /** A request this controller refuses before anything reaches the episode: 400. */
 private class BadEpisodeBody(message: String) : RuntimeException(message)
 
+/** A POST body over [MAX_BODY_BYTES]: 413, before it is read as JSON. */
+private class EpisodeBodyTooLarge : RuntimeException("request body over $MAX_BODY_BYTES bytes")
+
 private const val OPERATOR_HEADER = "X-Koshei-Operator"
+private const val MAX_OPERATOR = 128
 private const val MAX_LIMIT = 500
+private const val MAX_BODY_BYTES = 64 * 1024
 private const val TABLES_MISSING = "episode tables not found — no episode worker has run (KOSHEI_PICASSO)"
 
 /**
@@ -60,9 +71,18 @@ private const val TABLES_MISSING = "episode tables not found — no episode work
 class EpisodeController(private val gateway: EpisodeGateway, private val reader: EpisodeReader) {
     /**
      * Bodies are read here, not by Spring's mapper: that one ignores unknown fields, and a class annotation does not turn
-     * it back on. A fresh Kotlin mapper refuses them, so an `operatorId` in the body or a misspelt field is a 400.
+     * it back on. This one refuses them (an `operatorId` in the body, a misspelt field), a field given twice, anything
+     * after the object, and a number or a string where a flag belongs — a decision is never guessed from a near miss.
      */
-    private val bodies = jacksonObjectMapper()
+    private val bodies: ObjectMapper = jacksonMapperBuilder()
+        .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+        .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+        .build()
+        .apply {
+            coercionConfigFor(LogicalType.Boolean)
+                .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.String, CoercionAction.Fail)
+        }
     private val trees = ObjectMapper()
 
     @GetMapping
@@ -78,27 +98,28 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
         return ResponseEntity.ok(reader.noticesAfter(after, limit).map { linkedMapOf("id" to it.id, "instanceId" to it.instanceId, "at" to it.at, "notice" to trees.readTree(it.noticeJson)) })
     }
 
-    /** The records and notices, with the live view and its card while the run holds this instance; Temporal down → records only. */
+    /**
+     * The records and notices, with the live view and its card while the run holds this instance. When Temporal fails to
+     * answer, the records still do (`viewError`). Nothing live and nothing recorded is a 404.
+     */
     @GetMapping("/{workflowId}/{run}")
     fun one(@PathVariable workflowId: String, @PathVariable run: String): ResponseEntity<Any> {
         val instanceId = "$workflowId/$run"
-        var unknownToTemporal = false
         var viewError: String? = null
         val view: EpisodeView? = try {
             gateway.view(instanceId)
         } catch (e: EpisodeNotFound) {
-            unknownToTemporal = true
             null
         } catch (e: Exception) {
-            if (e !is StatusRuntimeException && e !is WorkflowServiceException && e !is WorkflowQueryException && e !is EpisodeTimeout) throw e
+            if (e !is WorkflowException && e !is StatusRuntimeException && e !is EpisodeTimeout) throw e
             viewError = e.message ?: e.javaClass.simpleName
             null
         }
         val events = reader.events(instanceId)
-        if (unknownToTemporal && events.isEmpty()) {
+        val notices = reader.noticeRows(instanceId)
+        if (view == null && viewError == null && events.isEmpty() && notices.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "no episode $instanceId"))
         }
-        val notices = reader.noticeRows(instanceId)
         return ResponseEntity.ok(
             linkedMapOf(
                 "instanceId" to instanceId,
@@ -113,18 +134,18 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
 
     @PostMapping("/{workflowId}/{run}/decide")
     fun decide(@PathVariable workflowId: String, @PathVariable run: String,
-               @RequestHeader(OPERATOR_HEADER, required = false) operator: String?, @RequestBody body: String): ResponseEntity<Any> {
+               @RequestHeader(OPERATOR_HEADER, required = false) operator: String?, request: HttpServletRequest): ResponseEntity<Any> {
         val operatorId = operatorOf(operator)
-        val b = read(body, DecideBody::class.java)
+        val b = read(request, DecideBody::class.java)
         val approve = b.approve ?: throw BadEpisodeBody("approve is required")
         return reply(gateway.decide("$workflowId/$run", DecideRequest(b.proposalId, b.sawCandidatesVersion, approve, operatorId, b.reason, b.note)))
     }
 
     @PostMapping("/{workflowId}/{run}/confirm")
     fun confirm(@PathVariable workflowId: String, @PathVariable run: String,
-                @RequestHeader(OPERATOR_HEADER, required = false) operator: String?, @RequestBody body: String): ResponseEntity<Any> {
+                @RequestHeader(OPERATOR_HEADER, required = false) operator: String?, request: HttpServletRequest): ResponseEntity<Any> {
         val operatorId = operatorOf(operator)
-        val b = read(body, ConfirmBody::class.java)
+        val b = read(request, ConfirmBody::class.java)
         val holds = b.holds ?: throw BadEpisodeBody("holds is required")
         val instanceId = "$workflowId/$run"
         val proposition = if (b.kind == "PRECONDITION") propositionFor(instanceId, b, holds) else null
@@ -140,16 +161,17 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
 
     @PostMapping("/{workflowId}/{run}/close")
     fun close(@PathVariable workflowId: String, @PathVariable run: String,
-              @RequestHeader(OPERATOR_HEADER, required = false) operator: String?, @RequestBody body: String): ResponseEntity<Any> {
+              @RequestHeader(OPERATOR_HEADER, required = false) operator: String?, request: HttpServletRequest): ResponseEntity<Any> {
         val operatorId = operatorOf(operator)
-        val b = read(body, CloseBody::class.java)
+        val b = read(request, CloseBody::class.java)
         return reply(gateway.close("$workflowId/$run", CloseRequest(operatorId, b.outcome)))
     }
 
     /**
      * The proposition the card shows (design §7.2, §8.3), only when the body names the card's own proposal in
      * UNKNOWN_PRECONDITION; "it holds" with no proposition there is a 400. Any other confirmation of a precondition goes
-     * on without one, and the core refuses it as a value — the control plane does not stand in for the core.
+     * on without one, and the core refuses it as a value — the control plane does not stand in for the core. The view
+     * may be a step behind the episode; the core's own check (REFUSED_NO_PROPOSITION) is the one that holds.
      */
     private fun propositionFor(instanceId: String, b: ConfirmBody, holds: Boolean): String? {
         val view = gateway.view(instanceId) ?: return null
@@ -162,11 +184,18 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
 
     private fun operatorOf(header: String?): String {
         val operatorId = header?.trim().orEmpty()
-        if (operatorId.isEmpty() || operatorId.length > 128) throw BadEpisodeBody("$OPERATOR_HEADER is required (design §7.2)")
+        if (operatorId.isEmpty()) throw BadEpisodeBody("$OPERATOR_HEADER is required (design §7.2)")
+        if (operatorId.length > MAX_OPERATOR) throw BadEpisodeBody("$OPERATOR_HEADER is longer than $MAX_OPERATOR characters (design §7.2)")
         return operatorId
     }
 
-    private fun <T> read(body: String, type: Class<T>): T = bodies.readValue(body, type) ?: throw BadEpisodeBody("a JSON object is required")
+    /** The body, at most [MAX_BODY_BYTES] of it (a declared length over that is refused unread), as one strict JSON object. */
+    private fun <T> read(request: HttpServletRequest, type: Class<T>): T {
+        if (request.contentLengthLong > MAX_BODY_BYTES) throw EpisodeBodyTooLarge()
+        val bytes = request.inputStream.readNBytes(MAX_BODY_BYTES + 1)
+        if (bytes.size > MAX_BODY_BYTES) throw EpisodeBodyTooLarge()
+        return bodies.readValue(bytes, type) ?: throw BadEpisodeBody("a JSON object is required")
+    }
 
     private fun reply(value: String): ResponseEntity<Any> = ResponseEntity.ok(mapOf("reply" to value))
 
@@ -175,11 +204,16 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
     private fun error(status: HttpStatus, message: String?): ResponseEntity<Map<String, String?>> =
         ResponseEntity.status(status).body(mapOf("error" to message))
 
+    private fun Status.Code.unreachable() = this == Status.Code.UNAVAILABLE || this == Status.Code.DEADLINE_EXCEEDED
+
     @ExceptionHandler(BadEpisodeBody::class, InvalidEpisodeRequest::class)
     fun badRequest(e: RuntimeException) = error(HttpStatus.BAD_REQUEST, e.message)
 
     @ExceptionHandler(JsonProcessingException::class)
     fun unreadable(e: JsonProcessingException) = error(HttpStatus.BAD_REQUEST, e.originalMessage)
+
+    @ExceptionHandler(EpisodeBodyTooLarge::class)
+    fun tooLarge(e: RuntimeException) = error(HttpStatus.PAYLOAD_TOO_LARGE, e.message)
 
     @ExceptionHandler(EpisodeMoved::class)
     fun moved(e: EpisodeMoved): ResponseEntity<Map<String, String>> =
@@ -193,17 +227,29 @@ class EpisodeController(private val gateway: EpisodeGateway, private val reader:
 
     @ExceptionHandler(StatusRuntimeException::class)
     fun unreachable(e: StatusRuntimeException): ResponseEntity<Map<String, String?>> =
-        if (e.status.code == Status.Code.UNAVAILABLE || e.status.code == Status.Code.DEADLINE_EXCEEDED) error(HttpStatus.SERVICE_UNAVAILABLE, e.message)
-        else throw e
+        if (e.status.code.unreachable()) error(HttpStatus.SERVICE_UNAVAILABLE, e.message) else throw e
 
-    @ExceptionHandler(WorkflowServiceException::class, SQLTransientConnectionException::class)
-    fun unavailable(e: Exception) = error(HttpStatus.SERVICE_UNAVAILABLE, e.message)
+    /** Temporal could not be reached; any other service failure stays a 500, not hidden behind "try again". */
+    @ExceptionHandler(WorkflowServiceException::class)
+    fun service(e: WorkflowServiceException): ResponseEntity<Map<String, String?>> {
+        val cause = e.cause
+        return if (cause is StatusRuntimeException && cause.status.code.unreachable()) error(HttpStatus.SERVICE_UNAVAILABLE, e.message) else throw e
+    }
+
+    /** The check before a decision queries the run; a query that fails (no worker to answer it) is a 503. */
+    @ExceptionHandler(WorkflowQueryException::class)
+    fun query(e: WorkflowQueryException) = error(HttpStatus.SERVICE_UNAVAILABLE, e.message)
+
+    @ExceptionHandler(SQLTransientConnectionException::class)
+    fun connection(e: SQLTransientConnectionException) = error(HttpStatus.SERVICE_UNAVAILABLE, e.message)
 
     /** The control plane never creates the tables (R14): with none yet, it says so rather than failing. Anything else stays a 500. */
     @ExceptionHandler(SQLException::class)
     fun database(e: SQLException): ResponseEntity<Map<String, String?>> =
         if (e.sqlState == "42P01") error(HttpStatus.SERVICE_UNAVAILABLE, TABLES_MISSING) else throw e
 
+    /** The Update was sent but did not answer in time: it may still be applied, so the outcome is unknown, not refused. */
     @ExceptionHandler(EpisodeTimeout::class)
-    fun timeout(e: EpisodeTimeout) = error(HttpStatus.GATEWAY_TIMEOUT, e.message)
+    fun timeout(e: EpisodeTimeout): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(mapOf("error" to "EPISODE_TIMEOUT", "outcome" to "UNKNOWN", "instanceId" to e.instanceId))
 }

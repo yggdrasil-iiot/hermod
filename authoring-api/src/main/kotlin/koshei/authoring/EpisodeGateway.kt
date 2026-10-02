@@ -30,7 +30,10 @@ class EpisodeMoved(val instanceId: String, val currentInstanceId: String) :
 class EpisodeEnded(val instanceId: String) : RuntimeException("$instanceId has ended")
 /** The Update's validator refused the request's form (design §7.2): nothing reached the episode or its history. */
 class InvalidEpisodeRequest(message: String) : RuntimeException(message)
-/** The Update did not complete within the bound: the worker may be down. Its outcome is unknown. */
+/**
+ * The Update did not complete within the bound: the worker may be down or slow. Its outcome is UNKNOWN — the Update was
+ * sent and may still be applied — so the operator reads the episode again before deciding again.
+ */
 class EpisodeTimeout(val instanceId: String) : RuntimeException("no answer from $instanceId in time")
 
 /** The workflow's current run as Temporal reports it. [view] is queried only while the run is running. */
@@ -43,7 +46,7 @@ class CurrentRun(val runId: String, val running: Boolean, val view: EpisodeView?
  * the check and the Update, so a run that continued as new in between refuses the Update rather than the next
  * episode taking it. An ended run is not queried: that needs a worker to replay it, and the records answer instead.
  */
-class EpisodeGateway(private val client: Lazy<WorkflowClient>, private val updateTimeout: Duration = Duration.ofSeconds(30)) {
+class EpisodeGateway(private val client: Lazy<WorkflowClient>, private val updateTimeout: Duration = Duration.ofSeconds(30)) : AutoCloseable {
     private val updates = Executors.newCachedThreadPool { r -> Thread(r, "episode-update").apply { isDaemon = true } }
 
     fun current(workflowId: String): CurrentRun {
@@ -61,7 +64,14 @@ class EpisodeGateway(private val client: Lazy<WorkflowClient>, private val updat
         val runId = info.execution.runId
         val running = info.status == WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_RUNNING
         val stub = c.newWorkflowStub(EpisodeWorkflow::class.java, workflowId, Optional.of(runId))
-        return CurrentRun(runId, running, if (running) stub.view() else null, stub)
+        if (!running) return CurrentRun(runId, false, null, stub)
+        // The run can close between the describe and the query: then it is ended, as the describe would have said.
+        val view = try {
+            stub.view()
+        } catch (e: WorkflowNotFoundException) {
+            return CurrentRun(runId, false, null, stub)
+        }
+        return CurrentRun(runId, true, view, stub)
     }
 
     /** The live view of [instanceId], or null when it is not the workflow's running current run (its records still answer). */
@@ -72,8 +82,22 @@ class EpisodeGateway(private val client: Lazy<WorkflowClient>, private val updat
     fun takeover(instanceId: String, request: TakeoverRequest): String = act(instanceId) { it.takeover(request) }
     fun close(instanceId: String, request: CloseRequest): String = act(instanceId) { it.close(request) }
 
-    private fun act(instanceId: String, update: (EpisodeWorkflow) -> String): String {
-        val run = current(workflowIdOf(instanceId))
+    /**
+     * Shuts the gateway down (the bean's destroy method): Update threads still waiting are interrupted, and the client's
+     * service stubs are shut down if the client was ever made — a context that never reached Temporal makes none here.
+     */
+    override fun close() {
+        updates.shutdownNow()
+        if (client.isInitialized()) client.value.workflowServiceStubs.shutdown()
+    }
+
+    private fun act(instanceId: String, update: (EpisodeWorkflow) -> String): String = send(current(workflowIdOf(instanceId)), instanceId, update)
+
+    /**
+     * Sends [update] on [run] — the run as checked — if it still holds [instanceId]. Its stub is pinned to that run, so a
+     * run that ended or continued as new since the check refuses the Update ([EpisodeEnded]); the next run never gets it.
+     */
+    internal fun send(run: CurrentRun, instanceId: String, update: (EpisodeWorkflow) -> String): String {
         val view = run.view ?: throw EpisodeEnded(instanceId)
         if (view.instanceId != instanceId) throw EpisodeMoved(instanceId, view.instanceId)
         val pending = updates.submit<String> { update(run.stub) }
