@@ -11,8 +11,9 @@ import java.io.File
 /**
  * Deterministic one-shot trigger for the auto-correct sweep+dispatch cycle (design 2026-07-04). This is the
  * gate driver (the @Scheduled bean is disabled with KOSHEI_AUTOCORRECT_DISABLED=1 so it can't race). It is an
- * explicit operator/ops action, so it always dispatches — safe because the dispatched ot-safe-hold parks at the
- * human approval gate (it never actuates). FSM specs resolve from KOSHEI_MODEL_DIR; unset => 503 (nothing to
+ * explicit operator/ops action, so it always dispatches — except in episode mode, where it answers 409
+ * EPISODE_MODE (AutoCorrectGate) — safe because the dispatched ot-safe-hold parks at the human approval gate
+ * (it never actuates). FSM specs resolve from KOSHEI_MODEL_DIR; unset => 503 (nothing to
  * sweep), matching the bean (authoring-api reads other model artifacts from the classpath, not a fs dir).
  */
 @RestController

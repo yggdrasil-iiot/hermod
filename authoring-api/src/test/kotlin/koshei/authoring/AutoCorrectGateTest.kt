@@ -31,6 +31,11 @@ class AutoCorrectGateTest {
         assertFailsWith<IllegalArgumentException> { gate("KOSHEI_PICASSO" to "mock", "KOSHEI_AUTOCORRECT_DISPATCH" to "1") }
     }
 
+    @Test fun `episode mode with DISABLED and DISPATCH both set is OFF - how the gate script runs if KOSHEI_PICASSO leaks in`() {
+        val g = gate("KOSHEI_PICASSO" to "mock", "KOSHEI_AUTOCORRECT_DISABLED" to "1", "KOSHEI_AUTOCORRECT_DISPATCH" to "1")
+        assertEquals(AutoCorrectGate(AutoCorrectMode.OFF, episodeMode = true), g)
+    }
+
     @Test fun `an unknown KOSHEI_PICASSO stops the start, as it stops the worker`() {
         assertFailsWith<IllegalArgumentException> { gate("KOSHEI_PICASSO" to "real") }
     }

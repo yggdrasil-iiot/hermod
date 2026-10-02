@@ -1,6 +1,8 @@
 package koshei.authoring
 
 import koshei.episode.runtime.PicassoMode
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 
 enum class AutoCorrectMode { OFF, ALARM_ONLY, DISPATCH }
 
@@ -32,7 +34,7 @@ data class AutoCorrectGate(val mode: AutoCorrectMode, val episodeMode: Boolean) 
     }
 }
 
-@org.springframework.context.annotation.Configuration
+@Configuration
 class AutoCorrectGateConfig {
-    @org.springframework.context.annotation.Bean fun autoCorrectGate(): AutoCorrectGate = AutoCorrectGate.fromEnv(System.getenv())
+    @Bean fun autoCorrectGate(): AutoCorrectGate = AutoCorrectGate.fromEnv(System.getenv())
 }
