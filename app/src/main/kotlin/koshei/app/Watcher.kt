@@ -18,7 +18,8 @@ data class WatcherConfig(val exports: List<Path>, val carry: Path?, val interval
     companion object {
         fun fromEnv(env: Map<String, String>): WatcherConfig {
             require(PicassoMode.fromEnv(env) != PicassoMode.OFF) {
-                "KOSHEI_PICASSO is off: no episode worker runs, so the watcher would move its cursor past symptoms nobody opens"
+                "KOSHEI_PICASSO is off: no episode worker runs, so the episodes the watcher opens would never be run or seen " +
+                    "(signalWithStart still creates them; they wait)"
             }
             val exports = requireNotNull(env["KOSHEI_WATCH_EXPORTS"]) { "KOSHEI_WATCH_EXPORTS: the picasso export directories, separated by '${File.pathSeparator}'" }
                 .split(File.pathSeparator)
@@ -53,6 +54,8 @@ fun main() {
             if (r.opened > 0 || r.evidence > 0) println("koshei watcher: opened ${r.opened}, evidence ${r.evidence}")
         } catch (e: Exception) {
             // The database or the file system failed mid-pass: nothing past the last cursor row is lost; try again.
+            // A pass that fails the same way every interval (the policy parse throwing, a cursor check failing) prints
+            // here each time and leaves no row in episode_watch_log — acceptable for a dev process watched by a person.
             System.err.println("koshei watcher: pass failed: ${e.javaClass.simpleName}: ${e.message}")
         }
         Thread.sleep(config.intervalMs)

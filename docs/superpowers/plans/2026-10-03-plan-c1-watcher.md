@@ -2218,7 +2218,7 @@ git commit -m "feat(authoring-api): in episode mode drift alarms only - auto-dis
 | `KOSHEI_WATCH_INTERVAL_MS` | 폴링 간격. 100 ~ 60000 | 2000 |
 | `KOSHEI_EPISODE_POLICY` | 병합 규칙을 읽을 정책 파일. 워커와 같은 파일 | `model/episode-policy/active.yaml` |
 | `KOSHEI_DB_*` | 커서 · 기록 표. 워커와 같은 DB | `Db.connect()` 기본 |
-| `KOSHEI_PICASSO` | 에피소드 모드인가. 워커 · authoring-api 와 같은 해석(`PicassoMode.fromEnv`). `off`(기본)면 시작을 멈춘다 — 에피소드를 돌릴 워커가 없는데 커서만 나아가 증상이 사라지지 않게 | `off` → 시작 거절 |
+| `KOSHEI_PICASSO` | 에피소드 모드인가. 워커 · authoring-api 와 같은 해석(`PicassoMode.fromEnv`). `off`(기본)면 시작을 멈춘다 — 에피소드 워커가 없으면 감시자가 연 에피소드를 아무도 돌리지도 보지도 않는다(`signalWithStart` 는 그래도 만들고, 그것은 기다린다) | `off` → 시작 거절 |
 
 - 상대 경로는 프로세스의 작업 디렉터리를 기준으로 풀린다. `./gradlew :app:watcher` 의 작업 디렉터리는 `app/` 이다. 그래서 시작 줄에 절대 경로를 찍는다.
 - 세 프로세스(워커, 감시자, authoring-api)는 같은 `KOSHEI_PICASSO` 를 가져야 한다. 각 프로세스가 제 환경만 본다(Task 11 에서 §4.2 에 적는다).
@@ -2305,7 +2305,8 @@ data class WatcherConfig(val exports: List<Path>, val carry: Path?, val interval
     companion object {
         fun fromEnv(env: Map<String, String>): WatcherConfig {
             require(PicassoMode.fromEnv(env) != PicassoMode.OFF) {
-                "KOSHEI_PICASSO is off: no episode worker runs, so the watcher would move its cursor past symptoms nobody opens"
+                "KOSHEI_PICASSO is off: no episode worker runs, so the episodes the watcher opens would never be run or seen " +
+                    "(signalWithStart still creates them; they wait)"
             }
             val exports = requireNotNull(env["KOSHEI_WATCH_EXPORTS"]) { "KOSHEI_WATCH_EXPORTS: the picasso export directories, separated by '${File.pathSeparator}'" }
                 .split(File.pathSeparator)
@@ -2464,7 +2465,8 @@ Expected: 모두 PASS. 모듈마다 수를 보고한다.
   - `SIGNAL_FAILED` 의 열쇠는 글이 아니라 예외의 클래스와 gRPC 상태 코드다. 글은 detail 에 남는다.
   - 기억은 1000개까지다. 차면 비운다.
   - `UNROUTED` 는 (원천, run, 자리), `ROUTE_ENDED` 는 (원천, run, 자리, 인스턴스)마다 한 번이다. 계획은 줄마다의 사실이라 `once` 를 쓰지 않고
-    실패 뒤 다시 나른 줄이 한 번 더 남는 것을 받아들였다. 이제 한 줄에 한 번이다. `AMBIGUOUS` 는 계획대로 보낼 때마다 남는다.
+    실패 뒤 다시 나른 줄이 한 번 더 남는 것을 받아들였다. 이제 한 줄에 한 번이다. `AMBIGUOUS` 는 계획대로 보낼 때마다 남는다(마지막 검토에서
+    바뀌었다, 아래).
   - 사유는 그 행을 쓴 뒤에만 기억한다. 쓰기가 실패하면 다음 폴링에 다시 쓴다.
 - **원천 이름은 실제 경로(Task 6).** `toAbsolutePath().normalize()` 대신 폴링마다 `toRealPath()` 다(아직 없으면 절대 정규 경로). 그래서 내보내기
   경로는 안정해야 한다. 알려진 한계: 같은 `runId` 를 든 내보내기 디렉터리 둘은 키와 `eventId` 가 부딪친다(설계 §7.1 의 키에는 경로가 없다).
@@ -2476,4 +2478,25 @@ Expected: 모두 PASS. 모듈마다 수를 보고한다.
 - **좁은 규칙과 넓은 규칙(Task 1, 설계 §7.1 · §10.1).** `[robotId]` 옆에 `[robotId, jobOrderId]` 를 두면 두 칸을 다 든 줄은 모두 애매하다. 좁은
   규칙이 병합을 다듬지 않는다. 의도한 것이다(「서로 다르게 말하면 아무것도 묶지 않는다」). 문서에 밝혀 적었다.
 - **drift(Task 9).** 에피소드 모드에서도 `DISABLED=1` 이 `DISPATCH=1` 을 이긴다(꺼짐, 시작한다). 계획의 표 그대로이고, 설계 §14 구현(C1)에 표를 옮겼다.
+
+마지막 검토 뒤(2026-10-02, `9341c36` 다음 커밋):
+
+- **`SIGNAL_FAILED` 는 어느 줄인지 적는다(Task 6 · 7).** detail 에 `runId`, `position`, 줄의 `id`, 증상이면 `eventId`, 근거면 보내던 `instanceId` 가
+  든다. 열쇠는 예외 클래스 | 상태 코드에 원천 | run | 자리를 더한다 — 한 줄에서 한 번의 장애는 행 하나이고, 다음 줄이 막히면 새 행이다.
+- **알려진 한계: 늘 실패하는 줄.** 신호가 늘 실패하는 줄(크기를 넘은 페이로드의 `INVALID_ARGUMENT`, `view()` 질의가 계속 실패하는 인스턴스)은
+  폴링마다 이번 폴링을 그 줄에서 멈춘다 — 그 뒤의 줄과 모든 근거가 기다린다. 그 줄의 `SIGNAL_FAILED` 행이 줄을 짚는다. 설계 §12 구현(C1)과
+  `EpisodeWatcher` KDoc 에 적었다.
+- **결과 통보는 주문만으로 찾는다(Task 7).** 설계 §12 는 `(기체, 주문)` 을 말하지만 picasso `JobResponse` 에는 기체 id 가 없다(`jobOrderId` 뿐).
+  `instancesForOrder` 는 주문 하나로 맞추고, 다른 시도의 통보를 받은 인스턴스는 기록만 한다(코어가 `executionId` 로 잇는다). 설계 §12 구현(C1)과
+  `instancesForOrder` KDoc 에 적었다.
+- **`AMBIGUOUS` 는 보낸 뒤에, 줄마다 한 번(Task 6).** `open` 이 성공한 뒤에만 남기고, (원천, run, 자리)를 열쇠로 `once` 를 쓴다 — 장애 동안
+  폴링마다 행이 늘지 않는다.
+- **`PinnedRun.stub` 을 지웠다.** 읽는 곳이 없었다(제어면의 `EpisodeGateway` 는 제 것을 쓴다). `WatchStore` 의 `open` 은 시험이 상속하므로 남기고
+  KDoc 에 「open for tests」를 적었다.
+- **`KOSHEI_PICASSO=off` 를 거절하는 까닭(Task 10).** 증상이 사라지는 것이 아니다 — 에피소드 워커가 없으면 감시자가 연 에피소드를 아무도
+  돌리지도 보지도 않는다(`signalWithStart` 는 그래도 만들고, 그것은 기다린다). 설계 §4.2, `WatcherConfig.fromEnv` 의 글, 위 Task 10 을 고쳤다.
+- **CLI 와 감시자의 차이(설계 §7.2 구현(C1)).** CLI 의 기본 키는 id 에 `:` 가 있거나 64자를 넘어도 연다(감시자는 `STUCK`). CLI 는 병합 규칙을
+  보지 않는다(줄 하나, 제 키). 감시자는 묶는다.
+- **같은 방식으로 매번 실패하는 폴링(`Watcher.kt`).** 정책 읽기가 던지거나 커서 검사가 실패하는 폴링은 간격마다 stderr 에 찍히고 감시 기록에는
+  행이 남지 않는다. 개발 프로세스라 받아들인다 — 주 반복문에 주석으로 적었다.
 

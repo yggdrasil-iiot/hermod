@@ -142,7 +142,8 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 | `KOSHEI_PICASSO` | 에피소드 모드인가. 워커와 같은 해석(`PicassoMode.fromEnv`) | `off` 면 시작하지 않는다 |
 
 - 상대 경로는 프로세스의 작업 디렉터리 기준으로 풀린다. `:app:watcher` 의 작업 디렉터리는 `app/` 이다. 그래서 시작 줄에 절대 경로를 찍는다.
-- 감시자는 `KOSHEI_PICASSO=off` 면 시작하지 않는다. 에피소드를 돌릴 워커가 없는데 커서만 나아가면 증상이 아무도 열지 않은 채 지나간다.
+- 감시자는 `KOSHEI_PICASSO=off` 면 시작하지 않는다. 에피소드 워커가 없으면 감시자가 연 에피소드는 아무도 돌리지도 보지도 않는다 —
+  `signalWithStart` 는 그래도 워크플로를 만들고, 그것은 워커를 기다리며 서 있다. 증상이 사라지는 것은 아니다.
 - authoring-api 도 이제 `KOSHEI_PICASSO` 를 읽는다(drift 의 자동 디스패치를 막는 판정, §14 구현(C1)). 모르는 값이면 워커처럼 시작을 멈춘다.
 - **각 프로세스는 제 환경만 본다.** 워커 · 감시자 · authoring-api 가 같은 `KOSHEI_PICASSO` 를 가져야 한다. 다른 셸에서 띄운 authoring-api 는
   에피소드 모드를 모르고 drift 를 그대로 디스패치할 수 있다. Gradle 작업은 셸의 `KOSHEI_*` 를 넘기므로 한 셸에서 띄우면 맞는다.
@@ -481,6 +482,10 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
   않으면 그 파일을 그 줄에서 멈춘다(`STUCK`, §12). 제어면은 여전히 따로 검사하지 않는다.
 - CLI 의 `--key` 는 글자 모양(`[A-Za-z0-9._:-]+`)만 보고 길이 상한이 없다. 감시자는 200자에서 멈추지만 CLI 는 더 긴 키로도 연다 — 손으로
   여는 개발 도구라 그 차이를 둔다.
+  - `--key` 가 없을 때의 기본 키 `<runId>:<id>` 도 그렇다. CLI 는 id 에 `:` 가 있거나 id 가 64자를 넘어도 연다. 감시자는 그런 줄에서
+    `STUCK` 으로 멈춘다(id 는 `[A-Za-z0-9._-]{1,64}` 여야 한다 — 병합 키처럼 보이지 않게, §7.1 구현(C1)).
+  - CLI 는 정책의 병합 규칙을 보지 않는다 — 줄 하나를 제 키로 연다. 감시자는 규칙대로 묶는다. 같은 줄이라도 CLI 와 감시자가 다른
+    에피소드에 넣을 수 있다.
 - CLI 는 이제 감시자와 같은 `ExportSymptoms` · `Bundles` 로 읽는다(§12 구현(C1)). 그래서 CLI 가 보내는 줄은 감시자가 보낼 줄이고,
   `eventId` 도 같다.
   - manifest 에 `schemaVersion "5"` 와 `counts` 가 있어야 한다.
@@ -1094,23 +1099,27 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | `NOT_READY` | 묶음이 아직 다 쓰이지 않았다. manifest 가 없는 디렉터리도 한 번 남는다 — 경로를 잘못 적었을 때 보이게 |
 | `BROKEN` | 묶음이 깨졌다, 또는 그 줄에서 파일을 멈췄다 |
 | `STUCK` | 커서 자리의 줄이 바뀌었다, 또는 키가 되지 않는 줄 |
-| `AMBIGUOUS` | 병합 규칙이 서로 다른 키를 냈다 — 서로 참조(`eventId`, `key`, `related`, §7.1 구현(C1)) |
+| `AMBIGUOUS` | 병합 규칙이 서로 다른 키를 냈다 — 서로 참조(`eventId`, `key`, `related`, §7.1 구현(C1)). 증상을 보낸(`open` 이 성공한) 뒤에만 남긴다 |
 | `UNROUTED` | 결과 통보에 주문이 없다(없음 · 빔 · 글자 아님), 또는 그 주문을 든 승인 의도가 없다 |
 | `ROUTE_ENDED` | 그 주문의 인스턴스가 더는 받지 않는다(끝남, 다음 run 으로 넘어감) |
-| `SIGNAL_FAILED` | Temporal 이 신호를 받지 않았다 |
+| `SIGNAL_FAILED` | Temporal 이 신호를 받지 않았다. 어느 줄인지 적는다: `runId`, `position`, 줄의 `id`, 증상이면 `eventId`, 근거면 보내던 `instanceId` |
 | `POLICY_UNUSABLE` | 정책 파일을 쓸 수 없다, 그리고 무엇을 쓰는지(마지막 유효 규칙 / 규칙 없음) |
 
 - detail 이 jsonb 에 들지 않으면(NUL, 짝 없는 서로게이트 — SQLState 22 계열) 같은 원천 · 종류로 `{"unstorable":true}` 행을 쓴다.
   `BROKEN` 의 사유는 믿을 수 없는 줄 글을 옮기므로, 기록이 제 내용 때문에 막히지 않게 한다.
 - **한 번만 남긴다.** 프로세스 안의 기억이고, 열쇠는 (원천, 종류, 사유)다. 다시 시작하면 한 번 더 남는다. 사유가 A → B → A 로 돌아오면
   두 번째 A 는 남기지 않는다 — 운영자는 처음의 A 를 이미 보았다.
-  - `SIGNAL_FAILED` 의 열쇠는 예외의 클래스와 (gRPC 호출이 실패했으면) 그 상태 코드다. 글은 바뀌는 id · 시각을 담아 Temporal 이 죽은 동안
-    폴링마다 남게 되므로 열쇠에 넣지 않는다. 글은 detail 에 남긴다.
-  - `UNROUTED` 는 (원천, run, 자리)마다, `ROUTE_ENDED` 는 (원천, run, 자리, 인스턴스)마다 한 번이다 — 실패 뒤 다시 나른 줄이 두 번 남지
-    않게. `AMBIGUOUS` 는 보낼 때마다 남는다.
+  - `SIGNAL_FAILED` 의 열쇠는 예외의 클래스와 (gRPC 호출이 실패했으면) 그 상태 코드, 그리고 줄(원천, run, 자리)이다. 한 줄에서 한 번의
+    장애는 행 하나이고, 그 줄이 지나간 뒤 다음 줄이 막히면 새 행이 남는다. 글은 바뀌는 id · 시각을 담아 Temporal 이 죽은 동안 폴링마다
+    남게 되므로 열쇠에 넣지 않는다. 글은 detail 에 남긴다.
+  - `UNROUTED` · `AMBIGUOUS` 는 (원천, run, 자리)마다, `ROUTE_ENDED` 는 (원천, run, 자리, 인스턴스)마다 한 번이다 — 실패 뒤 다시 나른
+    줄이 두 번 남지 않게. `AMBIGUOUS` 는 증상을 보낸 뒤에만 남긴다 — 보내지 못한 줄에는 아직 서로 참조할 에피소드가 없다.
   - 행을 쓴 뒤에만 기억한다. 쓰기가 실패하면 다음 폴링에 다시 쓴다.
   - 기억은 1000개까지다. 차면 비운다 — 그때는 한 사유가 한 번 더 남을 수 있다.
 - 알려진 한계: 같은 `runId` 를 든 내보내기 디렉터리 둘은 키와 `eventId` 가 부딪친다(§7.1 의 키에는 경로가 없다).
+- 알려진 한계: 신호가 늘 실패하는 줄 — Temporal 이 끝내 받지 않는 줄(크기를 넘은 페이로드의 `INVALID_ARGUMENT`), 또는 `view()` 질의가
+  계속 실패하는 인스턴스 — 은 폴링마다 이번 폴링을 그 줄에서 멈춘다. 그 뒤의 줄과 모든 근거가 그 줄 뒤에서 기다린다. 건너뛰지 않는다
+  (최소 한 번). 그 줄의 `SIGNAL_FAILED` 행이 줄을 짚는다(원천, `runId`, `position`, `id`) — 사람이 보고 정한다.
 
 *나르는 모양 `koshei-carry-0` (개발용, §19 C 전까지).*
 - 담는 쪽이 디렉터리에 `job-responses.jsonl` 과 `manifest.json` 을 picasso 내보내기와 같은 규율로 쓴다. manifest 는
@@ -1131,6 +1140,9 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - 주문으로 찾는다: `episode_event` 의 `DISPATCH_INTENT` 기록 가운데 후보 종류가 `APPROVE_REMEDY` 이고 `candidate.ref.jobOrderId` 가 그
   주문인 인스턴스 전부(첫 의도 순, `WatchStore.instancesForOrder`). **`APPROVE_REMEDY` 의도만 본다** — `executionId` 를 받는 것은 승인뿐이다.
   `CHOOSE_SOURCE` 도 주문을 들지만, 거기로 보내면 기록만 되고 아무 데도 닿지 않았다는 것이 가려진다.
+- **주문만으로 찾는다.** 위의 설계는 `(기체, 주문)` 을 말하지만, picasso `JobResponse` 에는 기체 id 가 없다 — `jobOrderId` 뿐이다
+  (picasso `Model.kt:310-337`). 그래서 `instancesForOrder` 는 주문 하나로 맞춘다. 같은 주문의 다른 기체 · 다른 시도에 간 통보는 받은
+  인스턴스가 기록만 한다 — 코어는 `executionId` 로 시도에 잇는다.
 - 찾은 인스턴스마다 보낸다. 어느 시도의 통보인지는 코어가 `executionId` 로 가린다(§5.2).
 - **인스턴스에** 보낸다(`TemporalEpisodeSignals.evidence`). 워크플로 id 에 보내면 그 id 의 지금 run 이 받는다 — 앞 에피소드가 끝난 뒤 같은
   키로 새 에피소드가 열렸으면 늦은 통보가 새 에피소드의 기록에 섞인다.

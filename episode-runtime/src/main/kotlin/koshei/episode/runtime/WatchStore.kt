@@ -10,7 +10,10 @@ data class WatchCursor(val position: Int, val lastId: String)
 /** One row of the watch log. */
 data class WatchLogRow(val id: Long, val source: String, val kind: String, val detailJson: String, val at: Instant)
 
-/** The watcher's tables (design §12): its cursor, its log, and the one read it makes of the episode records. */
+/**
+ * The watcher's tables (design §12): its cursor, its log, and the one read it makes of the episode records.
+ * `open` for tests: they subclass it (to make [log] fail, for one).
+ */
 open class WatchStore(private val connect: () -> Connection) {
 
     /** The cursor for ([source], [runId]); null means nothing has been carried yet from that source and run. */
@@ -93,6 +96,10 @@ open class WatchStore(private val connect: () -> Connection) {
      * Every episode instance with a remedy-approval intent for [jobOrderId], in the order their first such intent was
      * written. Only APPROVE_REMEDY: only a remedy approval gets an `executionId` that a JobResponse can link to (§12);
      * a person task (CHOOSE_SOURCE also names the order) would only record the report and hide that it went nowhere.
+     *
+     * By the order alone, not by (robot, order) as design §12 first put it: picasso's JobResponse carries no robot id,
+     * only `jobOrderId`. An instance that gets a report for an attempt it did not make only records it — the core links a
+     * report to an attempt by `executionId`.
      */
     fun instancesForOrder(jobOrderId: String): List<String> = connect().use { c ->
         c.prepareStatement(

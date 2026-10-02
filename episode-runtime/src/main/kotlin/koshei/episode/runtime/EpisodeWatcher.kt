@@ -24,6 +24,11 @@ import java.time.Instant
  * spelling of the same directory that resolves elsewhere would be a new source and send its lines again.
  * Known limit: two export directories carrying the same runId collide on episode keys and eventIds (design §7.1 keys
  * carry no path).
+ *
+ * Known limit: a line whose signal always fails — Temporal refusing it for good (INVALID_ARGUMENT for an oversized
+ * payload), or an instance whose `view()` query keeps failing — stops the pass at that line at every poll: the later
+ * lines of every source, and all evidence, wait behind it. Nothing is skipped to get past it; its SIGNAL_FAILED row
+ * names the line (source, runId, position, id) so a person can see which one it is (design §12).
  */
 class EpisodeWatcher(
     private val exports: List<Path>,
@@ -84,14 +89,16 @@ class EpisodeWatcher(
                     once(source, "STUCK", "runId" to export.runId, "id" to line.id, "why" to "no valid key")
                     break
                 }
-                if (correlation is Correlation.Own && correlation.related.isNotEmpty())
-                    log(source, "AMBIGUOUS", "eventId" to symptom.eventId, "key" to correlation.key, "related" to correlation.related)
                 try {
                     signals.open("ep:${correlation.key}", EpisodeStart(export.manifestJson), symptom)
                 } catch (e: RuntimeException) {
-                    signalFailed(source, e)
+                    signalFailed(source, e, export.runId, line.position, "id" to line.id, "eventId" to symptom.eventId)
                     return Carried(opened, stopped = true)
                 }
+                // Said only once the symptom was delivered, and once per line: an outage that sends it again adds no row.
+                if (correlation is Correlation.Own && correlation.related.isNotEmpty())
+                    once(source, "AMBIGUOUS", "eventId" to symptom.eventId, "key" to correlation.key, "related" to correlation.related,
+                        key = "${export.runId}|${line.position}")
                 store.advance(source, export.runId, line.position, line.id)
                 opened++
             }
@@ -165,7 +172,7 @@ class EpisodeWatcher(
                         val delivered = try {
                             signals.evidence(instanceId, e.signal)
                         } catch (x: RuntimeException) {
-                            signalFailed(source, x)
+                            signalFailed(source, x, bundle.runId, line.position, "id" to line.id, "instanceId" to instanceId)
                             return Carried(carried, stopped = true)
                         }
                         if (!delivered) once(source, "ROUTE_ENDED", "jobResponseId" to e.signal.jobResponseId, "instanceId" to instanceId,
@@ -180,19 +187,24 @@ class EpisodeWatcher(
     }
 
     /**
-     * SIGNAL_FAILED once per kind of failure — the exception's class and, when Temporal's gRPC call failed, its status
-     * code — not per message: messages carry changing text (ids, times) and would log every poll while Temporal is down.
-     * The message is kept in the detail.
+     * SIGNAL_FAILED once per line and kind of failure — the line ([source], [runId], [position]), the exception's class
+     * and, when Temporal's gRPC call failed, its status code — not per message: messages carry changing text (ids, times)
+     * and would log every poll while Temporal is down. One outage on one line is one row; the next line that gets stuck
+     * is a new row. The detail names the line ([position], and [line] — its id, and the eventId or the instance sent to)
+     * and keeps the message.
      */
-    private fun signalFailed(source: String, e: RuntimeException) {
+    private fun signalFailed(source: String, e: RuntimeException, runId: String, position: Int, vararg line: Pair<String, Any>) {
         val status = generateSequence<Throwable>(e) { it.cause }.take(16)
             .filterIsInstance<StatusRuntimeException>().firstOrNull()?.status?.code
         val detail = buildList<Pair<String, Any>> {
+            add("runId" to runId)
+            add("position" to position)
+            addAll(line)
             add("why" to (e.message ?: e.javaClass.simpleName))
             add("exception" to e.javaClass.name)
             if (status != null) add("status" to status.name)
         }
-        once(source, "SIGNAL_FAILED", *detail.toTypedArray(), key = "${e.javaClass.name}|$status")
+        once(source, "SIGNAL_FAILED", *detail.toTypedArray(), key = "${e.javaClass.name}|$status|$runId|$position")
     }
 
     /**

@@ -80,7 +80,7 @@ class TemporalEpisodeSignals(private val client: WorkflowClient) : EpisodeSignal
         } catch (e: WorkflowNotFoundException) {
             return null
         }
-        return PinnedRun(workflowId, runId, stub, view)
+        return PinnedRun(workflowId, runId, view)
     }
 
     /**
@@ -121,5 +121,5 @@ class TemporalEpisodeSignals(private val client: WorkflowClient) : EpisodeSignal
     }
 }
 
-/** A workflow's current run as [TemporalEpisodeSignals.current] checked it: [view] came through [stub], pinned to [runId]. */
-internal class PinnedRun(val workflowId: String, val runId: String, val stub: EpisodeWorkflow, val view: EpisodeView)
+/** A workflow's current run as [TemporalEpisodeSignals.current] checked it: [view] came through a stub pinned to [runId]. */
+internal class PinnedRun(val workflowId: String, val runId: String, val view: EpisodeView)

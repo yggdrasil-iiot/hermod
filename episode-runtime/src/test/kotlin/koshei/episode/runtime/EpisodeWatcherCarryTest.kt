@@ -88,7 +88,9 @@ class EpisodeWatcherCarryTest {
         val w = watcher(failing)
         assertEquals(1, w.pollOnce().evidence, "resp-1 went to both episodes before resp-2 failed")
         assertEquals(0, w.pollOnce().evidence)
-        assertEquals(1, watch.logs(10).count { it.kind == "SIGNAL_FAILED" }, "keyed by kind of failure, not by its text")
+        // keyed by line and kind of failure, not by its text
+        val failed = strictJson.readTree(watch.logs(10).single { it.kind == "SIGNAL_FAILED" }.detailJson)
+        assertEquals(listOf("2", "resp-2", "ep:a/r1"), listOf("position", "id", "instanceId").map { failed.get(it).asText() }, "$failed")
         assertEquals(1, watcher().pollOnce().evidence, "only resp-2 is sent again")
         assertEquals(listOf("resp-1", "resp-1", "resp-2", "resp-2"), signals.evidence.map { it.second.jobResponseId })
     }

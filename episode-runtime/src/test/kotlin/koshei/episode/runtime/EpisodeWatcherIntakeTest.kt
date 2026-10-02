@@ -115,6 +115,19 @@ class EpisodeWatcherIntakeTest {
         assertTrue("run-A:by:robotId:hum-02" in log.detailJson && "run-A:by:jobOrderId:PATROL-1" in log.detailJson, log.detailJson)
     }
 
+    @Test fun `an ambiguous line is said once, only after it was delivered`() {
+        withRules("""[{"kinds":["SEARCH"],"by":["robotId"]},{"kinds":["SEARCH"],"by":["jobOrderId"]}]""")
+        export.searches += Picasso.search("search-1"); export.snapshot()
+        val w = watcher()
+        signals.failOpen = IllegalStateException("temporal down")
+        assertEquals(0, w.pollOnce().opened)
+        assertEquals(0, watch.logs(10).count { it.kind == "AMBIGUOUS" }, "not delivered: nothing to cross-reference yet")
+        signals.failOpen = null
+        assertEquals(1, w.pollOnce().opened)
+        w.pollOnce()
+        assertEquals(1, watch.logs(10).count { it.kind == "AMBIGUOUS" })
+    }
+
     @Test fun `an unusable policy merges nothing, and says so once`() {
         Files.writeString(policy, "version: [")
         export.searches += Picasso.search("search-1"); export.snapshot()
@@ -197,6 +210,29 @@ class EpisodeWatcherIntakeTest {
         signals.failOpen = IllegalArgumentException("another kind")
         w.pollOnce()
         assertEquals(2, watch.logs(10).count { it.kind == "SIGNAL_FAILED" })
+    }
+
+    @Test fun `a failed signal names its line, once per line - a new stuck line is a new row`() {
+        export.searches += Picasso.search("search-1"); export.searches += Picasso.search("search-2"); export.snapshot()
+        var failing = "ep:run-A:search-1"
+        var n = 0
+        val flaky = object : EpisodeSignals by signals {
+            override fun open(workflowId: String, start: EpisodeStart, symptom: SymptomSignal): String {
+                if (workflowId == failing) throw IllegalStateException("temporal down at ${++n}")
+                return signals.open(workflowId, start, symptom)
+            }
+        }
+        val w = EpisodeWatcher(listOf(export.dir), carry = null, PolicyFileReader(policy), watch, flaky) { Instant.ofEpochMilli(42) }
+        w.pollOnce(); w.pollOnce()
+        val first = strictJson.readTree(watch.logs(10).single { it.kind == "SIGNAL_FAILED" }.detailJson)
+        assertEquals(listOf("run-A", "1", "search-1", "search:run-A:search-1", "temporal down at 1"),
+            listOf("runId", "position", "id", "eventId", "why").map { first.get(it).asText() }, "$first")
+        failing = "ep:run-A:search-2"
+        assertEquals(1, w.pollOnce().opened, "search-1 goes, search-2 is stuck")
+        w.pollOnce()
+        val rows = watch.logs(10).filter { it.kind == "SIGNAL_FAILED" }.map { strictJson.readTree(it.detailJson) }
+        assertEquals(2, rows.size)
+        assertEquals(listOf("2", "search-2"), listOf("position", "id").map { rows.first().get(it).asText() }, "${rows.first()}")
     }
 
     @Test fun `a failed signal keeps what was sent before it and stops the pass before the next directory`() {
