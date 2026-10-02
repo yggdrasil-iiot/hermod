@@ -20,7 +20,7 @@ internal object EpisodeDb {
             started = true
             Runtime.getRuntime().addShutdownHook(Thread { container.stop() })
         }
-        connection().use { it.createStatement().execute("TRUNCATE episode_event, episode_notice, episode_dispatch") }
+        connection().use { it.createStatement().execute("TRUNCATE episode_event, episode_notice, episode_dispatch, episode_watch_cursor, episode_watch_log") }
         return store
     }
 }

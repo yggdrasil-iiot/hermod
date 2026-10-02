@@ -38,3 +38,31 @@ CREATE TABLE IF NOT EXISTS episode_dispatch (
     CHECK (outcome_kind <> 'ANSWER' OR answer IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS episode_dispatch_instance ON episode_dispatch (episode_instance_id);
+
+-- The watcher's place in each source (design §12, plan C1): per (source, run), how many lines it has carried and the id
+-- of the last one. Append-only like the rest: moving forward adds a row; the cursor is the row with the highest position.
+-- A row at an existing position must name the same id (a retry) — anything else means the source changed under us.
+CREATE TABLE IF NOT EXISTS episode_watch_cursor (
+    source              text        NOT NULL,
+    run_id              text        NOT NULL,
+    position            integer     NOT NULL CHECK (position > 0),
+    last_id             text        NOT NULL,
+    at                  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (source, run_id, position)
+);
+
+-- What the watcher did not carry, or carried without merging (design §12): BROKEN, STUCK, AMBIGUOUS, UNROUTED,
+-- ROUTE_ENDED, SIGNAL_FAILED, POLICY_UNUSABLE. Read by people (plan D shows it).
+CREATE TABLE IF NOT EXISTS episode_watch_log (
+    id                  bigserial   PRIMARY KEY,
+    source              text        NOT NULL,
+    kind                text        NOT NULL,
+    detail              jsonb       NOT NULL,
+    at                  timestamptz NOT NULL DEFAULT now()
+);
+
+-- A JobResponse finds its episode by the order its dispatch intent named (design §12). On an existing database the first
+-- start after this line builds the index and holds writes to episode_event meanwhile — fine at PoC scale.
+CREATE INDEX IF NOT EXISTS episode_event_intent_order
+    ON episode_event ((payload -> 'candidate' -> 'ref' ->> 'jobOrderId'))
+    WHERE kind = 'DISPATCH_INTENT';
