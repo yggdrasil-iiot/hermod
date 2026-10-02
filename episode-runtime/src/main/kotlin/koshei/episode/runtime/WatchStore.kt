@@ -1,6 +1,7 @@
 package koshei.episode.runtime
 
 import java.sql.Connection
+import java.sql.SQLException
 import java.time.Instant
 
 /** Where the watcher is in one (source, run): [position] lines carried, the last one named [lastId]. */
@@ -12,6 +13,7 @@ data class WatchLogRow(val id: Long, val source: String, val kind: String, val d
 /** The watcher's tables (design §12): its cursor, its log, and the one read it makes of the episode records. */
 open class WatchStore(private val connect: () -> Connection) {
 
+    /** The cursor for ([source], [runId]); null means nothing has been carried yet from that source and run. */
     fun cursor(source: String, runId: String): WatchCursor? = connect().use { c ->
         c.prepareStatement(
             "SELECT position, last_id FROM episode_watch_cursor WHERE source = ? AND run_id = ? ORDER BY position DESC LIMIT 1",
@@ -21,8 +23,21 @@ open class WatchStore(private val connect: () -> Connection) {
         }
     }
 
-    /** Moves the cursor to [position] / [lastId]. The same place again is a no-op; a different id there is refused. */
-    open fun advance(source: String, runId: String, position: Int, lastId: String) = connect().use { c ->
+    /**
+     * Moves the cursor to [position] / [lastId]. The same place again is a no-op; a different id there is refused; a
+     * position more than one past the current one is refused (the cursor never skips lines).
+     *
+     * The gap check reads the current position before the insert, without a lock: one watcher moves a given (source, run)
+     * at a time. Two writers racing could both pass the check, but the primary key still refuses two ids at one position.
+     */
+    open fun advance(source: String, runId: String, position: Int, lastId: String): Unit = connect().use { c ->
+        val current = c.prepareStatement(
+            "SELECT max(position) FROM episode_watch_cursor WHERE source = ? AND run_id = ?",
+        ).use { s ->
+            s.setString(1, source); s.setString(2, runId)
+            s.executeQuery().use { rs -> rs.next(); rs.getInt(1) }   // 0 when there is no row (max is NULL)
+        }
+        check(position <= current + 1) { "$source $runId #$position would skip lines (the cursor is at #$current)" }
         val written = c.prepareStatement(
             "INSERT INTO episode_watch_cursor (source, run_id, position, last_id) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
         ).use { s ->
@@ -34,17 +49,31 @@ open class WatchStore(private val connect: () -> Connection) {
         ).use { s ->
             s.setString(1, source); s.setString(2, runId); s.setInt(3, position)
             s.executeQuery().use { rs ->
-                check(rs.next() && rs.getString(1) == lastId) { "$source $runId #$position already names a different line" }
+                check(rs.next()) { "$source $runId #$position vanished" }
+                check(rs.getString(1) == lastId) { "$source $runId #$position already names a different line" }
             }
         }
     }
 
-    fun log(source: String, kind: String, detailJson: String) = connect().use { c ->
+    /**
+     * Writes one watch-log row. [detailJson] must be one JSON object. The log must never be blocked by its own content
+     * (a BROKEN detail quotes untrusted line text): when jsonb cannot hold [detailJson] (a NUL, a lone surrogate — SQLState
+     * class 22), the row is written with `{"unstorable":true}` as its detail, with the same [source] and [kind].
+     */
+    fun log(source: String, kind: String, detailJson: String): Unit = connect().use { c ->
+        try {
+            insertLog(c, source, kind, detailJson)
+        } catch (e: SQLException) {
+            if (e.sqlState?.startsWith("22") != true) throw e
+            insertLog(c, source, kind, """{"unstorable":true}""")
+        }
+    }
+
+    private fun insertLog(c: Connection, source: String, kind: String, detailJson: String) {
         c.prepareStatement("INSERT INTO episode_watch_log (source, kind, detail) VALUES (?, ?, ?::jsonb)").use { s ->
             s.setString(1, source); s.setString(2, kind); s.setString(3, detailJson)
             s.executeUpdate()
         }
-        Unit
     }
 
     /** Newest first. */
