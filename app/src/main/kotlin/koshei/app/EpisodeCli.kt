@@ -1,14 +1,17 @@
 package koshei.app
 
+import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.WorkflowIdReusePolicy
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
-import io.temporal.client.WorkflowStub
 import io.temporal.serviceclient.WorkflowServiceStubs
+import io.temporal.workflow.Functions
 import koshei.episode.runtime.EPISODE_TASK_QUEUE
+import koshei.episode.runtime.EpisodeResult
 import koshei.episode.runtime.EpisodeStart
 import koshei.episode.runtime.EpisodeWorkflow
 import koshei.episode.runtime.SymptomSignal
@@ -26,13 +29,16 @@ data class OpenSymptom(val workflowId: String, val start: EpisodeStart, val sign
  *   episode open --export <dir> (--search <searchId> | --incident <incidentId>) [--key <correlationKey>]
  *   episode agent-off <workflowId>
  *
- * Whatever cannot be read is refused with [IllegalArgumentException], never guessed (design §12).
+ * Whatever cannot be read is refused with [IllegalArgumentException], never guessed (design §12). JSON is read as
+ * strictly as the core reads it (duplicate keys refused), so a line the CLI sends is a line the episode can open. One
+ * malformed line anywhere in the jsonl blocks the open, on purpose: what cannot be read is refused, not skipped.
  */
 object EpisodeCli {
     /** Workflow ids are `ep:<key>`. The control plane puts the id in one path segment, so no `/`, `;`, `%` or `?`. */
     private val KEY = Regex("[A-Za-z0-9._:-]+")
     private const val PREFIX = "ep:"
-    private val json = jacksonObjectMapper()
+    private val BOM = Char(0xFEFF)
+    private val json = jacksonObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
 
     enum class Kind(val file: String, val idField: String) {
         SEARCH("remedy-searches.jsonl", "searchId"),
@@ -105,15 +111,21 @@ object EpisodeCli {
         return workflowId
     }
 
-    /** signalWithStart on the episode queue, as the watcher will (design §7.1). */
-    fun open(s: OpenSymptom) = withClient { client ->
+    /**
+     * signalWithStart on the episode queue, as the watcher will (design §7.1). Typed, so renaming the workflow or
+     * signal method breaks this at compile time.
+     */
+    fun open(s: OpenSymptom): WorkflowExecution = withClient { client ->
         val options = WorkflowOptions.newBuilder()
             .setTaskQueue(EPISODE_TASK_QUEUE)
             .setWorkflowId(s.workflowId)
             .setWorkflowIdReusePolicy(WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
             .build()
         val stub = client.newWorkflowStub(EpisodeWorkflow::class.java, options)
-        WorkflowStub.fromTyped(stub).signalWithStart("symptom", arrayOf<Any>(s.signal), arrayOf<Any>(s.start))
+        val batch = client.newSignalWithStartRequest()
+        batch.add(Functions.Func1<EpisodeStart, EpisodeResult> { stub.run(it) }, s.start)
+        batch.add(Functions.Proc1<SymptomSignal> { stub.symptom(it) }, s.signal)
+        client.signalWithStart(batch)
     }
 
     fun agentOff(workflowId: String) = withClient { client ->
@@ -131,7 +143,10 @@ object EpisodeCli {
     }
 
     private fun parse(text: String, what: String): JsonNode {
-        val node = try { json.readTree(text) } catch (e: JsonProcessingException) { null }
+        require(!text.startsWith(BOM)) { "$what starts with a UTF-8 BOM" }
+        val node = try { json.readTree(text) } catch (e: JsonProcessingException) {
+            throw IllegalArgumentException("$what is not readable JSON: ${e.originalMessage}")
+        }
         require(node != null && node.isObject) { "$what is not a JSON object" }
         return node
     }

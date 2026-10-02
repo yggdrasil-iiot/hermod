@@ -42,4 +42,83 @@ class EpisodeCliTest {
         Files.copy(export.resolve("remedy-searches.jsonl"), noRun.resolve("remedy-searches.jsonl"))
         assertFailsWith<IllegalArgumentException> { EpisodeCli.symptom(EpisodeCli.parseOpen(arrayOf("--export", noRun.toString(), "--search", "search-1"))) }
     }
+
+    /** A hand-made export: [manifest] (none if null) and the two jsonl files, lines joined by LF. */
+    private fun exportOf(manifest: String? = """{"schemaVersion":"5","runId":"r1"}""", searches: List<String> = emptyList(), incidents: List<String> = emptyList()): Path {
+        val dir = Files.createTempDirectory("export")
+        if (manifest != null) Files.writeString(dir.resolve("manifest.json"), manifest)
+        Files.writeString(dir.resolve("remedy-searches.jsonl"), searches.joinToString("\n"))
+        Files.writeString(dir.resolve("incidents.jsonl"), incidents.joinToString("\n"))
+        return dir
+    }
+
+    private fun openIn(dir: Path, vararg args: String) = EpisodeCli.symptom(EpisodeCli.parseOpen(arrayOf("--export", dir.toString(), *args)))
+
+    private val s1 = """{"searchId":"s1","outcome":"FOUND"}"""
+
+    @Test fun `the lines are not read before the manifest is there`() {
+        val dir = Files.createTempDirectory("nomanifest")
+        Files.copy(export.resolve("remedy-searches.jsonl"), dir.resolve("remedy-searches.jsonl"))
+        assertFailsWith<IllegalArgumentException> { openIn(dir, "--search", "search-1") }
+    }
+
+    @Test fun `the line and the manifest travel as written, the start carrying the same manifest`() {
+        val line = """{ "searchId" : "s1",  "outcome": "FOUND", "score": 1.50 }"""
+        val manifest = """{ "schemaVersion": "5", "runId": "r1" }"""
+        val s = openIn(exportOf(manifest, searches = listOf("""{"searchId":"s0"}""", line)), "--search", "s1")
+        assertEquals(line, s.signal.lineJson)
+        assertEquals(manifest, s.signal.manifestJson)
+        assertEquals(s.signal.manifestJson, s.start.manifestJson)
+        assertTrue(s.signal.observedAtMillis > 0)
+    }
+
+    @Test fun `a key cannot carry what the control plane's path refuses`() {
+        assertFailsWith<IllegalArgumentException> { open("--search", "search-1", "--key", "a%b") }
+        assertFailsWith<IllegalArgumentException> { open("--search", "search-1", "--key", "a;b") }
+    }
+
+    @Test fun `a run id the key cannot carry needs a key`() {
+        val dir = exportOf("""{"schemaVersion":"5","runId":"r/1"}""", searches = listOf(s1))
+        assertFailsWith<IllegalArgumentException> { openIn(dir, "--search", "s1") }
+        val s = openIn(dir, "--search", "s1", "--key", "k")
+        assertEquals("ep:k", s.workflowId)
+        assertEquals("search:r/1:s1", s.signal.eventId)
+    }
+
+    @Test fun `a blank run id is refused`() {
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf("""{"schemaVersion":"5","runId":"  "}""", searches = listOf(s1)), "--search", "s1") }
+    }
+
+    @Test fun `two lines with the same id are refused, not picked between`() {
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf(searches = listOf(s1, """{"searchId":"s1","outcome":"NONE"}""")), "--search", "s1") }
+    }
+
+    @Test fun `an incident without a digest is refused`() {
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf(incidents = listOf("""{"incidentId":"i1"}""")), "--incident", "i1") }
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf(incidents = listOf("""{"incidentId":"i1","digest":""}""")), "--incident", "i1") }
+    }
+
+    @Test fun `an unknown flag is refused`() {
+        assertFailsWith<IllegalArgumentException> { open("--search", "search-1", "--bogus", "x") }
+    }
+
+    @Test fun `duplicate keys are refused as the core refuses them`() {
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf(searches = listOf("""{"searchId":"other","searchId":"s1"}""")), "--search", "s1") }
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf("""{"runId":"r0","runId":"r1"}""", searches = listOf(s1)), "--search", "s1") }
+    }
+
+    @Test fun `a BOM is named, and refused`() {
+        val bom = Char(0xFEFF).toString()
+        val manifest = assertFailsWith<IllegalArgumentException> { openIn(exportOf(bom + """{"runId":"r1"}""", searches = listOf(s1)), "--search", "s1") }
+        assertTrue(manifest.message!!.contains("starts with a UTF-8 BOM"), manifest.message)
+        val line = assertFailsWith<IllegalArgumentException> { openIn(exportOf(searches = listOf(bom + s1)), "--search", "s1") }
+        assertTrue(line.message!!.contains("starts with a UTF-8 BOM"), line.message)
+    }
+
+    @Test fun `agent-off takes only an episode's workflow id`() {
+        assertEquals("ep:a", EpisodeCli.checkWorkflowId("ep:a"))
+        assertFailsWith<IllegalArgumentException> { EpisodeCli.checkWorkflowId("a") }
+        assertFailsWith<IllegalArgumentException> { EpisodeCli.checkWorkflowId("ep:") }
+        assertFailsWith<IllegalArgumentException> { EpisodeCli.checkWorkflowId("ep:a/b") }
+    }
 }

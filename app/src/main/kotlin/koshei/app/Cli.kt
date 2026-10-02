@@ -56,6 +56,7 @@ fun main(args: Array<String>) {
 // episode agent-off <workflowId>
 // Development only (design §7.2): the watcher (plan C) is what carries symptoms in production.
 // Arguments are checked before Temporal is reached, so a bad argument is a usage error, never a half-sent signal.
+// A refusal (IllegalArgumentException) is a usage error; a failure to read the export or to reach Temporal is an ERROR.
 // ---------------------------------------------------------------------------
 private fun doEpisode(args: Array<String>) {
     val sub = args.getOrNull(1) ?: usageError("episode requires subcommand: open|agent-off")
@@ -63,7 +64,8 @@ private fun doEpisode(args: Array<String>) {
         "open" -> {
             val s = try { EpisodeCli.symptom(EpisodeCli.parseOpen(args.drop(2).toTypedArray())) }
                     catch (e: IllegalArgumentException) { usageError(e.message ?: "episode open: invalid arguments") }
-            EpisodeCli.open(s)
+                    catch (e: Exception) { episodeFailed("open", e) }
+            try { EpisodeCli.open(s) } catch (e: Exception) { episodeFailed("open", e) }
             println("opened ${s.workflowId} eventId=${s.signal.eventId}")
         }
         "agent-off" -> {
@@ -71,11 +73,16 @@ private fun doEpisode(args: Array<String>) {
                 require(args.size == 3) { "episode agent-off requires exactly one <workflowId>" }
                 EpisodeCli.checkWorkflowId(args[2])
             } catch (e: IllegalArgumentException) { usageError(e.message ?: "episode agent-off: invalid arguments") }
-            EpisodeCli.agentOff(id)
+            try { EpisodeCli.agentOff(id) } catch (e: Exception) { episodeFailed("agent-off", e) }
             println("agent-off sent to $id")
         }
         else -> usageError("episode subcommand must be open|agent-off")
     }
+}
+
+private fun episodeFailed(sub: String, e: Exception): Nothing {
+    System.err.println("ERROR: episode $sub: ${e.message}")
+    exitProcess(1)
 }
 
 // ---------------------------------------------------------------------------
