@@ -137,10 +137,11 @@ class OperatorCardsTest {
         .also { assertTrue("NO_GROUNDS" in it && "근거가 모자라다." in it, "the replacements took") }
 
     /** A DIAGNOSIS_RESULT record as `Diagnosing.kt` writes it; [responseJson] is the JSON put under `response`. */
-    private fun result(seq: Long, attempt: Int, reason: String?, responseJson: String) = StoredEvent(
+    private fun result(seq: Long, attempt: Int, reason: String?, responseJson: String, detail: String? = null) = StoredEvent(
         seq, "DIAGNOSIS_RESULT",
         """{"attempt":$attempt,"verdict":"${if (reason == null) "PROPOSED" else "ESCALATE"}","candidateId":null,
-            "reason":${reason?.let { "\"$it\"" } ?: "null"},"clean":null,"detail":null,"response":$responseJson,"rawText":null}""",
+            "reason":${reason?.let { "\"$it\"" } ?: "null"},"clean":null,"detail":${detail?.let { json.writeValueAsString(it) } ?: "null"},
+            "response":$responseJson,"rawText":null}""",
     )
 
     /** An ESCALATED view after the attempt closed: no attempt, no candidate, no live diagnosis (the core's own shape). */
@@ -250,6 +251,50 @@ class OperatorCardsTest {
             StoredEvent(4, "SYMPTOM_JOINED", """{"eventId":"e-4","kind":"SEARCH","line":"not an object"}"""),
             StoredEvent(5, "SYMPTOM_JOINED", """{"eventId":"e-5","kind":"SEARCH","line":null}"""))
         assertEquals(listOf("s-1", "s-2", "s-3"), operatorCard(view("AWAITING_APPROVAL"), events).symptoms.map { it["searchId"].textValue() })
+    }
+
+    // --- B3c chunk 1 re-review -------------------------------------------------------------------------------------
+
+    @Test fun `a recorded answer that did not escalate the episode is not shown`() {
+        val events = listOf(opened(1, "s-1"), requested(2, 1), result(3, 1, null, response))   // attempt 1 was PROPOSED
+        for (reason in listOf("DIAGNOSIS_EXPIRED", "TAKEN_OVER", "APPROVAL_EXPIRED", "REPEATED_REMEDY")) {
+            val card = operatorCard(escalated(reason), events)
+            assertNull(card.rationale, reason)
+            assertTrue(card.guidance.isEmpty(), reason)
+            assertFalse(card.diagnosisFromRecord, reason)
+            assertFalse(card.responseUnreadable, reason)
+            assertNull(card.diagnosisRefused, reason)
+            assertNull(card.diagnosisAttempt, reason)
+        }
+    }
+
+    @Test fun `an escalating answer is used only for the last attempt and the reason the episode escalated for`() {
+        val earlier = listOf(requested(1, 1), result(2, 1, "NO_GROUNDS", noGrounds), requested(3, 2))   // attempt 2 never answered
+        val stale = operatorCard(escalated("NO_GROUNDS"), earlier)
+        assertNull(stale.rationale)
+        assertFalse(stale.diagnosisFromRecord)
+        val other = operatorCard(escalated("TAKEN_OVER"), listOf(requested(1, 1), result(2, 1, "NO_GROUNDS", noGrounds)))
+        assertNull(other.rationale)
+        assertFalse(other.diagnosisFromRecord)
+        val unreadable = operatorCard(escalated("DIAGNOSIS_EXPIRED"), listOf(requested(1, 1), result(2, 1, "DIAGNOSIS_FAILED", "null")))
+        assertFalse(unreadable.responseUnreadable, "an answer that did not escalate is not read at all")
+    }
+
+    @Test fun `a refused answer carries the judge's detail`() {
+        val detail = "RECOMMENDED without a verified citation (contract §4 rule 3)"
+        val card = operatorCard(escalated("DIAGNOSIS_FAILED"), listOf(requested(1, 1), result(2, 1, "DIAGNOSIS_FAILED", response, detail)))
+        assertEquals("DIAGNOSIS_FAILED", card.diagnosisRefused)
+        assertEquals(detail, card.diagnosisRefusedDetail)
+        val shown = operatorCard(escalated(), listOf(requested(1, 1), result(2, 1, "NO_GROUNDS", noGrounds, "not refused")))
+        assertNull(shown.diagnosisRefusedDetail, "the detail is only for a refusal")
+    }
+
+    @Test fun `the card names the attempt whose answer it shows`() {
+        assertEquals(1, operatorCard(view("AWAITING_APPROVAL"), emptyList()).diagnosisAttempt)
+        val recorded = operatorCard(escalated(), listOf(requested(1, 1), result(2, 1, null, response), requested(3, 2), result(4, 2, "NO_GROUNDS", noGrounds)))
+        assertEquals("근거가 모자라다.", recorded.rationale)
+        assertEquals(2, recorded.diagnosisAttempt)
+        assertNull(operatorCard(view("CORRELATING", candidate = null, diagnosis = null).copy(attempt = null), emptyList()).diagnosisAttempt)
     }
 
     @Test fun `there is no decision without a proposal`() {

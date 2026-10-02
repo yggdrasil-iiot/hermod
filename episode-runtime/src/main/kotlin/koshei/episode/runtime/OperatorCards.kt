@@ -66,6 +66,10 @@ data class OperatorCard(
     val factsBehind: Boolean = false,
     /** With [joinedAfterSnapshot]: the live count of symptoms joined after the snapshot; more than the lines shown means records lag. */
     val joinedAfterSnapshotCount: Int? = null,
+    /** With [diagnosisRefused]: the judge's detail from the record — a contract §4 breach or whose answer it was. */
+    val diagnosisRefusedDetail: String? = null,
+    /** The attempt whose answer the narrator fields show (live or recorded); null when none is shown. */
+    val diagnosisAttempt: Int? = null,
 )
 
 /**
@@ -98,8 +102,7 @@ fun operatorCard(view: EpisodeView, events: List<StoredEvent>): OperatorCard {
     val withheld = view.escalationReason == "WITHHELD_HUMAN_FIRST"
     val proposal = if (withheld) null else view.candidateJson?.let(::readOrNull)?.let(::proposalOf)
     val live = view.diagnosisJson
-    val recorded = if (withheld || live != null || view.phase != "ESCALATED") null
-    else records.lastOrNull { (e, _) -> e.kind == "DIAGNOSIS_RESULT" }?.second
+    val recorded = if (withheld || live != null || view.phase != "ESCALATED") null else escalatingAnswer(view, records)
     val narration = when {
         withheld -> Narration.None
         live != null -> narrationOf(readOrNull(live))
@@ -107,6 +110,11 @@ fun operatorCard(view: EpisodeView, events: List<StoredEvent>): OperatorCard {
         else -> Narration.None
     }
     val response = (narration as? Narration.Read)?.response
+    val diagnosisAttempt = when {
+        response == null -> null
+        recorded != null -> recorded.path("attempt").takeIf { it.isIntegralNumber }?.intValue()
+        else -> view.attempt
+    }
     val claims = response?.unverifiedClaims.orEmpty()
     fun claimsOf(kind: ClaimKind) = claims.filter { it.kind == kind }
 
@@ -150,7 +158,26 @@ fun operatorCard(view: EpisodeView, events: List<StoredEvent>): OperatorCard {
         diagnosisRefused = (narration as? Narration.Refused)?.reason,
         factsBehind = symptoms.size < view.symptoms,
         joinedAfterSnapshotCount = if (remedyPrecondition) view.joinedAfterSnapshot else null,
+        diagnosisRefusedDetail = if (narration is Narration.Refused) recorded?.get("detail")?.takeIf { it.isTextual }?.textValue() else null,
+        diagnosisAttempt = diagnosisAttempt,
     )
+}
+
+/**
+ * The DIAGNOSIS_RESULT record of the answer that escalated this episode, or null. Many escalations write no new result
+ * (a failed or expired diagnosis, a takeover, ATTEMPTS_EXHAUSTED, APPROVAL_EXPIRED, REPEATED_REMEDY …), and the last
+ * result is then an earlier answer — often a superseded proposal — that must not be shown as the reason. So the last
+ * result counts only when it escalated (verdict ESCALATE), for the reason the episode escalated with (the judge's names
+ * map one to one onto the escalation reasons, `Diagnosing.kt`), and answers the last attempt requested.
+ */
+private fun escalatingAnswer(view: EpisodeView, records: List<Pair<StoredEvent, JsonNode>>): JsonNode? {
+    val last = records.lastOrNull { (e, _) -> e.kind == "DIAGNOSIS_RESULT" }?.second ?: return null
+    val lastAttempt = records.filter { (e, _) -> e.kind == "DIAGNOSIS_REQUESTED" }.maxOfOrNull { (_, p) -> p.path("attempt").asInt() }
+    return last.takeIf {
+        it.path("verdict").asText() == "ESCALATE" &&
+            view.escalationReason != null && it.path("reason").asText() == view.escalationReason &&
+            lastAttempt != null && it.path("attempt").asInt() == lastAttempt
+    }
 }
 
 /** A record's `line`, only when it is the object a symptom line is. */
