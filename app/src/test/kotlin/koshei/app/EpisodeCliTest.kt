@@ -43,10 +43,11 @@ class EpisodeCliTest {
         assertFailsWith<IllegalArgumentException> { EpisodeCli.symptom(EpisodeCli.parseOpen(arrayOf("--export", noRun.toString(), "--search", "search-1"))) }
     }
 
-    /** A hand-made export: [manifest] (none if null) and the two jsonl files, lines joined by LF. */
-    private fun exportOf(manifest: String? = """{"schemaVersion":"5","runId":"r1"}""", searches: List<String> = emptyList(), incidents: List<String> = emptyList()): Path {
+    /** A hand-made export: [manifest] (if null, run `r1` counting the lines given) and the two jsonl files, lines joined by LF. */
+    private fun exportOf(manifest: String? = null, searches: List<String> = emptyList(), incidents: List<String> = emptyList()): Path {
         val dir = Files.createTempDirectory("export")
-        if (manifest != null) Files.writeString(dir.resolve("manifest.json"), manifest)
+        Files.writeString(dir.resolve("manifest.json"),
+            manifest ?: """{"schemaVersion":"5","runId":"r1","counts":{"incidents":${incidents.size},"remedySearches":${searches.size}}}""")
         Files.writeString(dir.resolve("remedy-searches.jsonl"), searches.joinToString("\n"))
         Files.writeString(dir.resolve("incidents.jsonl"), incidents.joinToString("\n"))
         return dir
@@ -64,7 +65,7 @@ class EpisodeCliTest {
 
     @Test fun `the line and the manifest travel as written, the start carrying the same manifest`() {
         val line = """{ "searchId" : "s1",  "outcome": "FOUND", "score": 1.50 }"""
-        val manifest = """{ "schemaVersion": "5", "runId": "r1" }"""
+        val manifest = """{ "schemaVersion": "5", "runId": "r1", "counts": { "incidents": 0, "remedySearches": 2 } }"""
         val s = openIn(exportOf(manifest, searches = listOf("""{"searchId":"s0"}""", line)), "--search", "s1")
         assertEquals(line, s.signal.lineJson)
         assertEquals(manifest, s.signal.manifestJson)
@@ -78,7 +79,7 @@ class EpisodeCliTest {
     }
 
     @Test fun `a run id the key cannot carry needs a key`() {
-        val dir = exportOf("""{"schemaVersion":"5","runId":"r/1"}""", searches = listOf(s1))
+        val dir = exportOf("""{"schemaVersion":"5","runId":"r/1","counts":{"incidents":0,"remedySearches":1}}""", searches = listOf(s1))
         assertFailsWith<IllegalArgumentException> { openIn(dir, "--search", "s1") }
         val s = openIn(dir, "--search", "s1", "--key", "k")
         assertEquals("ep:k", s.workflowId)
@@ -86,7 +87,7 @@ class EpisodeCliTest {
     }
 
     @Test fun `a blank run id is refused`() {
-        assertFailsWith<IllegalArgumentException> { openIn(exportOf("""{"schemaVersion":"5","runId":"  "}""", searches = listOf(s1)), "--search", "s1") }
+        assertFailsWith<IllegalArgumentException> { openIn(exportOf("""{"schemaVersion":"5","runId":"  ","counts":{"incidents":0,"remedySearches":1}}""", searches = listOf(s1)), "--search", "s1") }
     }
 
     @Test fun `two lines with the same id are refused, not picked between`() {

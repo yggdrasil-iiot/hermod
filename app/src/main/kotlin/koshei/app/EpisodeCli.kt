@@ -1,22 +1,20 @@
 package koshei.app
 
-import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.core.JsonProcessingException
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.WorkflowIdReusePolicy
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
 import io.temporal.serviceclient.WorkflowServiceStubs
 import io.temporal.workflow.Functions
+import koshei.episode.runtime.BundleRead
 import koshei.episode.runtime.EPISODE_TASK_QUEUE
 import koshei.episode.runtime.EpisodeResult
 import koshei.episode.runtime.EpisodeStart
 import koshei.episode.runtime.EpisodeWorkflow
+import koshei.episode.runtime.ExportKind
+import koshei.episode.runtime.ExportSymptoms
 import koshei.episode.runtime.SymptomSignal
 import koshei.runtime.DataConverterSupport
-import java.nio.file.Files
 import java.nio.file.Path
 
 /** What `episode open` sends: signalWithStart of [signal] on workflow [workflowId], starting it with [start] if absent. */
@@ -29,23 +27,18 @@ data class OpenSymptom(val workflowId: String, val start: EpisodeStart, val sign
  *   episode open --export <dir> (--search <searchId> | --incident <incidentId>) [--key <correlationKey>]
  *   episode agent-off <workflowId>
  *
- * Whatever cannot be read is refused with [IllegalArgumentException], never guessed (design §12). JSON is read as
- * strictly as the core reads it (duplicate keys refused), so a line the CLI sends is a line the episode can open. One
- * malformed line anywhere in the jsonl blocks the open, on purpose: what cannot be read is refused, not skipped.
+ * Whatever cannot be read is refused with [IllegalArgumentException], never guessed (design §12). The export is read
+ * through [ExportSymptoms], as the watcher reads it, so a line the CLI sends is a line the watcher would send, with the
+ * same `eventId`. So the manifest needs `schemaVersion "5"` and `counts`; lines past `counts` are not read; and one
+ * line that cannot be read in either jsonl file blocks the open — a broken incident line blocks a `--search` too. JSON
+ * is read as strictly as the core reads it (duplicate keys refused). What cannot be read is refused, not skipped.
  */
 object EpisodeCli {
     /** Workflow ids are `ep:<key>`. The control plane puts the id in one path segment, so no `/`, `;`, `%` or `?`. */
     private val KEY = Regex("[A-Za-z0-9._:-]+")
     private const val PREFIX = "ep:"
-    private val BOM = Char(0xFEFF)
-    private val json = jacksonObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
 
-    enum class Kind(val file: String, val idField: String) {
-        SEARCH("remedy-searches.jsonl", "searchId"),
-        INCIDENT("incidents.jsonl", "incidentId"),
-    }
-
-    data class OpenArgs(val export: Path, val kind: Kind, val id: String, val key: String?)
+    data class OpenArgs(val export: Path, val kind: ExportKind, val id: String, val key: String?)
 
     fun parseOpen(args: Array<String>): OpenArgs {
         val flags = mutableMapOf<String, String>()
@@ -64,43 +57,24 @@ object EpisodeCli {
         require((search == null) != (incident == null)) { "episode open requires exactly one of --search <searchId> or --incident <incidentId>" }
         val key = flags["--key"]
         if (key != null) require(KEY.matches(key)) { "--key '$key' must match ${KEY.pattern}" }
-        return if (search != null) OpenArgs(Path.of(export), Kind.SEARCH, search, key)
-        else OpenArgs(Path.of(export), Kind.INCIDENT, incident!!, key)
+        return if (search != null) OpenArgs(Path.of(export), ExportKind.SEARCH, search, key)
+        else OpenArgs(Path.of(export), ExportKind.INCIDENT, incident!!, key)
     }
 
     fun symptom(open: OpenArgs): OpenSymptom {
-        val manifestFile = open.export.resolve("manifest.json")
-        require(Files.isRegularFile(manifestFile)) { "no manifest.json in ${open.export} — an export is read only once its manifest is there" }
-        val manifestJson = Files.readString(manifestFile)
-        val runId = parse(manifestJson, "manifest.json").get("runId")?.takeIf { it.isTextual }?.textValue()
-        require(!runId.isNullOrBlank()) { "manifest.json in ${open.export} has no runId — refusing to guess one" }
-
-        val linesFile = open.export.resolve(open.kind.file)
-        require(Files.isRegularFile(linesFile)) { "no ${open.kind.file} in ${open.export}" }
-        val matches = Files.readAllLines(linesFile).withIndex().filter { it.value.isNotBlank() }.mapNotNull { (n, line) ->
-            val node = parse(line, "${open.kind.file} line ${n + 1}")
-            if (node.text(open.kind.idField) == open.id) line to node else null
+        val export = when (val r = ExportSymptoms.read(open.export)) {
+            is BundleRead.Ready -> r
+            is BundleRead.NotReady -> throw IllegalArgumentException("${r.why} — an export is read only once its manifest is there and complete")
+            is BundleRead.Broken -> throw IllegalArgumentException(r.why)
         }
-        require(matches.isNotEmpty()) { "no ${open.kind.idField} '${open.id}' in ${open.kind.file}" }
-        require(matches.size == 1) { "${matches.size} lines carry ${open.kind.idField} '${open.id}' in ${open.kind.file} — refusing to pick one" }
-        val (line, node) = matches.single()
-
-        val eventId = when (open.kind) {
-            Kind.SEARCH -> "search:$runId:${open.id}"
-            Kind.INCIDENT -> {
-                val digest = node.text("digest")
-                require(!digest.isNullOrBlank()) { "${open.id} has no digest — refusing to guess its eventId" }
-                "incident:$runId:$digest"
-            }
-        }
-        val key = open.key ?: "$runId:${open.id}".also {
+        val line = export.lines.getValue(open.kind.file.name).singleOrNull { it.id == open.id }
+            ?: throw IllegalArgumentException("no ${open.kind.file.idField} '${open.id}' in ${open.kind.file.name}")
+        val signal = ExportSymptoms.symptom(open.kind, export, line, System.currentTimeMillis())
+            ?: throw IllegalArgumentException("${open.id} has no digest — refusing to guess its eventId")
+        val key = open.key ?: "${export.runId}:${open.id}".also {
             require(KEY.matches(it)) { "the default key '$it' (<runId>:<id>) does not match ${KEY.pattern}; pass --key <correlationKey>" }
         }
-        return OpenSymptom(
-            workflowId = PREFIX + key,
-            start = EpisodeStart(manifestJson),
-            signal = SymptomSignal(eventId, open.kind.name, line, System.currentTimeMillis(), manifestJson),
-        )
+        return OpenSymptom(workflowId = PREFIX + key, start = EpisodeStart(export.manifestJson), signal = signal)
     }
 
     /** [workflowId] if it is an episode's (`ep:` and a key of [KEY]'s charset); otherwise [IllegalArgumentException]. */
@@ -141,15 +115,4 @@ object EpisodeCli {
             service.shutdown()
         }
     }
-
-    private fun parse(text: String, what: String): JsonNode {
-        require(!text.startsWith(BOM)) { "$what starts with a UTF-8 BOM" }
-        val node = try { json.readTree(text) } catch (e: JsonProcessingException) {
-            throw IllegalArgumentException("$what is not readable JSON: ${e.originalMessage}")
-        }
-        require(node != null && node.isObject) { "$what is not a JSON object" }
-        return node
-    }
-
-    private fun JsonNode.text(field: String): String? = get(field)?.takeIf { it.isTextual }?.textValue()
 }
