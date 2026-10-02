@@ -12,7 +12,18 @@ enum class NarratorMode { MOCK, REMOTE }
  * OFF (the default) runs no episode worker at all: the Mock is the test's (design §8.3, §11) — with it a worker would
  * take a fabricated APPROVED for a remedy that never reached picasso — so it runs only when chosen by name.
  */
-enum class PicassoMode { OFF, MOCK }
+enum class PicassoMode {
+    OFF, MOCK;
+
+    companion object {
+        /** `KOSHEI_PICASSO`, read the same way by every process that must agree on episode mode (worker, control plane). */
+        fun fromEnv(env: Map<String, String>): PicassoMode = when (val v = env["KOSHEI_PICASSO"] ?: "off") {
+            "off" -> OFF
+            "mock" -> MOCK
+            else -> throw IllegalArgumentException("KOSHEI_PICASSO: only 'mock' until the host is placed (design §19 C), was '$v'")
+        }
+    }
+}
 
 /** The episode runtime's settings, read once at worker start (the workflow itself reads none, design §7.5). */
 data class EpisodeRuntimeConfig(val policyPath: Path, val narrator: NarratorMode, val picasso: PicassoMode) {
@@ -24,11 +35,7 @@ data class EpisodeRuntimeConfig(val policyPath: Path, val narrator: NarratorMode
                 "remote" -> NarratorMode.REMOTE
                 else -> throw IllegalArgumentException("KOSHEI_NARRATOR must be mock or remote, was '$v'")
             },
-            picasso = when (val v = env["KOSHEI_PICASSO"] ?: "off") {
-                "off" -> PicassoMode.OFF
-                "mock" -> PicassoMode.MOCK
-                else -> throw IllegalArgumentException("KOSHEI_PICASSO: only 'mock' until the host is placed (design §19 C), was '$v'")
-            },
+            picasso = PicassoMode.fromEnv(env),
         )
     }
 }

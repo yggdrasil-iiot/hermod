@@ -58,4 +58,10 @@ class EpisodeWorkersTest {
         val e = assertThrows<IllegalArgumentException> { EpisodeRuntimeConfig.fromEnv(mapOf("KOSHEI_PICASSO" to "http")) }
         kotlin.test.assertTrue("§19" in e.message!!, e.message)
     }
+
+    @Test fun `PicassoMode reads KOSHEI_PICASSO on its own, as the worker does`() {
+        assertEquals(PicassoMode.OFF, PicassoMode.fromEnv(emptyMap()))
+        assertEquals(PicassoMode.MOCK, PicassoMode.fromEnv(mapOf("KOSHEI_PICASSO" to "mock")))
+        assertThrows<IllegalArgumentException> { PicassoMode.fromEnv(mapOf("KOSHEI_PICASSO" to "Mock")) }
+    }
 }

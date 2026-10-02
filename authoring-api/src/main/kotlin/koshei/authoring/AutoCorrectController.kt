@@ -17,15 +17,19 @@ import java.io.File
  */
 @RestController
 @RequestMapping("/api")
-class AutoCorrectController(private val dispatcher: AutoCorrectDispatcher) {
+class AutoCorrectController(private val sweeper: OneShotSweep, private val gate: AutoCorrectGate) {
     private val modelDir: File? = System.getenv("KOSHEI_MODEL_DIR")?.let(::File)
 
     @PostMapping("/autocorrect/sweep")
     fun sweep(): ResponseEntity<Any> {
+        if (!gate.oneShotAllowed) return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf(
+            "error" to "EPISODE_MODE",
+            "detail" to "KOSHEI_PICASSO is not off: drift never dispatches in episode mode (design §14)",
+        ))
         val dir = modelDir?.takeIf { File(it, "fsm").isDirectory }
             ?: return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(mapOf("error" to "KOSHEI_MODEL_DIR not set / no fsm/ dir"))
-        val actions = dispatcher.runOnce(dir)
+        val actions = sweeper.runOnce(dir)
         return ResponseEntity.ok(mapOf(
             "correctable" to actions.filterIsInstance<AutoCorrectAction.DriftCorrectable>().map { it.unit },
             "blocked" to actions.filterIsInstance<AutoCorrectAction.DriftBlocked>().map { it.unit },
