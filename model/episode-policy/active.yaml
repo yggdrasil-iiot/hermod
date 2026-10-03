@@ -1,5 +1,5 @@
-# Episode policy table v1 (design §10.1). The runtime reads this file afresh at every decision (plan B; plan D moves
-# the active table to git + a DB pointer + audit, §10.3). Repeated keys, anchors and a second document make the file
+# Episode policy table v1 (design §10.1). The runtime reads this file afresh at every decision (plan B; moving the
+# active table to git + a DB pointer + audit, §10.3, is out of scope, design §19). Repeated keys, anchors and a second document make the file
 # unreadable; unknown keys or bad values make the table rejected (POLICY_REJECTED). Either way the episode keeps the
 # last valid table and suspends auto-approval (§8.2); with no valid table yet it is POLICY_MISSING.
 version: "2026-10-03.2"
