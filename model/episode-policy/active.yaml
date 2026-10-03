@@ -8,7 +8,7 @@ agentLayerEnabled: true                     # false: every episode hands over to
 autoApprove:
   # v1 keeps auto-approval OFF (design §18, 2026-10-01): a clean diagnosis is not a correct one. A person approves.
   APPROVE_REMEDY: { allowed: false, requireClean: true, skills: [pick_place] }
-actionCatalog: []                           # SAGA_ACTION entries (plan D)
+actionCatalog: []                           # SAGA_ACTION entries: out of scope (design §19, 2026-10-04)
 deadlines:
   correlatingMs: 5000
   approvalMs: 300000
