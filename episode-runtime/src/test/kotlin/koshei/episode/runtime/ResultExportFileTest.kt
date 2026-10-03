@@ -1,7 +1,6 @@
 package koshei.episode.runtime
 
 import org.junit.jupiter.api.io.TempDir
-import java.nio.charset.MalformedInputException
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -15,10 +14,10 @@ class ResultExportFileTest {
 
     /** A line exactly as picasso `ResultExport.line` writes it (main 3d6530a): every field, in its order. */
     private fun picassoLine(id: String = "resp-1", instance: String = "mw-1", connection: String = "CONNECTION_STATE_ONLINE") =
-        """{"schemaVersion":"1","contractSemver":"1.0.0","instanceId":"$instance","jobResponseId":"$id","jobOrderId":"PATROL-1",""" +
+        """{"schemaVersion":"1","contractSemver":"0.9.0","instanceId":"$instance","jobResponseId":"$id","jobOrderId":"PATROL-1",""" +
             """"executionId":"exec-1","version":1,"physicalState":"PHYSICALLY_DONE","requiredEvidence":"E1","reachedEvidence":"E1",""" +
             """"completedUnits":["remedy-1-pick_place"],"unverifiedUnits":[],"inDoubtUnits":[],"incompleteUnits":{},""" +
-            """"operatorRequired":false,"residualHold":{},"autoResolvesInDoubt":true,"results":{},"blockedBy":[],"connection":"$connection"}"""
+            """"operatorRequired":false,"residualHold":{"kind":"HOLD_KIND_EMPTY","objectRef":"","reason":""},"autoResolvesInDoubt":true,"results":{},"blockedBy":[],"connection":"$connection"}"""
 
     private fun write(text: String) = Files.writeString(dir.resolve(ResultExportFile.FILE), text)
 
@@ -92,9 +91,25 @@ class ResultExportFileTest {
 
     @Test fun `a file that is not UTF-8 is broken`() {
         write("x\n")
-        assertIs<ResultExportFile.Read.Broken>(ResultExportFile.read(dir) { throw MalformedInputException(1) })
+        val notUtf8 = byteArrayOf('{'.code.toByte(), 0xC3.toByte(), 0x28, '}'.code.toByte(), '\n'.code.toByte())
+        val r = assertIs<ResultExportFile.Read.Broken>(ResultExportFile.read(dir) { notUtf8 })
+        assertTrue("not UTF-8" in r.why, r.why)
     }
 
+    @Test fun `a last piece torn partway through a character is not a line yet - not broken`() {
+        val torn = "{\"reason\":\"한".toByteArray(Charsets.UTF_8).let { it.copyOf(it.size - 1) }   // 한 is 3 bytes: keep 2
+        Files.write(dir.resolve(ResultExportFile.FILE), (picassoLine("resp-1") + "\n").toByteArray(Charsets.UTF_8) + torn)
+        val r = ready()
+        assertEquals(listOf("mw-1/resp-1"), r.lines.map { it.id })
+        assertNull(r.broken)
+    }
+
+    @Test fun `a complete line with a byte that is not UTF-8 is broken`() {
+        val bad = picassoLine("resp-2").toByteArray(Charsets.UTF_8).let { it.copyOf(it.size - 1) + byteArrayOf(0xFF.toByte(), '}'.code.toByte()) }
+        Files.write(dir.resolve(ResultExportFile.FILE), (picassoLine("resp-1") + "\n").toByteArray(Charsets.UTF_8) + bad + "\n".toByteArray())
+        val r = assertIs<ResultExportFile.Read.Broken>(ResultExportFile.read(dir))
+        assertTrue("not UTF-8" in r.why, r.why)
+    }
     @Test fun `a line becomes a signal with the instance and the connection`() {
         write(picassoLine("resp-1", connection = "CONNECTION_STATE_UNSPECIFIED") + "\n")
         val line = assertIs<ResultExportFile.Line.Routed>(ResultExportFile.of(ready().lines.single().node, 5))

@@ -31,12 +31,12 @@ internal class MockCarrier(val dir: Path, val instanceId: String = MockPicasso.I
         connection: String? = PICASSO_ONLINE,
         instanceId: String = this.instanceId,
     ): MockCarrier = raw(mapper.writeValueAsString(linkedMapOf(
-        "schemaVersion" to "1", "contractSemver" to "1.0.0", "instanceId" to instanceId,
+        "schemaVersion" to "1", "contractSemver" to "0.9.0", "instanceId" to instanceId,
         "jobResponseId" to jobResponseId, "jobOrderId" to jobOrderId, "executionId" to executionId, "version" to 1,
         "physicalState" to physicalState, "requiredEvidence" to "E1", "reachedEvidence" to reachedEvidence,
         "completedUnits" to completedUnits, "unverifiedUnits" to unverifiedUnits, "inDoubtUnits" to inDoubtUnits,
         "incompleteUnits" to emptyMap<String, String>(), "operatorRequired" to operatorRequired,
-        "residualHold" to emptyMap<String, String>(), "autoResolvesInDoubt" to true, "results" to emptyMap<String, String>(),
+        "residualHold" to linkedMapOf("kind" to "HOLD_KIND_EMPTY", "objectRef" to "", "reason" to ""), "autoResolvesInDoubt" to true, "results" to emptyMap<String, String>(),
         "blockedBy" to emptyList<String>(), "connection" to connection,
     )))
 

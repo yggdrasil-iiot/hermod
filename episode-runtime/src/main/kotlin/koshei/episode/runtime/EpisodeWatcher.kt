@@ -19,7 +19,7 @@ import java.time.Instant
  * ResultExport (ADR 48), [ResultExportFile] — in as `evidence` signals. It carries, it does not judge — the only choices
  * it makes are the merge key ([correlate], pure) and which workflow a JobResponse goes to (the order its dispatch intent
  * named). At least once: the cursor moves only after Temporal took the signal; the core drops repeats by `eventId` /
- * (instanceId, jobResponseId) (§6).
+ * (picasso `instanceId`, jobResponseId) (§6).
  *
  * A source is named by its directory's real path (resolved at every poll), so [exports] must be stable: another
  * spelling of the same directory that resolves elsewhere would be a new source and send its lines again.
@@ -144,9 +144,10 @@ class EpisodeWatcher(
 
     /**
      * Carries [dir]'s new JobResponse lines (ResultExport schema 1, [ResultExportFile]) to every episode instance whose
-     * remedy intent named the line's order — the core picks the attempt by (instanceId, executionId) (§12). A line read
-     * but with nowhere to go is logged (UNROUTED) and counts as carried. The lines sent before a failed signal count, and
-     * stay carried. A line the file reader or the field reader cannot read stops the file there (BROKEN, once).
+     * remedy intent named the line's order — the core picks the attempt by (picasso `instanceId`, executionId) (§12).
+     * A line read but with nowhere to go is logged (UNROUTED) and counts as carried. The lines sent before a failed
+     * signal count, and stay carried. A line the file reader or the field reader cannot read stops the file there
+     * (BROKEN, once).
      */
     private fun carryIn(dir: Path): Carried {
         val read = when (val r = ResultExportFile.read(dir)) {

@@ -2,7 +2,10 @@ package koshei.episode.runtime
 
 import com.fasterxml.jackson.databind.JsonNode
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
@@ -49,23 +52,32 @@ object ResultExportFile {
         data class Broken(val why: String) : Line
     }
 
-    fun read(dir: Path, readText: (Path) -> String = Files::readString): Read {
+    fun read(dir: Path, readBytes: (Path) -> ByteArray = Files::readAllBytes): Read {
         val path = dir.resolve(FILE)
         val size = try { Files.size(path) } catch (e: NoSuchFileException) {
             return Read.NotReady("no $FILE in $dir")
         } catch (e: IOException) {
             return Read.NotReady("$FILE in $dir: ${e.javaClass.simpleName}")
         }
-        if (size > Bundles.MAX_FILE_BYTES) return Read.Broken("$FILE in $dir: $size bytes, over ${Bundles.MAX_FILE_BYTES}")
-        val text = try {
-            readText(path)
-        } catch (e: CharacterCodingException) {
-            return Read.Broken("$FILE in $dir is not UTF-8")   // will not become readable by waiting
+        // No size in the reason: it would make a new reason (and a new log row) every time the file grows.
+        if (size > Bundles.MAX_FILE_BYTES) return Read.Broken("$FILE in $dir is over ${Bundles.MAX_FILE_BYTES} bytes")
+        val bytes = try {
+            readBytes(path)
         } catch (e: IOException) {
             return Read.NotReady("$FILE in $dir could not be read (vanished or denied)")
         }
-        // A last piece without its newline is still being written.
-        val complete = text.substring(0, text.lastIndexOf('\n') + 1)
+        // A last piece without its newline is still being written — it may even end partway through a character, so
+        // cut at the last newline byte first and decode only the complete lines.
+        val end = bytes.lastIndexOf(NEWLINE) + 1
+        val complete = try {
+            StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes, 0, end))
+                .toString()
+        } catch (e: CharacterCodingException) {
+            return Read.Broken("$FILE in $dir is not UTF-8")   // a complete line will not become readable by waiting
+        }
         val lines = ArrayList<BundleLine>()
         for (raw in complete.split('\n').dropLast(1)) {
             val line = raw.removeSuffix("\r")
@@ -128,6 +140,8 @@ object ResultExportFile {
         val order = nonBlank(node, "jobOrderId") ?: return Line.Unrouted(id)
         return Line.Routed(order, signal)
     }
+
+    private const val NEWLINE: Byte = 0x0A
 
     private fun nonBlank(node: JsonNode, field: String): String? =
         node.get(field)?.takeIf { it.isTextual }?.textValue()?.takeIf { it.isNotBlank() }

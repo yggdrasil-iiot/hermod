@@ -121,6 +121,47 @@ class EpisodeWatcherCarryTest {
         assertEquals(1, watch.logs(10).count { it.kind == "STUCK" })
     }
 
+    @Test fun `a file swapped to another instance's and back resumes the first cursor - only the new line is carried`() {
+        carrier.report("resp-1", "PATROL-1", "exec-2").report("resp-2", "PATROL-1", "exec-2").snapshot()
+        val w = watcher()
+        assertEquals(2, w.pollOnce().evidence)
+        MockCarrier(root.resolve("carry"), instanceId = "mw-other").report("resp-1", "PATROL-1", "exec-1").snapshot()
+        assertEquals(1, w.pollOnce().evidence)
+        carrier.report("resp-3", "PATROL-1", "exec-2").snapshot()   // the first instance's file again, one line longer
+        assertEquals(1, w.pollOnce().evidence)
+        assertEquals(listOf("resp-3", "resp-3"), signals.evidence.takeLast(2).map { it.second.jobResponseId })
+        assertEquals(MockPicasso.INSTANCE, signals.evidence.last().second.picassoInstanceId)
+        assertEquals(8, signals.evidence.size, "resp-1 and resp-2, mw-other's resp-1, then resp-3 - each to both episodes")
+        assertEquals(emptyList(), watch.logs(10).filter { it.kind == "STUCK" })
+    }
+
+    @Test fun `a file cut below the cursor is stuck once and carries nothing`() {
+        carrier.report("resp-1", "PATROL-1", "exec-2").report("resp-2", "PATROL-1", "exec-2").snapshot()
+        val w = watcher()
+        assertEquals(2, w.pollOnce().evidence)
+        MockCarrier(root.resolve("carry")).report("resp-1", "PATROL-1", "exec-2").snapshot()
+        assertEquals(0, w.pollOnce().evidence)
+        assertEquals(0, w.pollOnce().evidence)
+        val stuck = watch.logs(10).filter { it.kind == "STUCK" }
+        assertEquals(1, stuck.size, "$stuck")
+        val d = strictJson.readTree(stuck.single().detailJson)
+        assertEquals(2, d.get("position").intValue(), "$d")
+        assertEquals(MockPicasso.INSTANCE, d.get("runId").textValue(), "$d")
+        assertEquals(4, signals.evidence.size)
+    }
+
+    @Test fun `a first line that is not JSON is broken at position 1 - said once, nothing carried`() {
+        carrier.raw("{not json").report("resp-1", "PATROL-1", "exec-2").snapshot()
+        val w = watcher()
+        assertEquals(0, w.pollOnce().evidence)
+        assertEquals(0, w.pollOnce().evidence)
+        val broken = watch.logs(10).filter { it.kind == "BROKEN" }
+        assertEquals(1, broken.size, "$broken")
+        val d = strictJson.readTree(broken.single().detailJson)
+        assertEquals(1, d.get("position").intValue(), "$d")
+        assertEquals(emptyList(), signals.evidence)
+    }
+
     @Test fun `no file yet is said once and carries nothing`() {
         val w = watcher()
         assertEquals(0, w.pollOnce().evidence)
@@ -143,7 +184,7 @@ class EpisodeWatcherCarryTest {
         assertEquals(0, w.pollOnce().evidence)
         // keyed by line and kind of failure, not by its text
         val failed = strictJson.readTree(watch.logs(10).single { it.kind == "SIGNAL_FAILED" }.detailJson)
-        assertEquals(listOf("2", "${MockPicasso.INSTANCE}/resp-2", "ep:a/r1"),listOf("position", "id", "instanceId").map { failed.get(it).asText() }, "$failed")
+        assertEquals(listOf("2", "${MockPicasso.INSTANCE}/resp-2", "ep:a/r1"), listOf("position", "id", "instanceId").map { failed.get(it).asText() }, "$failed")
         assertEquals(1, watcher().pollOnce().evidence, "only resp-2 is sent again")
         assertEquals(listOf("resp-1", "resp-1", "resp-2", "resp-2"), signals.evidence.map { it.second.jobResponseId })
     }
