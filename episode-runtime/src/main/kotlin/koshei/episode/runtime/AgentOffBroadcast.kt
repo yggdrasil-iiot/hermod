@@ -11,8 +11,9 @@ import io.temporal.client.WorkflowNotFoundException
  * learns now rather than at its next decision. Each goes to the workflow id's current run — every open episode is meant,
  * so no run is pinned. Sending twice is harmless: the core only records an `agentOff` for an episode already switched off.
  *
- * At least once per call: a run that ended between the listing and the signal counts as [Report.ended]; any other
- * failure as [Report.failed], and the rest are still sent — run it again to retry them. Visibility is eventually
+ * One attempt per listed episode per call. [Report.ended] is what the server answered NOT_FOUND for: the run ended
+ * between the listing and the signal, or the id never existed. Any other failure goes to [Report.failed] with its root
+ * cause, and the rest are still sent — run it again to retry them. Visibility is eventually
  * consistent: an episode that opens during the broadcast may be missed — switching the policy file off first (§10.4)
  * covers it, since every new episode reads the policy at its start.
  */
@@ -33,7 +34,9 @@ class AgentOffBroadcast(
             } catch (e: WorkflowNotFoundException) {
                 ended += id
             } catch (e: RuntimeException) {
-                failed += id to (e.message ?: e.javaClass.simpleName)
+                // WorkflowServiceException's own message names only the workflow (id, run, type); the why is its cause.
+                val root = generateSequence(e as Throwable) { it.cause }.last()
+                failed += id to (root.message ?: root.javaClass.simpleName)
             }
         }
         return Report(sent, ended, failed)
