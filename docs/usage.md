@@ -216,7 +216,7 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_FAULT_INJECT` | **Test-only** — fault injection for gate scripts |
 | `KOSHEI_TEST_BLOCKS` | **Test-only** — test block wiring |
 
-The runtime role is made by `scripts/episode-db-roles.sql`: `SELECT` and `INSERT` only on the five episode tables. The owner account runs it once the worker (or `episode-schema.sql`) has created them, with `psql -v ON_ERROR_STOP=1 -v rt_password='…' -f scripts/episode-db-roles.sql`, then sets the real password with `\password koshei_episode_rt`. The script refuses a role that may `CREATE` in the schema.
+The runtime role is made by `scripts/episode-db-roles.sql`: `SELECT` and `INSERT` only on the five episode tables. The owner account runs it once the worker (or `episode-schema.sql`) has created them, with `psql -v ON_ERROR_STOP=1 -v rt_password='…' -U koshei -d koshei -f scripts/episode-db-roles.sql`, then sets the real password with `\password koshei_episode_rt`. The script refuses a role that may `CREATE` in the schema. With `KOSHEI_EPISODE_DB_USER` set, the worker and the watcher only check that the tables exist, so create them first as the owner: apply `episode-schema.sql`, or start the worker once without the variable.
 
 > **Security note.** The control plane has no authentication (proof-of-concept). It therefore listens on loopback
 > by default, and publish-time checks never run uploaded plugin code: the handler class is resolved without

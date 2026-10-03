@@ -111,7 +111,7 @@ fun parsePolicy(root: JsonNode): PolicyParse {
     }
 
     r.listOrEmpty(top, "actionCatalog", "")?.let {
-        if (it.isNotEmpty()) r.errors += "actionCatalog: SAGA_ACTION entries are not supported before plan D"
+        if (it.isNotEmpty()) r.errors += "actionCatalog: SAGA_ACTION entries are not supported (out of scope, design §19)"
     }
     val correlation = r.listOrEmpty(top, "correlation", "")?.let { nodes ->
         val rules = nodes.mapIndexedNotNull { i, node -> r.correlationRule(node, "correlation[$i]") }

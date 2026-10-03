@@ -17,6 +17,7 @@
   - 재생 시험은 모든 묶음의 모든 파일을 koshei 의 변환기로 재생한다(`EpisodeReplayTest` 와 같은 방법 — 기본 변환기로는 재생되지 않는다). 가장 새 묶음에는 시나리오 아홉이 다 있어야 한다. 재생 워커는 교착 감지를 늦춘다(차가운 JVM 의 첫 재생이 1초 감지기에 걸려 결정성 오류처럼 보였다). 실패 글은 비결정성인지 다른 오류인지를 가른다.
 - 권한은 스크립트 `scripts/episode-db-roles.sql` 이다. 스키마(`episode-schema.sql`)는 소유 계정이 적용한다. 런타임 역할은 표를 고치지 않는다.
   - Postgres 15 부터 `public` 스키마의 `CREATE` 는 PUBLIC 에 없다. `CREATE TABLE IF NOT EXISTS` 도 표가 있어도 스키마의 `CREATE` 를 먼저 검사하므로 런타임 역할에서는 실패한다. 그래서 `EpisodeStore.ensureSchema()` 는 스키마에 `CREATE` 권한이 없으면 DDL 을 건너뛰고, 다섯 표와 색인이 있는지만 확인한다. 없으면 「소유 계정으로 episode-schema.sql 을 먼저 적용하라」고 실패한다.
+    - **실행 중 바뀜(`26a8c8f`):** 객체가 다 있으면 `CREATE` 가 아니라 `episode_event` 의 소유로 정한다 — 설계 §13 구현(D-lite).
   - 워커는 같은 DB 연결로 블록 레지스트리 표도 읽는다. 그래서 워커 전체를 런타임 역할로 돌릴 수 없다. 에피소드 표만 쓰는 연결(`EpisodeStore`, `WatchStore`)에 따로 계정을 준다: `KOSHEI_EPISODE_DB_USER` · `KOSHEI_EPISODE_DB_PASS`(없으면 `KOSHEI_DB_USER` · `KOSHEI_DB_PASS`). URL 은 같다.
 
 **Tech Stack:** Kotlin 2 / JVM 21, Temporal Java SDK 1.25.1(`TestWorkflowEnvironment`, `WorkflowReplayer`), plain JDBC + Testcontainers Postgres 16, Gradle.
@@ -436,6 +437,8 @@ git commit -m "test(episode-runtime): R3 - committed histories stopped in each s
 ---
 
 ### Task 4: 기록 표의 런타임 역할 — `UPDATE` · `DELETE` 없음
+
+> **실행 중 바뀜(`26a8c8f`):** 객체가 다 있으면 `CREATE` 가 아니라 `episode_event` 의 소유로 정한다 — 설계 §13 구현(D-lite). 아래 글은 그 전의 기록이다.
 
 **Files:**
 - Create: `scripts/episode-db-roles.sql`

@@ -184,7 +184,7 @@ class PolicyTest {
         assertEquals(3, Policies.valid { put("repeatedRemedyThreshold", 3) }.repeatedRemedyThreshold)
     }
 
-    @Test fun `actionCatalog entries wait for plan D`() {
+    @Test fun `actionCatalog entries are refused - out of scope`() {
         Policies.errors { putArray("actionCatalog").addObject().put("saga", "ot-safe-hold@1.0.0") }.has("actionCatalog")
     }
 }

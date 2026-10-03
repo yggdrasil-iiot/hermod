@@ -38,7 +38,9 @@ import kotlin.test.assertTrue
  * **Writing a new set** — only on purpose, after a deliberate change guarded by `getVersion`, never to make this test
  * pass: `./gradlew :episode-runtime:test --tests "*CommittedReplayTest*" -Dkoshei.writeReplayHistories=true
  * -Dkoshei.replaySet=<name> --rerun` (the set defaults to today's date; the replay test is off while writing). The
- * generator refuses a set directory that already exists. From PowerShell 5.1 quote each `-D` argument
+ * generator refuses a set directory that already exists. The set name must be a date with an optional suffix,
+ * `^\d{4}-\d{2}-\d{2}(-[a-z0-9]+)?$` (e.g. `2026-10-04` or `2026-10-04-b`), and the generator refuses any other: the newest
+ * set is the last name sorted as a string, so only date-first names keep that order true. From PowerShell 5.1 quote each `-D` argument
  * (`"-Dkoshei.writeReplayHistories=true"`) or it is split; bash needs no quotes.
  * - A file's name is its workflow id `cr:<name>`; the replay reads the id from the name and checks it against the
  *   history's first record, so a renamed file fails clearly.
@@ -92,6 +94,9 @@ class CommittedReplayTest {
     @EnabledIfSystemProperty(named = "koshei.writeReplayHistories", matches = "true")
     fun `write the histories`() {
         val setName = System.getProperty("koshei.replaySet")?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()
+        check(SET_NAME.matches(setName)) {
+            "set name '$setName' must match ${SET_NAME.pattern} (a date, then an optional -suffix): the newest set is picked by sorting the names as strings"
+        }
         val set = root.resolve(setName)
         check(!Files.exists(set)) { "set $set already exists: a set is never overwritten — name a new one with -Dkoshei.replaySet" }
         val histories = linkedMapOf(
@@ -226,6 +231,9 @@ class CommittedReplayTest {
     private companion object {
         const val UNIT = "remedy-1-pick_place"
         const val IDENTITY = "koshei-replay-generator"
+
+        /** A set's name: a date, then an optional suffix. The newest set is the last name sorted as a string. */
+        val SET_NAME = Regex("""^\d{4}-\d{2}-\d{2}(-[a-z0-9]+)?$""")
 
         val EXPECTED = setOf(
             "awaiting-approval", "dispatched", "awaiting-evidence", "unknown-outcome", "resolved-by-report", "resolved-by-person",

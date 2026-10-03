@@ -7,10 +7,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
 class EpisodeDbLoginTest {
-    @Test fun `the episode login falls back to the shared one, then to Db's defaults`() {
-        assertEquals("rt" to "p1", EpisodeDbLogin.fromEnv(mapOf("KOSHEI_EPISODE_DB_USER" to "rt", "KOSHEI_EPISODE_DB_PASS" to "p1", "KOSHEI_DB_USER" to "u", "KOSHEI_DB_PASS" to "p")).let { it.user to it.pass })
-        assertEquals(Db.user to Db.pass, EpisodeDbLogin.fromEnv(mapOf("KOSHEI_DB_USER" to "u", "KOSHEI_DB_PASS" to "p")).let { it.user to it.pass })
+    @Test fun `the episode login is its own pair, else Db's login - Db's env and override, not this map`() {
+        assertEquals("rt" to "p1", EpisodeDbLogin.fromEnv(mapOf("KOSHEI_EPISODE_DB_USER" to "rt", "KOSHEI_EPISODE_DB_PASS" to "p1")).let { it.user to it.pass })
         assertEquals(Db.user to Db.pass, EpisodeDbLogin.fromEnv(emptyMap()).let { it.user to it.pass }, "exactly the rest of the worker's login")
+        assertEquals(Db.user to Db.pass, EpisodeDbLogin.fromEnv(mapOf("KOSHEI_DB_USER" to "u", "KOSHEI_DB_PASS" to "p")).let { it.user to it.pass },
+            "the map's KOSHEI_DB_* is not read: Db reads its own env and override")
     }
 
     @Test fun `a blank episode user is no episode user`() {
