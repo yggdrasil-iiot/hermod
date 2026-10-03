@@ -42,6 +42,9 @@ class WatcherEndToEndTest {
     private lateinit var carrier: MockCarrier
     @TempDir lateinit var root: Path
     private val v1: Path = Path.of(System.getProperty("koshei.repoRoot"), "model", "episode-policy", "active.yaml")
+
+    /** Where v1's merge rule puts both PATROL-1 lines of robot hum-02 (`Picasso.search`, `Picasso.incident`). */
+    private val merged = "ep:run-A:by:robotId:hum-02:jobOrderId:PATROL-1"
     private val mapper = ObjectMapper()
 
     /** The real activities over the test Postgres, the Mock narrator and [picasso], [policy] as the policy file. */
@@ -83,30 +86,26 @@ class WatcherEndToEndTest {
 
     private fun logs(kind: String) = watch.logs(1000).filter { it.kind == kind }
 
-    /** search-1 carried in by [w], approved by a person: the episode `ep:run-A:search-1` waits for evidence. */
+    /** search-1 carried in by [w], approved by a person: the episode [merged] waits for evidence. */
     private fun approvedEpisode(e: TestWorkflowEnvironment, w: EpisodeWatcher): EpisodeWorkflow {
         export.searches += Picasso.search("search-1")
         export.snapshot()
         assertEquals(1, w.pollOnce().opened)
-        val ep = episode("ep:run-A:search-1")
+        val ep = episode(merged)
         val waiting = ep.until(e) { it.phase == "AWAITING_APPROVAL" }   // auto-approval is off in v1
         assertEquals("ACCEPTED", ep.decide(DecideRequest(waiting.proposalId!!, waiting.candidatesVersion!!, true, "op-1")))
         ep.until(e) { it.phase == "AWAITING_EVIDENCE" }
         return ep
     }
 
-    @Test fun `a merge rule carries an incident and a search into one episode, which reaches a person`() {
-        val policy = root.resolve("active.yaml")
-        Files.writeString(policy, Files.readString(v1).replace(
-            "correlation: []", "correlation: [{ kinds: [SEARCH, INCIDENT], by: [robotId, jobOrderId] }]",
-        ).also { assertTrue("kinds: [SEARCH, INCIDENT]" in it, "the rule went in") })
-        val e = start(policy)
-        val w = watcher(policy)
+    @Test fun `v1's merge rule carries an incident and a search into one episode, which reaches a person`() {
+        val e = start(v1)
+        val w = watcher(v1)
         export.incidents += Picasso.incident("incident-1")
         export.searches += Picasso.search("search-1")
         export.snapshot()
         assertEquals(2, w.pollOnce().opened)
-        val ep = episode("ep:run-A:by:robotId:hum-02:jobOrderId:PATROL-1")
+        val ep = episode(merged)
         eventually(describe = { "view ${ep.view()}" }) { ep.view().takeIf { it.symptoms == 2 } }   // wall clock: test time stays put
         ep.until(e) { it.phase == "AWAITING_APPROVAL" }
         assertEquals(0, w.pollOnce().opened)
@@ -153,7 +152,7 @@ class WatcherEndToEndTest {
         export.searches += Picasso.search("search-1")
         export.snapshot()
         w.pollOnce()
-        val ep = episode("ep:run-A:search-1")
+        val ep = episode(merged)
         val waiting = ep.until(e) { it.phase == "AWAITING_APPROVAL" }
         val instanceId = waiting.instanceId
         try {
@@ -201,16 +200,16 @@ class WatcherEndToEndTest {
         assertTrue("resp-9" in ended.single().detailJson && first in ended.single().detailJson, ended.single().detailJson)
 
         // The next episode on the same workflow id, before any decision: policy v1 gives it no intent yet.
-        val nextRun = TemporalEpisodeSignals(client).open("ep:run-A:search-1", EpisodeStart(Picasso.manifest), searchSignal("search-2"))
+        val nextRun = TemporalEpisodeSignals(client).open(merged, EpisodeStart(Picasso.manifest), searchSignal("search-2"))
         assertTrue(nextRun != first.substringAfterLast('/'), "a new run")
-        episode("ep:run-A:search-1").until(e) { it.instanceId != first && it.phase != "OPENING" }
+        episode(merged).until(e) { it.instanceId != first && it.phase != "OPENING" }
         carrier.report("resp-10", "PATROL-1", "mock-exec-1").snapshot()
         assertEquals(1, w.pollOnce().evidence)
         val endedAgain = logs("ROUTE_ENDED")
         assertEquals(2, endedAgain.size, "$endedAgain")
         assertTrue("resp-10" in endedAgain.first().detailJson && first in endedAgain.first().detailJson, endedAgain.first().detailJson)
         // The run's history does not lag as the records may: no evidence signal ever reached the successor's run.
-        val signaled = client.fetchHistory("ep:run-A:search-1", nextRun).events
+        val signaled = client.fetchHistory(merged, nextRun).events
             .filter { it.hasWorkflowExecutionSignaledEventAttributes() }.map { it.workflowExecutionSignaledEventAttributes.signalName }
         assertTrue("symptom" in signaled, "the history is the successor's: $signaled")
         assertTrue("evidence" !in signaled, "the earlier instance's reports stay out: $signaled")

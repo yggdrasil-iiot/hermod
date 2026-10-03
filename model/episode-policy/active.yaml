@@ -2,7 +2,7 @@
 # the active table to git + a DB pointer + audit, §10.3). Repeated keys, anchors and a second document make the file
 # unreadable; unknown keys or bad values make the table rejected (POLICY_REJECTED). Either way the episode keeps the
 # last valid table and suspends auto-approval (§8.2); with no valid table yet it is POLICY_MISSING.
-version: "2026-10-03.1"
+version: "2026-10-03.2"
 expiresAt: null
 agentLayerEnabled: true                     # false: every episode hands over to a person (R5, §10.4)
 autoApprove:
@@ -27,4 +27,6 @@ diagnosis: { scheduleToCloseMs: 1200000, startToCloseMs: 540000, heartbeatMs: 30
 maxAttemptsPerEpisode: 3
 repeatedRemedyThreshold: 2
 snapshotMaxBytes: 262144
-correlation: []
+# One robot, one order: its search line and its incident line are one episode (design §10.1, §18, 2026-10-03).
+correlation:
+  - { kinds: [SEARCH, INCIDENT], by: [robotId, jobOrderId] }
