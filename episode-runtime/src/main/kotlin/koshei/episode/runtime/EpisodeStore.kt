@@ -45,10 +45,35 @@ class RecordUnstorable(message: String, cause: Throwable) : RuntimeException(mes
  */
 open class EpisodeStore(private val connect: () -> Connection) : EpisodeReader {
 
+    /**
+     * The episode tables (design §13). An account that may create in the schema (the owner) runs episode-schema.sql,
+     * idempotent as before. The runtime role (scripts/episode-db-roles.sql) may not — Postgres checks CREATE even for
+     * IF NOT EXISTS — so it only checks that the owner applied the schema, and fails clearly if not.
+     */
     fun ensureSchema() {
-        val sql = checkNotNull(javaClass.getResourceAsStream("/episode-schema.sql")) { "episode-schema.sql missing" }
-            .bufferedReader().use { it.readText() }
-        connect().use { c -> c.createStatement().use { it.execute(sql) } }
+        connect().use { c ->
+            val mayCreate = c.createStatement().use { s ->
+                s.executeQuery("SELECT has_schema_privilege(current_schema(), 'CREATE')").use { it.next(); it.getBoolean(1) }
+            }
+            if (mayCreate) {
+                val sql = checkNotNull(javaClass.getResourceAsStream("/episode-schema.sql")) { "episode-schema.sql missing" }
+                    .bufferedReader().use { it.readText() }
+                c.createStatement().use { it.execute(sql) }
+                return
+            }
+            val missing = SCHEMA_OBJECTS.filter { name ->
+                c.prepareStatement("SELECT to_regclass(?) IS NULL").use { p -> p.setString(1, name); p.executeQuery().use { it.next(); it.getBoolean(1) } }
+            }
+            check(missing.isEmpty()) { "episode schema missing: ${missing.joinToString()} — apply episode-schema.sql as the owner first" }
+        }
+    }
+
+    private companion object {
+        /** Every table and index of episode-schema.sql: add here what the script adds (the runtime role only checks these). */
+        val SCHEMA_OBJECTS = listOf(
+            "episode_event", "episode_notice", "episode_dispatch", "episode_watch_cursor", "episode_watch_log",
+            "episode_notice_instance", "episode_dispatch_instance", "episode_event_intent_order",
+        )
     }
 
     /**

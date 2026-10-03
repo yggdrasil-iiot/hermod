@@ -2,7 +2,6 @@ package koshei.app
 
 import io.temporal.client.WorkflowClient
 import io.temporal.serviceclient.WorkflowServiceStubs
-import koshei.blocks.Db
 import koshei.episode.runtime.EpisodeStore
 import koshei.episode.runtime.EpisodeWatcher
 import koshei.episode.runtime.PicassoMode
@@ -37,14 +36,16 @@ data class WatcherConfig(val exports: List<Path>, val carry: Path?, val interval
 
 /**
  * The watcher process (design §4.2, §12): polls the exports and the carry, sends to Temporal on koshei's converter,
- * keeps its cursor in Postgres. It creates the episode tables if the worker has not yet (the script is idempotent).
+ * keeps its cursor in Postgres. It creates the episode tables if the worker has not yet (the script is idempotent);
+ * as the runtime role it only checks that the owner has (EpisodeStore.ensureSchema, plan D-lite).
  */
 fun main() {
     val config = WatcherConfig.fromEnv(System.getenv())
-    EpisodeStore { Db.connect() }.ensureSchema()
+    val login = EpisodeDbLogin.fromEnv(System.getenv())   // the episode tables' login (plan D-lite): the runtime role in production
+    EpisodeStore { login.connect() }.ensureSchema()
     val service = WorkflowServiceStubs.newLocalServiceStubs()
     val client = WorkflowClient.newInstance(service, DataConverterSupport.clientOptions())
-    val watcher = EpisodeWatcher(config.exports, config.carry, PolicyFileReader(config.policyPath), WatchStore { Db.connect() }, TemporalEpisodeSignals(client))
+    val watcher = EpisodeWatcher(config.exports, config.carry, PolicyFileReader(config.policyPath), WatchStore { login.connect() }, TemporalEpisodeSignals(client))
     println("koshei watcher: exports=${config.exports.map { it.toAbsolutePath() }} carry=${config.carry?.toAbsolutePath() ?: "-"} " +
         "every ${config.intervalMs} ms (log: episode_watch_log)")
     Runtime.getRuntime().addShutdownHook(Thread { service.shutdown() })

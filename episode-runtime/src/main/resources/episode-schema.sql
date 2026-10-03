@@ -1,6 +1,7 @@
 -- Episode audit and channel tables (design §8.5, §13). Separate from app/src/main/resources/schema.sql, which DROPs.
--- Safe to run at every worker start. Append-only by use: production revokes UPDATE and DELETE on these tables from
--- the runtime account (plan D); nothing in koshei updates or deletes a row.
+-- Safe to run at every worker start. Append-only by use: the runtime role of scripts/episode-db-roles.sql has SELECT
+-- and INSERT only (plan D-lite), and does not run this script: EpisodeStore.ensureSchema only checks the objects below
+-- (keep its list in step); nothing in koshei updates or deletes a row.
 -- CREATE TABLE IF NOT EXISTS never alters a table that is already there: a later column change must be its own
 -- ALTER TABLE … ADD COLUMN IF NOT EXISTS (and likewise for constraints), or existing databases keep the old shape.
 
@@ -52,7 +53,7 @@ CREATE TABLE IF NOT EXISTS episode_watch_cursor (
 );
 
 -- What the watcher did not carry, or carried without merging (design §12): NOT_READY, BROKEN, STUCK, AMBIGUOUS,
--- UNROUTED, ROUTE_ENDED, SIGNAL_FAILED, POLICY_UNUSABLE. Read by people (plan D shows it).
+-- UNROUTED, ROUTE_ENDED, SIGNAL_FAILED, POLICY_UNUSABLE. Read by people (no screen yet — out of scope, plan D-lite).
 CREATE TABLE IF NOT EXISTS episode_watch_log (
     id                  bigserial   PRIMARY KEY,
     source              text        NOT NULL,

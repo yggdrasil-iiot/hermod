@@ -11,6 +11,12 @@ internal object EpisodeDb {
 
     fun connection(): Connection = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
 
+    /** A connection as another login of the test database (a role a test created). */
+    fun connectionAs(user: String, password: String): Connection = DriverManager.getConnection(container.jdbcUrl, user, password)
+
+    /** Runs [sql] as the owner account (the container's user). */
+    fun execAsOwner(sql: String) = connection().use { c -> c.createStatement().use { it.execute(sql) } }
+
     @Synchronized fun reset(): EpisodeStore {
         val store = EpisodeStore(::connection)
         if (!started) {

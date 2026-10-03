@@ -74,7 +74,7 @@ fun main() {
     if (episodeConfig.picasso == PicassoMode.OFF) {
         println("[$workerName] episode worker off (KOSHEI_PICASSO unset or off)")
     } else {
-        val episodeStore = EpisodeStore { Db.connect() }
+        val episodeStore = EpisodeDbLogin.fromEnv(System.getenv()).let { login -> EpisodeStore { login.connect() } }
         episodeStore.ensureSchema()
         EpisodeWorkers.register(factory, episodeConfig, episodeStore)
         if (episodeConfig.picasso == PicassoMode.MOCK) {
