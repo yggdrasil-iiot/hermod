@@ -46,30 +46,42 @@ class RecordUnstorable(message: String, cause: Throwable) : RuntimeException(mes
 open class EpisodeStore(private val connect: () -> Connection) : EpisodeReader {
 
     /**
-     * The episode tables (design §13). An account that may create in the schema (the owner) runs episode-schema.sql,
-     * idempotent as before. The runtime role (scripts/episode-db-roles.sql) may not — Postgres checks CREATE even for
-     * IF NOT EXISTS — so it only checks that the owner applied the schema, and fails clearly if not.
+     * The episode tables (design §13), decided by ownership, not by CREATE alone:
+     * - every object of [SCHEMA_OBJECTS] is there: the owner of `episode_event` (or a member of the owning role) runs
+     *   episode-schema.sql, idempotent as before; anyone else — the runtime role of scripts/episode-db-roles.sql — only
+     *   checks. Even with CREATE on the schema (PUBLIC keeps it on databases from before Postgres 15) the runtime role
+     *   must not run the DDL: `CREATE INDEX IF NOT EXISTS` fails with "must be owner", and it must never own a table.
+     * - some are missing: an account that may create in the schema runs the script; any other fails clearly. The roles
+     *   script refuses a runtime role that may create, so the runtime role lands here.
+     * All the names are unqualified and resolve in the connection's current_schema(), as in both scripts.
      */
     fun ensureSchema() {
         connect().use { c ->
-            val mayCreate = c.createStatement().use { s ->
-                s.executeQuery("SELECT has_schema_privilege(current_schema(), 'CREATE')").use { it.next(); it.getBoolean(1) }
-            }
-            if (mayCreate) {
-                val sql = checkNotNull(javaClass.getResourceAsStream("/episode-schema.sql")) { "episode-schema.sql missing" }
-                    .bufferedReader().use { it.readText() }
-                c.createStatement().use { it.execute(sql) }
-                return
-            }
+            fun bool(sql: String): Boolean = c.createStatement().use { s -> s.executeQuery(sql).use { it.next(); it.getBoolean(1) } }
             val missing = SCHEMA_OBJECTS.filter { name ->
                 c.prepareStatement("SELECT to_regclass(?) IS NULL").use { p -> p.setString(1, name); p.executeQuery().use { it.next(); it.getBoolean(1) } }
             }
-            check(missing.isEmpty()) { "episode schema missing: ${missing.joinToString()} — apply episode-schema.sql as the owner first" }
+            val runScript = if (missing.isEmpty()) {
+                bool("SELECT pg_has_role(current_user, (SELECT relowner FROM pg_class WHERE oid = 'episode_event'::regclass), 'USAGE')")
+            } else {
+                bool("SELECT has_schema_privilege(current_schema(), 'CREATE')")
+            }
+            if (!runScript) {
+                check(missing.isEmpty()) { "episode schema missing: ${missing.joinToString()} — apply episode-schema.sql as the owner first" }
+                return
+            }
+            val sql = checkNotNull(javaClass.getResourceAsStream("/episode-schema.sql")) { "episode-schema.sql missing" }
+                .bufferedReader().use { it.readText() }
+            c.createStatement().use { it.execute(sql) }
         }
     }
 
-    private companion object {
-        /** Every table and index of episode-schema.sql: add here what the script adds (the runtime role only checks these). */
+    internal companion object {
+        /**
+         * Every table and index of episode-schema.sql: add here what the script adds (the runtime role only checks these).
+         * Unqualified, like the script and scripts/episode-db-roles.sql: all of them live in the connection's current_schema().
+         * EpisodeDbRolesTest holds this list to the script.
+         */
         val SCHEMA_OBJECTS = listOf(
             "episode_event", "episode_notice", "episode_dispatch", "episode_watch_cursor", "episode_watch_log",
             "episode_notice_instance", "episode_dispatch_instance", "episode_event_intent_order",

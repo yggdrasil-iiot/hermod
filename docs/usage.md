@@ -204,6 +204,8 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_DB_URL` | Postgres JDBC URL for the saga/registry DB |
 | `KOSHEI_DB_USER` | DB user |
 | `KOSHEI_DB_PASS` | DB password |
+| `KOSHEI_EPISODE_DB_USER` | DB user for the episode tables only (`EpisodeStore`, `WatchStore`) in the worker and the watcher — in production the runtime role `koshei_episode_rt`. Unset or blank: the `KOSHEI_DB_*` login. Same URL as `KOSHEI_DB_URL` |
+| `KOSHEI_EPISODE_DB_PASS` | Its password. Set both or neither: one without the other is refused at start |
 | `KOSHEI_CONDUCTOR_URL` | Conductor API base URL (**override needed — see callout below**) |
 | `KOSHEI_PLUGIN_DIR` | Where published plugin jars are stored/loaded |
 | `KOSHEI_PUBLISH_DISABLED` | `true` (or `1`) closes `POST /api/publish` with 403 (no new plugin code accepted). Default: publish open |
@@ -213,6 +215,8 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_WORKER_NAME` | Worker identity/name |
 | `KOSHEI_FAULT_INJECT` | **Test-only** — fault injection for gate scripts |
 | `KOSHEI_TEST_BLOCKS` | **Test-only** — test block wiring |
+
+The runtime role is made by `scripts/episode-db-roles.sql`: `SELECT` and `INSERT` only on the five episode tables. The owner account runs it once the worker (or `episode-schema.sql`) has created them, with `psql -v ON_ERROR_STOP=1 -v rt_password='…' -f scripts/episode-db-roles.sql`, then sets the real password with `\password koshei_episode_rt`. The script refuses a role that may `CREATE` in the schema.
 
 > **Security note.** The control plane has no authentication (proof-of-concept). It therefore listens on loopback
 > by default, and publish-time checks never run uploaded plugin code: the handler class is resolved without

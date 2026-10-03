@@ -42,6 +42,7 @@ data class WatcherConfig(val exports: List<Path>, val carry: Path?, val interval
 fun main() {
     val config = WatcherConfig.fromEnv(System.getenv())
     val login = EpisodeDbLogin.fromEnv(System.getenv())   // the episode tables' login (plan D-lite): the runtime role in production
+    println("koshei watcher: episode tables as DB user '${login.user}' (KOSHEI_EPISODE_DB_USER, else KOSHEI_DB_USER's login)")
     EpisodeStore { login.connect() }.ensureSchema()
     val service = WorkflowServiceStubs.newLocalServiceStubs()
     val client = WorkflowClient.newInstance(service, DataConverterSupport.clientOptions())
