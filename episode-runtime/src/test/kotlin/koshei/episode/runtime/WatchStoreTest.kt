@@ -38,7 +38,7 @@ class WatchStoreTest {
     }
 
     @Test fun `an order finds the episode instances whose intent named it`() {
-        val intent = { order: String, kind: String -> """{"candidate":{"candidateId":"c","kind":"$kind","ref":{"robotId":"hum-02","jobOrderId":"$order","searchId":"search-1"},"sawSkillTypes":["pick_place"]},"idempotencyKey":"k","approval":null,"targetUnit":null}""" }
+        val intent = { order: String, kind: String -> """{"candidate":{"candidateId":"c","kind":"$kind","ref":{"robotId":"hum-02","jobOrderId":"$order","searchId":"search-1"},"sawSkillTypes":["pick_place"]},"idempotencyKey":"k","approval":null}""" }
         // The first-written instance sorts after the second by id, so an ORDER BY that ignores min(at) would be caught.
         events.append("ep:z/r1", 1, "OPENED", "{}")
         events.append("ep:z/r1", 7, EpisodeActivitiesImpl.INTENT_KIND, intent("PATROL-1", "APPROVE_REMEDY"))

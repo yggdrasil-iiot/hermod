@@ -49,7 +49,7 @@ internal fun Out.bufferEvidence(e: Evidence) {
 }
 
 /**
- * Re-applies what DISPATCHED kept — an internal step, not a new signal, so the jobResponseId dedup does not apply (§6).
+ * Re-applies what DISPATCHED kept — an internal step, not a new signal, so the report dedup does not apply (§6).
  * The reports arrived together, so a doubt in any linked one holds back every resolution of the batch: a clean report must
  * not resolve the attempt just because it happened to be replayed before the doubtful one (design §12 ②). A kept batch is
  * therefore stricter than a stream: if any linked kept report is in doubt, no kept report resolves — and since those

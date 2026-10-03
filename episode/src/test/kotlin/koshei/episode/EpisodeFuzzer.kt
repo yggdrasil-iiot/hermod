@@ -171,19 +171,29 @@ internal class EpisodeFuzzer(seed: Long) {
         a.candidate?.candidateId ?: "ESCALATE", if (stale) "${a.request.episodeId}#0" else a.proposalId, r.nextBoolean(), Episodes.OPERATOR,
     )
 
-    /** A JobResponse; now and then one that leaves two units in doubt at once (the episode then holds two items). */
+    /**
+     * A JobResponse; now and then one that leaves two units in doubt at once (the episode then holds two items), and now
+     * and then a clean one (nothing in doubt) so that a report can reach DONE. The doubt fields are always drawn from [r]
+     * in the same order; a clean report only ignores those draws, so [r]'s stream stays as it was.
+     */
     private fun evidence(a: Attempt, n: Int): EpisodeEvent {
         val twoInDoubt = r.nextBoolean()
+        val e = jobResponse(
+            "jr-${r.nextInt(n + 2)}",
+            executionId = if (r.nextInt(4) == 0) "exec-other" else (a.executionId ?: "exec-1"),
+            completed = if (reports.nextInt(3) == 0) a.approvedUnits else listOf("u-1"),
+            inDoubt = if (twoInDoubt) listOf("u-1") else listOf(emptyList<String>(), listOf("u-1"), null).random(r),
+            unverified = if (twoInDoubt) listOf("u-2") else listOf(emptyList<String>(), listOf("u-2"), null).random(r),
+            operatorRequired = listOf(false, true, null).random(r),
+            instance = if (reports.nextInt(4) == 0) "mw-other" else (a.picassoInstanceId ?: PicassoAnswers.INSTANCE),
+            connection = if (reports.nextInt(4) == 0) "CONNECTION_STATE_UNSPECIFIED" else PICASSO_ONLINE,
+        )
+        val clean = reports.nextInt(3) == 0
         return EpisodeEvent.EvidenceArrived(
-            jobResponse(
-                "jr-${r.nextInt(n + 2)}",
-                executionId = if (r.nextInt(4) == 0) "exec-other" else (a.executionId ?: "exec-1"),
-                completed = if (reports.nextInt(3) == 0) a.approvedUnits else listOf("u-1"),
-                inDoubt = if (twoInDoubt) listOf("u-1") else listOf(emptyList<String>(), listOf("u-1"), null).random(r),
-                unverified = if (twoInDoubt) listOf("u-2") else listOf(emptyList<String>(), listOf("u-2"), null).random(r),
-                operatorRequired = listOf(false, true, null).random(r),
-                instance = if (reports.nextInt(4) == 0) "mw-other" else (a.picassoInstanceId ?: PicassoAnswers.INSTANCE),
-                connection = if (reports.nextInt(4) == 0) "CONNECTION_STATE_UNSPECIFIED" else PICASSO_ONLINE,
+            if (!clean) e
+            else Evidence(
+                e.jobResponseId, e.executionId, e.physicalState, e.reachedEvidence, e.completedUnits, emptyList(), emptyList(),
+                false, e.receivedAt, e.picassoInstanceId, e.connection,
             ),
         )
     }

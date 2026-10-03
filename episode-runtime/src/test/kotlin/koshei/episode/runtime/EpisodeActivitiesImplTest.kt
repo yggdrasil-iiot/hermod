@@ -22,10 +22,10 @@ class EpisodeActivitiesImplTest {
 
     private fun remedyIntent(key: String = "ep:a/r1:1:APPROVE_REMEDY") =
         """{"candidate":{"candidateId":"c","kind":"APPROVE_REMEDY","ref":{"robotId":"hum-02","jobOrderId":"PATROL-1","searchId":"search-1"},
-            "sawSkillTypes":["pick_place"]},"idempotencyKey":"$key","approval":null,"targetUnit":null}"""
+            "sawSkillTypes":["pick_place"]},"idempotencyKey":"$key","approval":null}"""
 
     private fun taskIntent(kind: String, candidateId: String = "c") =
-        """{"candidate":{"candidateId":"$candidateId","kind":"$kind","ref":{}},"idempotencyKey":"ep:a/r1:1:$kind","approval":null,"targetUnit":null}"""
+        """{"candidate":{"candidateId":"$candidateId","kind":"$kind","ref":{}},"idempotencyKey":"ep:a/r1:1:$kind","approval":null}"""
 
     @Test fun `readPolicy reads the file`() {
         assertEquals("MISSING", acts.readPolicy().kind)

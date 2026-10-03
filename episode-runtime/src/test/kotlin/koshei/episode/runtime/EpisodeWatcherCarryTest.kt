@@ -19,7 +19,7 @@ class EpisodeWatcherCarryTest {
         events = EpisodeDb.reset()
         watch = WatchStore(EpisodeDb::connection)
         carrier = MockCarrier(root.resolve("carry"))
-        val intent = { order: String -> """{"candidate":{"candidateId":"c","kind":"APPROVE_REMEDY","ref":{"robotId":"hum-02","jobOrderId":"$order","searchId":"search-1"},"sawSkillTypes":["pick_place"]},"idempotencyKey":"k","approval":null,"targetUnit":null}""" }
+        val intent = { order: String -> """{"candidate":{"candidateId":"c","kind":"APPROVE_REMEDY","ref":{"robotId":"hum-02","jobOrderId":"$order","searchId":"search-1"},"sawSkillTypes":["pick_place"]},"idempotencyKey":"k","approval":null}""" }
         events.append("ep:a/r1", 7, EpisodeActivitiesImpl.INTENT_KIND, intent("PATROL-1"))
         events.append("ep:b/r2", 7, EpisodeActivitiesImpl.INTENT_KIND, intent("PATROL-1"))
     }

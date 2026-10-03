@@ -46,7 +46,7 @@ class EvidenceTest {
         assertEquals("duplicate jobResponseId", again.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
     }
 
-    @Test fun `anything in doubt or not reported is UNKNOWN, even when the target completed`() {
+    @Test fun `anything in doubt or not reported is UNKNOWN, even when every approved unit completed`() {
         val cases = listOf(
             jobResponse("a", inDoubt = listOf("u-1")),
             jobResponse("b", unverified = listOf("u-1")),
@@ -69,7 +69,7 @@ class EvidenceTest {
         assertEquals(listOf("u-1", "u-2"), s.state.episodeUnknowns.mapNotNull { it.subject["unitId"] })   // u-1 once
     }
 
-    @Test fun `the target unit completed with nothing in doubt resolves`() {
+    @Test fun `every approved unit completed online with nothing in doubt resolves`() {
         val s = accepted().evidence(jobResponse("jr-1"))
         assertEquals(Phase.RESOLVED, s.state.phase)
         val entry = s.state.history.single().toJson()
@@ -126,6 +126,27 @@ class EvidenceTest {
             .records(RecordKind.EVIDENCE).single().entry.payload
         assertEquals(PicassoAnswers.INSTANCE, payload.get("picassoInstanceId").textValue())
         assertEquals("CONNECTION_STATE_OFFLINE", payload.get("connection").textValue())
+    }
+
+    @Test fun `while DISPATCHED the same jobResponseId from two instances is kept twice - again from the first it is a duplicate`() {
+        val d = dispatched()
+        val one = d.evidence(jobResponse("jr-1", completed = listOf()), d.state.enteredAt.plusMillis(300))
+        val two = one.evidence(jobResponse("jr-1", instance = "mw-2", completed = listOf()), one.state.enteredAt.plusMillis(300))
+        assertEquals(listOf("kept until the answer"), two.records(RecordKind.EVIDENCE).map { it.entry.payload.get("why").textValue() })
+        assertEquals(2, two.state.bufferedEvidence.size)
+        val answered = two.returned(DispatchResult.Answer(PicassoAnswers.approved()))
+        assertEquals(Phase.AWAITING_EVIDENCE, answered.state.phase)
+        val again = answered.evidence(jobResponse("jr-1", completed = listOf()))
+        assertEquals("duplicate jobResponseId", again.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+    }
+
+    @Test fun `a doubtful kept report of another instance does not hold back the batch`() {
+        val d = dispatched()
+        val doubtful = d.evidence(jobResponse("jr-x", instance = "mw-2", inDoubt = listOf(PicassoAnswers.UNIT)), d.state.enteredAt.plusMillis(300))
+        val clean = doubtful.evidence(jobResponse("jr-1"), doubtful.state.enteredAt.plusMillis(300))
+        val s = clean.returned(DispatchResult.Answer(PicassoAnswers.approved()))
+        assertEquals(Phase.RESOLVED, s.state.phase)
+        assertTrue(s.state.episodeUnknowns.isEmpty())
     }
 
     @Test fun `a person's DONE resolves with E3 - NOT_DONE re-diagnoses without the outcome unknown`() {

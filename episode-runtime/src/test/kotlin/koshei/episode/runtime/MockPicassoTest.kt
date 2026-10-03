@@ -16,7 +16,7 @@ class MockPicassoTest {
         """{"candidateId":"APPROVE_REMEDY:$robot:$order:pick_place","kind":"APPROVE_REMEDY",
             "ref":{"robotId":"$robot","jobOrderId":"$order","searchId":"$search"},"sawSkillTypes":["pick_place"]}"""
 
-    private fun intent(candidate: String) = json.readTree("""{"candidate":$candidate,"idempotencyKey":"k","approval":null,"targetUnit":null}""") as ObjectNode
+    private fun intent(candidate: String) = json.readTree("""{"candidate":$candidate,"idempotencyKey":"k","approval":null}""") as ObjectNode
 
     private fun answer(text: String) = json.readTree(text)
 

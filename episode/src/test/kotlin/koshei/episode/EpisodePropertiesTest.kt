@@ -27,6 +27,10 @@ class EpisodePropertiesTest {
         var crowded = 0
         /** "It holds" confirmations of the waiting proposal that came without a proposition and were refused for it (§8.3). */
         var bareRefused = 0
+        /** RESOLVED on an arriving report (design §12 ③). */
+        var evidenceResolved = 0
+        /** RESOLVED on an answer, by a report kept while DISPATCHED. */
+        var replayResolved = 0
     }
 
     /** Runs that start from UNKNOWN(OUTCOME) with two units in doubt, so the episode-level items are crowded from the first event. */
@@ -53,12 +57,14 @@ class EpisodePropertiesTest {
         val stats = Stats()
         for (seed in seeds) run(seed, stats, directed = false)
         assertEquals(Phase.entries.toSet(), stats.phases)
-        val seen = "dispatches=${stats.dispatches}, accepted=${stats.accepted}, unblocked=${stats.unblocked}, crowded=${stats.crowded}, bareRefused=${stats.bareRefused}"
+        val seen = "dispatches=${stats.dispatches}, accepted=${stats.accepted}, unblocked=${stats.unblocked}, crowded=${stats.crowded}, " +
+            "bareRefused=${stats.bareRefused}, evidenceResolved=${stats.evidenceResolved}, replayResolved=${stats.replayResolved}"
         assertTrue(stats.dispatches > 100, "too few dispatches: $seen")
         assertTrue(stats.accepted >= 100, "too few accepted ConfirmedUnknown: $seen")
         assertTrue(stats.unblocked >= 10, "too few execution Dispatches that a confirmation unblocked: $seen")
         assertTrue(stats.crowded >= 2, "too few confirmations of one episode item among several: $seen")
         assertTrue(stats.bareRefused >= 3, "too few precondition confirmations refused for want of a proposition: $seen")
+        // No floor for evidenceResolved / replayResolved yet: these seeds measure 0 for both (plan C2 Task 2 follow-up).
         val directed = Stats()
         for (seed in directedSeeds) run(seed, directed, directed = true)
         assertTrue(directed.crowded >= 20, "too few confirmations of one episode item among several in the directed runs: crowded=${directed.crowded}")
@@ -166,6 +172,12 @@ class EpisodePropertiesTest {
     /** The test's own matching of an item by subject and kind — not the production `Unknown.matches`, which is under test. */
     private fun Unknown.names(subject: Map<String, String?>, what: UnknownWhat): Boolean = this.subject == subject && this.what == what
 
+    /** What design §12 ③ asks of a report that ends an attempt as DONE, stated again here and not read off the code. */
+    private fun resolves(e: Evidence, instanceId: String?, executionId: String?, units: List<String>): Boolean =
+        instanceId != null && executionId != null && e.picassoInstanceId == instanceId && e.executionId == executionId &&
+            units.isNotEmpty() && e.completedUnits.orEmpty().containsAll(units) && e.connection == PICASSO_ONLINE &&
+            e.inDoubtUnits?.isEmpty() == true && e.unverifiedUnits?.isEmpty() == true && e.operatorRequired == false
+
     /** True when the global rows (policy, episode deadline, agent layer) escalated this very step, whatever the event was. */
     private fun escalatedByGlobalRow(before: EpisodeState, after: EpisodeState): Boolean =
         before.phase != Phase.ESCALATED && after.phase == Phase.ESCALATED && after.escalation?.reason in GLOBAL_REASONS
@@ -229,6 +241,30 @@ class EpisodePropertiesTest {
             assertEquals(before.phase, s.phase, "a duplicated jobResponseId moved the phase: $event")
             assertEquals(before.attempt, s.attempt, "a duplicated jobResponseId changed the attempt: $event")
             assertEquals(before.episodeUnknowns, s.episodeUnknowns, "a duplicated jobResponseId changed the unknowns: $event")
+        }
+        // DONE from a report (design §12 ③): only a report linked to the attempt by (instanceId, executionId) that completed
+        // every approved unit, online, with nothing in doubt, resolves — whether it arrives now or was kept for the answer.
+        if (before != null && before.phase != Phase.RESOLVED && s.phase == Phase.RESOLVED) when (event) {
+            is EpisodeEvent.EvidenceArrived -> {
+                val a = before.attempt
+                assertNotNull(a, "RESOLVED by a report with no attempt: $event")
+                assertTrue(resolves(event.evidence, a.picassoInstanceId, a.executionId, a.approvedUnits), "RESOLVED by a report that cannot complete the attempt: $event")
+                stats.evidenceResolved++
+            }
+            is EpisodeEvent.DispatchReturned -> {
+                val answer = (event.result as? DispatchResult.Answer)?.let { mapper.readTree(it.json) }
+                assertNotNull(answer, "RESOLVED by a dispatch result that is no answer: $event")
+                val instanceId = answer.get("instanceId")?.textValue()
+                val executionId = answer.get("executionId")?.textValue()
+                val units = answer.get("steps")?.map { it.get("unitId").textValue() }.orEmpty()
+                assertFalse("$instanceId/$executionId" in before.usedExecutions, "RESOLVED on an answer whose execution was used before: $event")
+                assertTrue(
+                    before.bufferedEvidence.any { resolves(it, instanceId, executionId, units) },
+                    "RESOLVED on an answer with no kept report that completes it: $event, kept ${before.bufferedEvidence}",
+                )
+                stats.replayResolved++
+            }
+            else -> {}
         }
         // Records are numbered 1, 2, 3, … across the run, the intent records included (design §13).
         var seq = lastSeq

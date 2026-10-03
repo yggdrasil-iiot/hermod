@@ -57,7 +57,7 @@ sealed interface EpisodeEvent {
     /** `dispatch` activity result. [token] is the one [Command.Dispatch] carried, so a late result is recognisably stale. */
     data class DispatchReturned(val result: DispatchResult, val token: Long) : EpisodeEvent
 
-    /** `evidence` signal: a JobResponse the host carried (design §12), deduplicated by its `jobResponseId`. */
+    /** `evidence` signal: a JobResponse the host carried (design §12), deduplicated by (instanceId, jobResponseId) — [Evidence.reportKey]. */
     data class EvidenceArrived(val evidence: Evidence) : EpisodeEvent
 
     /**

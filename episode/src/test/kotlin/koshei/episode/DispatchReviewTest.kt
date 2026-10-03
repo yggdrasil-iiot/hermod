@@ -216,6 +216,8 @@ class DispatchReviewTest {
         assertNotEquals(e, jobResponse("jr-1", completed = listOf("u-1")))
         assertNotEquals(e, jobResponse("jr-1", completed = listOf("u-1", "u-2"), operatorRequired = null))
         assertNotEquals(e, jobResponse("jr-2", completed = listOf("u-1", "u-2")))
+        assertNotEquals(e, jobResponse("jr-1", completed = listOf("u-1", "u-2"), instance = "mw-2"))
+        assertNotEquals(e, jobResponse("jr-1", completed = listOf("u-1", "u-2"), connection = "CONNECTION_STATE_OFFLINE"))
         val s = Episodes.search("search-1")
         assertEquals(s, Episodes.search("search-1"))
         assertEquals(s.hashCode(), Episodes.search("search-1").hashCode())
