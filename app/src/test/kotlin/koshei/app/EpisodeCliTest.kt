@@ -134,4 +134,11 @@ class EpisodeCliTest {
         assertFailsWith<IllegalArgumentException> { EpisodeCli.checkWorkflowId("ep:") }
         assertFailsWith<IllegalArgumentException> { EpisodeCli.checkWorkflowId("ep:a/b") }
     }
+
+    @Test fun `agent-off takes one episode or all of them`() {
+        assertEquals(EpisodeCli.AgentOffTarget.All, EpisodeCli.agentOffTarget(listOf("--all")))
+        assertEquals(EpisodeCli.AgentOffTarget.One("ep:k-1"), EpisodeCli.agentOffTarget(listOf("ep:k-1")))
+        for (bad in listOf(emptyList(), listOf("--all", "ep:k-1"), listOf("k-1"), listOf("--ALL")))
+            assertFailsWith<IllegalArgumentException>("$bad") { EpisodeCli.agentOffTarget(bad) }
+    }
 }

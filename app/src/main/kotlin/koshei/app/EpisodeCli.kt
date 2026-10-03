@@ -2,6 +2,7 @@ package koshei.app
 
 import io.temporal.client.WorkflowClient
 import io.temporal.serviceclient.WorkflowServiceStubs
+import koshei.episode.runtime.AgentOffBroadcast
 import koshei.episode.runtime.BundleRead
 import koshei.episode.runtime.EpisodeStart
 import koshei.episode.runtime.EpisodeWorkflow
@@ -80,6 +81,18 @@ object EpisodeCli {
         return workflowId
     }
 
+    /** What `episode agent-off` was asked: one episode (its workflow id, checked) or every open one. */
+    sealed interface AgentOffTarget {
+        data class One(val workflowId: String) : AgentOffTarget
+        data object All : AgentOffTarget
+    }
+
+    /** [args] after `episode agent-off`: exactly one `<workflowId>` or `--all`. */
+    fun agentOffTarget(args: List<String>): AgentOffTarget {
+        require(args.size == 1) { "episode agent-off takes exactly one of <workflowId> or --all" }
+        return if (args[0] == "--all") AgentOffTarget.All else AgentOffTarget.One(checkWorkflowId(args[0]))
+    }
+
     /**
      * signalWithStart on the episode queue, as the watcher will (design §7.1). Typed, so renaming the workflow or
      * signal method breaks this at compile time.
@@ -91,6 +104,9 @@ object EpisodeCli {
     fun agentOff(workflowId: String) = withClient { client ->
         client.newWorkflowStub(EpisodeWorkflow::class.java, checkWorkflowId(workflowId)).agentOff()
     }
+
+    /** `agentOff` to every open episode (design §10.4); the broadcast's report. */
+    fun agentOffAll(): AgentOffBroadcast.Report = withClient { client -> AgentOffBroadcast(client).send() }
 
     /** A client made as the worker makes one (local 7233, koshei's converter), shut down after [block]. */
     private fun <T> withClient(block: (WorkflowClient) -> T): T {
