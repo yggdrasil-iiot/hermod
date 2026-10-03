@@ -122,7 +122,7 @@ object Bundles {
     }
 
     /** Blank is empty or JSON whitespace only. Other Unicode spaces (U+00A0 …) are a line, and a line that is not JSON. */
-    private fun isBlankLine(line: String): Boolean = line.all { it == ' ' || it == '\t' || it == '\r' }
+    internal fun isBlankLine(line: String): Boolean = line.all { it == ' ' || it == '\t' || it == '\r' }
 
     /** The file's text; null when it is absent or momentarily unreadable (read again later). Bad UTF-8 is thrown as [NotUtf8]. */
     private fun text(path: Path, readText: (Path) -> String): String? = try {
@@ -142,6 +142,12 @@ object Bundles {
         val node = try { reader.readTree(text) } catch (e: JsonProcessingException) { return Parsed(null, e.originalMessage) }
         return Parsed(node?.takeIf { it.isObject }, null)
     }
+
+    /**
+     * [text] as one strict JSON object (the same reader as the bundle lines): the object, or null and why not — with
+     * Jackson's cause when parsing threw, as a bundle line's verdict carries it (design §12).
+     */
+    internal fun parseObject(text: String): Pair<JsonNode?, String> = parse(text).let { it.node to it.notObject }
 
     private fun JsonNode.textOf(field: String): String? = get(field)?.takeIf { it.isTextual }?.textValue()?.takeIf { it.isNotBlank() }
 }
