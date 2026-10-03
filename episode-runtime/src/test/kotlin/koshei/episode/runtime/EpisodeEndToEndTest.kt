@@ -68,7 +68,7 @@ class EpisodeEndToEndTest {
         ep.decide(DecideRequest(waiting.proposalId!!, waiting.candidatesVersion!!, true, "op-1"))
         ep.until(e) { it.phase == "UNKNOWN_OUTCOME" }
         val events = stored(waiting.instanceId) { r -> r.any { it.kind == "DISPATCH_RESULT" } }
-        assertTrue(events.any { "REMEDY_NOT_APPLIED" in it.payloadJson }, "picasso's refusal is kept: ${events.map { it.kind }}")
+        assertTrue(events.any { "CONSUMED" in it.payloadJson }, "picasso's refusal is kept: ${events.map { it.kind }}")
     }
 
     @Test fun `a conflicting record fails once without retry, raises RECORD_LAG, and the episode goes on`() {

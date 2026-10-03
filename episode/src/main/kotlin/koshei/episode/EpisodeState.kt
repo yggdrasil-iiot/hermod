@@ -40,7 +40,7 @@ data class Attempt internal constructor(
     val executionId: String? = null,
     val dispatch: DispatchSummary? = null,
     val evidence: EvidenceSummary? = null,
-    /** NO_PROPOSAL, REMEDY_NOT_APPLIED or an uncertain dispatch: a later DONE is "done, by whom unknown" (design §11). */
+    /** NO_PROPOSAL, REMEDY_NOT_APPLIED, CONSUMED or an uncertain dispatch: a later DONE is "done, by whom unknown" (design §11). */
     val authorUnknown: Boolean = false,
 ) {
     /** design §7.2: instance id + attempt number. */

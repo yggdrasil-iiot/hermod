@@ -186,7 +186,7 @@ internal class EpisodeFuzzer(seed: Long) {
 
     private fun dispatchResult(): DispatchResult = when (r.nextInt(10)) {
         0, 1, 2, 3, 4 -> DispatchResult.Answer(PicassoAnswers.approved("exec-${r.nextInt(1, 3)}"))
-        5 -> DispatchResult.Answer(PicassoAnswers.refused(PICASSO_REFUSALS_V2.toList().random(r)))
+        5 -> DispatchResult.Answer(PicassoAnswers.refused(PICASSO_REFUSALS.toList().random(r)))
         6 -> DispatchResult.Answer(PicassoAnswers.refused("NEW_VALUE"))
         7 -> DispatchResult.Uncertain("fuzz")
         8 -> DispatchResult.PersonTaskIssued

@@ -111,7 +111,10 @@ internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTabl
     recordEvidence(e, counted = false, why = if (unit == null) "target unit not known (design §19)" else "target not completed yet")
 }
 
-/** RESOLVED (design §5.2): the attempt closes with its evidence; after NO_PROPOSAL the record says "done; by whom unknown" (§11). */
+/**
+ * RESOLVED (design §5.2): the attempt closes with its evidence; after NO_PROPOSAL, REMEDY_NOT_APPLIED or CONSUMED the
+ * record says "done; by whom unknown" (§11).
+ */
 private fun Out.resolve(evidence: EvidenceSummary, now: Instant) {
     val attempt = state.attempt ?: return
     attempt.candidate?.let { forgetOutcomeUnknown(it) }

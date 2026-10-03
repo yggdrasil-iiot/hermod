@@ -3,30 +3,39 @@ package koshei.episode
 import com.fasterxml.jackson.databind.JsonNode
 import java.time.Instant
 
-/** The approval window's wire schema this module reads (picasso `ApprovalWire.SCHEMA_VERSION`). */
-const val PICASSO_APPROVAL_SCHEMA = "2"
+/** The approval window's wire schema this module reads (picasso `ApprovalWire.SCHEMA_VERSION`, ADR 48, main 3d6530a). */
+const val PICASSO_APPROVAL_SCHEMA = "4"
 
 /**
- * Every refusal value of the approval window's schema "2" (picasso `ApprovalRefusal`, `docs/orchestration.md` §7.3, read
- * at picasso main 584c6cd). A value outside this set is not understood and goes to a person (design §8.4).
+ * Every refusal value of the approval window's schema "4" (picasso `ApprovalRefusal`, `docs/orchestration.md` §7.3, read
+ * at picasso main 3d6530a): schema 2's fifteen and CONSUMED (ADR 46). A value outside this set is not understood and
+ * goes to a person (design §8.4).
  */
-val PICASSO_REFUSALS_V2: Set<String> = setOf(
-    "WITHHELD", "NO_PROPOSAL", "PROPOSAL_CHANGED", "NOT_DECLARED", "REVOKED", "EXPIRED", "ROBOT_OUT_OF_SCOPE",
+val PICASSO_REFUSALS: Set<String> = setOf(
+    "WITHHELD", "NO_PROPOSAL", "CONSUMED", "PROPOSAL_CHANGED", "NOT_DECLARED", "REVOKED", "EXPIRED", "ROBOT_OUT_OF_SCOPE",
     "SKILL_OUT_OF_SCOPE", "VALUE_NOT_DECLARED", "OBJECT_NOT_OBSERVED", "DECLARED_CONTRADICTS_OBSERVED",
     "CAPABILITY_UNKNOWN", "VALUES_NOT_ACCEPTED", "REFUSED_BY_GATE", "REMEDY_NOT_APPLIED",
 )
 
-/** Refusals that fold "my earlier attempt may already have landed" (design §11): UNKNOWN(OUTCOME), never a retry. */
-private val MAY_HAVE_LANDED = setOf("NO_PROPOSAL", "REMEDY_NOT_APPLIED")
+/**
+ * Refusals that fold "my earlier attempt may already have landed" (design §11): UNKNOWN(OUTCOME), never a retry.
+ * CONSUMED is read the same way: its record names who consumed the proposal, but koshei does not narrow on it (§19 B).
+ */
+private val MAY_HAVE_LANDED = setOf("NO_PROPOSAL", "REMEDY_NOT_APPLIED", "CONSUMED")
 
 /** What a dispatch result means for the episode (design §5.2 DISPATCHED rows). */
 internal sealed interface DispatchJudgement {
     /** The word the audit record uses for this judgement (design §13); fixed, not a class name. */
     val label: String
 
-    /** picasso approved; [delivered] is its `steps`, what actually went out (picasso §7.3). */
-    class Accepted(val executionId: String, delivered: JsonNode) : DispatchJudgement {
+    /**
+     * picasso approved. [instanceId] and [executionId] together name this attempt across picasso restarts (ADR 48);
+     * [units] are the `unitId` of every step, in order — what a JobResponse calls them; [delivered] is `steps`, what
+     * actually went out (picasso §7.3).
+     */
+    class Accepted(val instanceId: String, val executionId: String, units: List<String>, delivered: JsonNode) : DispatchJudgement {
         override val label: String get() = "ACCEPTED"
+        val units: List<String> = units.toList()
         val delivered: JsonNode = delivered.deepCopy()
     }
 
@@ -34,7 +43,8 @@ internal sealed interface DispatchJudgement {
         override val label: String get() = "PERSON_TASK"
     }
 
-    data class MayHaveLanded(val refusal: String) : DispatchJudgement {
+    /** [consumedExecutionId]: for CONSUMED, the execution its consumption record names — recorded, not linked (§19 B). */
+    data class MayHaveLanded(val refusal: String, val consumedExecutionId: String? = null) : DispatchJudgement {
         override val label: String get() = "MAY_HAVE_LANDED"
     }
 
@@ -63,8 +73,9 @@ internal fun judgeDispatch(kind: CandidateKind, result: DispatchResult): Dispatc
 }
 
 /**
- * Reads the approval window's answer (design §8.4): `schemaVersion` first, then `outcome`; branches on the `refusal`
- * value only, never on the prose `reason`. Read with the module's strict mapper, so a duplicated key is not understood.
+ * Reads the approval window's answer (design §8.4): `schemaVersion` first, then `instanceId` (every schema-4 answer
+ * carries it), then `outcome`; branches on the `refusal` value only, never on the prose `reason`. Read with the module's
+ * strict mapper, so a duplicated key is not understood.
  */
 internal fun judgePicassoAnswer(json: String): DispatchJudgement {
     val node = try {
@@ -75,23 +86,38 @@ internal fun judgePicassoAnswer(json: String): DispatchJudgement {
     if (node == null || !node.isObject) return DispatchJudgement.AnswerUnknown("not a JSON object")
     val schema = node.text("schemaVersion")
     if (schema != PICASSO_APPROVAL_SCHEMA) return DispatchJudgement.AnswerUnknown("schemaVersion $schema")
+    val instanceId = node.text("instanceId")?.takeIf { it.isNotBlank() }
+        ?: return DispatchJudgement.AnswerUnknown("no instanceId")
     return when (val outcome = node.text("outcome")) {
-        "APPROVED" -> {
-            val executionId = node.text("executionId")
-            val steps = node.get("steps")
-            if (executionId.isNullOrBlank() || steps == null || !steps.isArray) DispatchJudgement.AnswerUnknown("APPROVED without executionId or steps")
-            else DispatchJudgement.Accepted(executionId, steps)
-        }
+        "APPROVED" -> approved(node, instanceId)
         "REFUSED" -> {
             val refusal = node.text("refusal")
             when {
-                refusal == null || refusal !in PICASSO_REFUSALS_V2 -> DispatchJudgement.AnswerUnknown("refusal $refusal")
-                refusal in MAY_HAVE_LANDED -> DispatchJudgement.MayHaveLanded(refusal)
+                refusal == null || refusal !in PICASSO_REFUSALS -> DispatchJudgement.AnswerUnknown("refusal $refusal")
+                refusal in MAY_HAVE_LANDED -> DispatchJudgement.MayHaveLanded(
+                    refusal,
+                    if (refusal == "CONSUMED") node.get("consumed")?.text("executionId") else null,
+                )
                 else -> DispatchJudgement.Refused(refusal)
             }
         }
         else -> DispatchJudgement.AnswerUnknown("outcome $outcome")
     }
+}
+
+/**
+ * An APPROVED answer: an execution and at least one step, each naming its own unit (ADR 48). picasso approves only
+ * a non-empty remedy (§7.1 `sawSkillTypes` is never empty), so no steps means an answer koshei does not understand —
+ * and an attempt with no units could never be judged DONE.
+ */
+private fun approved(node: JsonNode, instanceId: String): DispatchJudgement {
+    val executionId = node.text("executionId")?.takeIf { it.isNotBlank() }
+    val steps = node.get("steps")?.takeIf { it.isArray && it.size() > 0 }
+    if (executionId == null || steps == null) return DispatchJudgement.AnswerUnknown("APPROVED without executionId or steps")
+    val units = steps.map { it.text("unitId")?.takeIf { u -> u.isNotBlank() } }
+    if (units.any { it == null } || units.toSet().size != units.size)
+        return DispatchJudgement.AnswerUnknown("APPROVED steps without a unitId each, or with one twice")
+    return DispatchJudgement.Accepted(instanceId, executionId, units.filterNotNull(), steps)
 }
 
 /** What koshei tells the approval window (picasso §7.1): AGENT for a POLICY approval, PERSON for a person's; none for a task. */
@@ -177,6 +203,8 @@ private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, resul
         put("judgement", judgement.label)
         if (result is DispatchResult.Answer) put("answer", result.json)
         if (result is DispatchResult.Uncertain) put("detail", result.message)
+        if (judgement is DispatchJudgement.MayHaveLanded && judgement.consumedExecutionId != null)
+            put("consumedExecutionId", judgement.consumedExecutionId)
         if (reused) put("executionIdReused", true)
     }
     fun summary(value: String, delivered: JsonNode? = null) = DispatchSummary(value, intent.idempotencyKey, approverKindOf(intent), delivered)

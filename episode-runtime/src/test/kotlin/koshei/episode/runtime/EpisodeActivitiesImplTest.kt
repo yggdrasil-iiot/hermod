@@ -74,7 +74,7 @@ class EpisodeActivitiesImplTest {
         val acts = EpisodeActivitiesImpl(PolicyFileReader(dir.resolve("active.yaml")), forgetful, picasso)
         assertThrows<IllegalStateException> { acts.dispatch("ep:a/r1", remedyIntent(), "PERSON") }
         val retry = acts.dispatch("ep:a/r1", remedyIntent(), "PERSON")
-        assertTrue("REMEDY_NOT_APPLIED" in retry.answerJson!!, retry.answerJson)
+        assertTrue("CONSUMED" in retry.answerJson!!, retry.answerJson)
         assertEquals(2, picasso.approvals, "nothing was stored, so the retry asked again")
     }
 

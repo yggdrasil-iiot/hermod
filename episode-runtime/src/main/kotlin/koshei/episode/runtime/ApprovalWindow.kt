@@ -14,7 +14,7 @@ interface ApprovalWindow {
     fun revalidate(candidateJson: String): String
 
     /**
-     * Asks for approval of the intent's candidate; the answer text exactly as the window sent it (schema 2). [intent] is
+     * Asks for approval of the intent's candidate; the answer text exactly as the window sent it (schema 4). [intent] is
      * read-only: the caller still holds it, and implementations must not change it.
      */
     fun approve(intent: JsonNode, approverKind: String?): String

@@ -81,10 +81,11 @@ class DispatchingTest {
         assertEquals("PERSON_TASK", s.state.attempt!!.dispatch!!.result)
     }
 
-    @Test fun `NO_PROPOSAL, REMEDY_NOT_APPLIED and an uncertain dispatch leave the outcome unknown, never retried`() {
+    @Test fun `NO_PROPOSAL, REMEDY_NOT_APPLIED, CONSUMED and an uncertain dispatch leave the outcome unknown, never retried`() {
         val results = listOf(
             DispatchResult.Answer(PicassoAnswers.refused("NO_PROPOSAL")),
             DispatchResult.Answer(PicassoAnswers.refused("REMEDY_NOT_APPLIED")),
+            DispatchResult.Answer(PicassoAnswers.refused("CONSUMED", consumed = PicassoAnswers.consumedRecord())),
             DispatchResult.Uncertain("retries exhausted"),
         )
         for (result in results) {
@@ -96,6 +97,14 @@ class DispatchingTest {
             assertEquals(NoticeKind.CONFIRM_OUTCOME, s.notices().single().kind, "$result")
             assertEquals(s.state.enteredAt.plusMillis(900_000), s.timers(Timer.STATE).single().at, "$result")
         }
+    }
+
+    @Test fun `a CONSUMED answer records the execution its consumption record names`() {
+        val s = dispatched().returned(DispatchResult.Answer(PicassoAnswers.refused("CONSUMED", consumed = PicassoAnswers.consumedRecord("exec-7"))))
+        assertEquals(Phase.UNKNOWN_OUTCOME, s.state.phase)
+        val record = s.records(RecordKind.DISPATCH_RESULT).single().entry.payload
+        assertEquals("MAY_HAVE_LANDED", record.get("judgement").textValue())
+        assertEquals("exec-7", record.get("consumedExecutionId").textValue())
     }
 
     @Test fun `a refusal goes to a person with its value, also in the history`() {

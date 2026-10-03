@@ -74,15 +74,25 @@ internal fun Step.notices(): List<Notice> = commands.filterIsInstance<Command.No
 
 internal val Step.reason: EscalationReason? get() = state.escalation?.reason
 
-/** picasso approval-window answers, shaped as picasso `ApprovalWire.encode` writes them (picasso main 584c6cd). */
+/** picasso approval-window answers, shaped as picasso `ApprovalWire.encode` writes them (schema 4, picasso main 3d6530a). */
 internal object PicassoAnswers {
+    const val INSTANCE = "mw-1"
     const val EXECUTION = "exec-42"
+    const val UNIT = "remedy-1-pick_place"
 
-    fun approved(executionId: String = EXECUTION): String =
-        """{"schemaVersion":"2","contractSemver":"1.0.0","outcome":"APPROVED","executionId":"$executionId","steps":[{"skillType":"pick_place","parameters":{"slot":"B-03"}}]}"""
+    /** One step per unit, in order, as picasso names them (`remedy-{n}-{skillType}`, ADR 48). */
+    fun approved(executionId: String = EXECUTION, instanceId: String = INSTANCE, units: List<String> = listOf(UNIT)): String {
+        val steps = units.joinToString(",") { """{"unitId":"$it","skillType":"pick_place","parameters":{"slot":"B-03"}}""" }
+        return """{"schemaVersion":"4","contractSemver":"1.0.0","instanceId":"$instanceId","outcome":"APPROVED","executionId":"$executionId","steps":[$steps]}"""
+    }
 
-    fun refused(refusal: String, schema: String = "2"): String =
-        """{"schemaVersion":"$schema","contractSemver":"1.0.0","outcome":"REFUSED","refusal":"$refusal","reason":"r"}"""
+    /** [consumed] is the raw JSON of the `consumed` field: a consumption record for CONSUMED, `null` for every other refusal. */
+    fun refused(refusal: String, schema: String = "4", consumed: String = "null"): String =
+        """{"schemaVersion":"$schema","contractSemver":"1.0.0","instanceId":"$INSTANCE","outcome":"REFUSED","refusal":"$refusal","reason":"r","consumed":$consumed}"""
+
+    /** A consumption record as picasso writes it (ADR 46): who, when, which execution, what went out. */
+    fun consumedRecord(executionId: String = "exec-7"): String =
+        """{"approverId":"op-9","approverKind":"PERSON","at":"2026-10-03T00:00:00Z","wallClockAt":"2026-10-03T00:00:00Z","executionId":"$executionId","steps":[{"unitId":"remedy-1-pick_place","skillType":"pick_place","parameters":{}}]}"""
 }
 
 /** A JobResponse for the default execution: everything completed, nothing in doubt, unless told otherwise. */
