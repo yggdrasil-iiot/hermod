@@ -7,6 +7,8 @@ tasks.test {
     systemProperty("koshei.repoRoot", rootProject.projectDir.absolutePath)
     // R3's history generator runs only when asked: -Dkoshei.writeReplayHistories=true (design §7.5, plan D-lite).
     System.getProperty("koshei.writeReplayHistories")?.let { systemProperty("koshei.writeReplayHistories", it) }
+    // The new set's directory name (default: today's date); an existing set is never overwritten.
+    System.getProperty("koshei.replaySet")?.let { systemProperty("koshei.replaySet", it) }
 }
 // The Temporal shell around the pure episode core (design §4.1): workflow, activity interfaces, the Mock narrator.
 dependencies {

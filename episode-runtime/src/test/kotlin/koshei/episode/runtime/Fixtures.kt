@@ -5,6 +5,7 @@ import io.temporal.activity.Activity
 import io.temporal.api.enums.v1.WorkflowIdReusePolicy
 import io.temporal.client.ActivityCompletionException
 import io.temporal.client.WorkflowClient
+import io.temporal.client.WorkflowClientOptions
 import io.temporal.client.WorkflowOptions
 import io.temporal.client.WorkflowStub
 import io.temporal.testing.TestEnvironmentOptions
@@ -18,10 +19,15 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.fail
 
-/** A test environment with koshei's converter (as every worker and client in production), workers not yet started. */
-internal fun episodeEnvironment(register: TestWorkflowEnvironment.() -> Unit): TestWorkflowEnvironment =
+/**
+ * A test environment with koshei's converter (as every worker and client in production), workers not yet started.
+ * [identity], when set, replaces the SDK's default client and worker identity (`pid@host`) in the history it writes.
+ */
+internal fun episodeEnvironment(identity: String? = null, register: TestWorkflowEnvironment.() -> Unit): TestWorkflowEnvironment =
     TestWorkflowEnvironment.newInstance(
-        TestEnvironmentOptions.newBuilder().setWorkflowClientOptions(DataConverterSupport.clientOptions()).build(),
+        TestEnvironmentOptions.newBuilder().setWorkflowClientOptions(
+            WorkflowClientOptions.newBuilder(DataConverterSupport.clientOptions()).apply { identity?.let { setIdentity(it) } }.build(),
+        ).build(),
     ).apply(register)
 
 /** The workflow with [acts] on the episode queue and [narrator] on narrator-tq. */
