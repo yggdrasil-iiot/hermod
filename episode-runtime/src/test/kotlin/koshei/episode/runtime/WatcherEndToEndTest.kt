@@ -215,4 +215,55 @@ class WatcherEndToEndTest {
         assertTrue("evidence" !in signaled, "the earlier instance's reports stay out: $signaled")
         assertEquals(emptyList(), logs("UNROUTED"))
     }
+
+    /** The units picasso approved for [instanceId]'s attempt, from the stored answer. */
+    private fun approvedUnits(instanceId: String): List<String> {
+        val result = stored(instanceId) { r -> r.any { it.kind == "DISPATCH_RESULT" } }.single { it.kind == "DISPATCH_RESULT" }.json()
+        return mapper.readTree(result.path("answer").asText()).path("steps").map { it.path("unitId").asText() }
+    }
+
+    @Test fun `a carried report that completed every approved unit while picasso saw the robot online resolves the episode`() {
+        val e = start(v1)
+        val w = watcher(v1)
+        val ep = approvedEpisode(e, w)
+        val instanceId = ep.view().instanceId
+        val units = approvedUnits(instanceId)
+        assertEquals(listOf("remedy-1-pick_place"), units, "picasso's unit name (ADR 48)")
+        carrier.report("resp-1", "PATROL-1", "mock-exec-1", completedUnits = units).snapshot()
+        assertEquals(1, w.pollOnce().evidence)
+        assertEquals("RESOLVED", ep.result().phase)
+        val events = stored(instanceId) { r -> r.any { it.kind == "EVIDENCE" } }
+        assertEquals(listOf(Triple("resp-1", "every approved unit completed", true)), events.evidence())
+    }
+
+    @Test fun `a report while picasso has not seen the robot does not resolve - the next online one does`() {
+        val e = start(v1)
+        val w = watcher(v1)
+        val ep = approvedEpisode(e, w)
+        val instanceId = ep.view().instanceId
+        val units = approvedUnits(instanceId)
+        carrier.report("resp-1", "PATROL-1", "mock-exec-1", completedUnits = units, connection = "CONNECTION_STATE_UNSPECIFIED").snapshot()
+        assertEquals(1, w.pollOnce().evidence)
+        stored(instanceId) { r -> r.any { it.kind == "EVIDENCE" } }
+        assertEquals("AWAITING_EVIDENCE", ep.view().phase)
+        carrier.report("resp-2", "PATROL-1", "mock-exec-1", completedUnits = units).snapshot()
+        assertEquals(1, w.pollOnce().evidence)
+        assertEquals("RESOLVED", ep.result().phase)
+        val why = stored(instanceId) { r -> r.count { it.kind == "EVIDENCE" } >= 2 }.evidence()
+        assertEquals("resp-1", why[0].first)
+        assertTrue("connection CONNECTION_STATE_UNSPECIFIED" in why[0].second && !why[0].third, "$why")
+        assertEquals(Triple("resp-2", "every approved unit completed", true), why[1])
+    }
+
+    @Test fun `a report of another picasso instance with the same execution id is only recorded`() {
+        val e = start(v1)
+        val w = watcher(v1)
+        val ep = approvedEpisode(e, w)
+        val instanceId = ep.view().instanceId
+        carrier.report("resp-1", "PATROL-1", "mock-exec-1", completedUnits = approvedUnits(instanceId), instanceId = "mw-restarted").snapshot()
+        assertEquals(1, w.pollOnce().evidence)
+        val events = stored(instanceId) { r -> r.any { it.kind == "EVIDENCE" } }
+        assertEquals(listOf(Triple("resp-1", "not linked to this attempt's execution", false)), events.evidence())
+        assertEquals("AWAITING_EVIDENCE", ep.view().phase)
+    }
 }
