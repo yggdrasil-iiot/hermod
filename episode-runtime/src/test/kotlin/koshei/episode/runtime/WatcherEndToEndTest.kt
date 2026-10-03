@@ -6,7 +6,6 @@ import io.temporal.client.WorkflowClient
 import io.temporal.testing.TestWorkflowEnvironment
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -49,7 +48,7 @@ class WatcherEndToEndTest {
     private val mapper = ObjectMapper()
 
     /** The real activities over the test Postgres, the Mock narrator and [picasso], [policy] as the policy file. */
-    private fun start(policy: Path, picasso: ApprovalWindow = MockPicasso()): TestWorkflowEnvironment {
+    private fun start(policy: Path, picasso: ApprovalWindow = MockPicasso(MockPicasso.INSTANCE)): TestWorkflowEnvironment {
         val e = episodeEnvironment {
             EpisodeWorkers.register(workerFactory, EpisodeRuntimeConfig(policy, NarratorMode.MOCK, PicassoMode.MOCK), store, picasso)
         }
@@ -113,7 +112,6 @@ class WatcherEndToEndTest {
         assertEquals(emptyList(), logs("SIGNAL_FAILED"))
     }
 
-    @Disabled("plan C2 Task 4: the carry has no instanceId until ResultExport")
     @Test fun `a doubtful report makes the outcome unknown - a repeat, another execution and an unknown order are only recorded`() {
         val e = start(v1)
         val w = watcher(v1)
@@ -147,9 +145,8 @@ class WatcherEndToEndTest {
         assertEquals(0, w.pollOnce().evidence, "nothing is carried twice")
     }
 
-    @Disabled("plan C2 Task 4: the carry has no instanceId until ResultExport")
     @Test fun `a report before picasso's answer is kept and counted once the answer comes`() {
-        val window = GatedWindow(MockPicasso(), CountDownLatch(1))
+        val window = GatedWindow(MockPicasso(MockPicasso.INSTANCE), CountDownLatch(1))
         val e = start(v1, window)
         val w = watcher(v1)
         export.searches += Picasso.search("search-1")

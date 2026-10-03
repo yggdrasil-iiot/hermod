@@ -99,7 +99,7 @@ open class WatchStore(private val connect: () -> Connection) {
      *
      * By the order alone, not by (robot, order) as design §12 first put it: picasso's JobResponse carries no robot id,
      * only `jobOrderId`. An instance that gets a report for an attempt it did not make only records it — the core links a
-     * report to an attempt by `executionId`.
+     * report to an attempt by (instanceId, executionId).
      */
     fun instancesForOrder(jobOrderId: String): List<String> = connect().use { c ->
         c.prepareStatement(

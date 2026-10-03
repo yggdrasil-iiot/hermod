@@ -15,10 +15,11 @@ import java.nio.file.Path
 import java.time.Instant
 
 /**
- * The watcher (design §12): carries picasso export lines in as `symptom` signals and the host's JobResponses in as
- * `evidence` signals. It carries, it does not judge — the only choices it makes are the merge key ([correlate], pure)
- * and which workflow a JobResponse goes to (the order its dispatch intent named). At least once: the cursor moves only
- * after Temporal took the signal; the core drops repeats by `eventId` / `jobResponseId` (§6).
+ * The watcher (design §12): carries picasso export lines in as `symptom` signals and the host's JobResponses — picasso's
+ * ResultExport (ADR 48), [ResultExportFile] — in as `evidence` signals. It carries, it does not judge — the only choices
+ * it makes are the merge key ([correlate], pure) and which workflow a JobResponse goes to (the order its dispatch intent
+ * named). At least once: the cursor moves only after Temporal took the signal; the core drops repeats by `eventId` /
+ * (instanceId, jobResponseId) (§6).
  *
  * A source is named by its directory's real path (resolved at every poll), so [exports] must be stable: another
  * spelling of the same directory that resolves elsewhere would be a new source and send its lines again.
@@ -142,47 +143,58 @@ class EpisodeWatcher(
     }
 
     /**
-     * Carries [dir]'s new JobResponse lines to every episode instance whose remedy intent named the line's order — the
-     * core picks the attempt by `executionId` (§12). A line read but with nowhere to go is logged (UNROUTED) and counts
-     * as carried. The lines sent before a failed signal count, and stay carried.
+     * Carries [dir]'s new JobResponse lines (ResultExport schema 1, [ResultExportFile]) to every episode instance whose
+     * remedy intent named the line's order — the core picks the attempt by (instanceId, executionId) (§12). A line read
+     * but with nowhere to go is logged (UNROUTED) and counts as carried. The lines sent before a failed signal count, and
+     * stay carried. A line the file reader or the field reader cannot read stops the file there (BROKEN, once).
      */
     private fun carryIn(dir: Path): Carried {
-        val bundle = when (val r = Bundles.read(dir, "carryRunId", CarriedEvidence.SCHEMA_VERSIONS, listOf(CarriedEvidence.FILE), uniqueIds = false)) {
-            is BundleRead.Ready -> r
-            is BundleRead.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return Carried(0, stopped = false) }
-            is BundleRead.Broken -> { once("$dir", "BROKEN", "why" to r.why); return Carried(0, stopped = false) }
+        val read = when (val r = ResultExportFile.read(dir)) {
+            is ResultExportFile.Read.Ready -> r
+            is ResultExportFile.Read.NotReady -> { once("$dir", "NOT_READY", "why" to r.why); return Carried(0, stopped = false) }
+            is ResultExportFile.Read.Broken -> { once("$dir", "BROKEN", "why" to r.why); return Carried(0, stopped = false) }
         }
-        val source = "$dir#${CarriedEvidence.FILE.name}"
-        val lines = bundle.lines.getValue(CarriedEvidence.FILE.name)
-        val from = resume(source, bundle.runId, lines) ?: return Carried(0, stopped = false)
+        val source = "$dir#${ResultExportFile.FILE}"
+        val runId = read.runId
+        if (runId == null) {   // nothing readable yet: an empty file, or a first line it cannot read
+            read.broken?.let { once(source, "BROKEN", "position" to 1, "why" to it) }
+            return Carried(0, stopped = false)
+        }
+        val lines = read.lines
+        val from = resume(source, runId, lines) ?: return Carried(0, stopped = false)
         var carried = 0
         for (line in lines.drop(from)) {
-            when (val e = CarriedEvidence.of(line.node, clock().toEpochMilli())) {
-                is CarriedEvidence.Line.Broken -> { once(source, "BROKEN", "runId" to bundle.runId, "position" to line.position, "why" to e.why); break }
-                is CarriedEvidence.Line.Unrouted -> once(source, "UNROUTED", "jobResponseId" to e.jobResponseId,
-                    "why" to "no jobOrderId (absent, blank or not text)", key = "${bundle.runId}|${line.position}")
-                is CarriedEvidence.Line.Routed -> {
+            when (val e = ResultExportFile.of(line.node, clock().toEpochMilli())) {
+                is ResultExportFile.Line.Broken -> {
+                    once(source, "BROKEN", "runId" to runId, "position" to line.position, "why" to e.why)
+                    return Carried(carried, stopped = false)
+                }
+                is ResultExportFile.Line.Unrouted -> once(source, "UNROUTED", "jobResponseId" to e.jobResponseId,
+                    "why" to "no jobOrderId (absent, blank or not text)", key = "$runId|${line.position}")
+                is ResultExportFile.Line.Routed -> {
                     // Ended instances stay in this list for good: each later report for the order costs one describe per
                     // ended instance and one ROUTE_ENDED row. Acceptable at PoC scale.
                     val instances = store.instancesForOrder(e.jobOrderId)
                     if (instances.isEmpty())
                         once(source, "UNROUTED", "jobResponseId" to e.signal.jobResponseId, "jobOrderId" to e.jobOrderId,
-                            "why" to "no remedy intent named this order", key = "${bundle.runId}|${line.position}")
+                            "why" to "no remedy intent named this order", key = "$runId|${line.position}")
                     for (instanceId in instances) {
                         val delivered = try {
                             signals.evidence(instanceId, e.signal)
                         } catch (x: RuntimeException) {
-                            signalFailed(source, x, bundle.runId, line.position, "id" to line.id, "instanceId" to instanceId)
+                            signalFailed(source, x, runId, line.position, "id" to line.id, "instanceId" to instanceId)
                             return Carried(carried, stopped = true)
                         }
                         if (!delivered) once(source, "ROUTE_ENDED", "jobResponseId" to e.signal.jobResponseId, "instanceId" to instanceId,
-                            key = "${bundle.runId}|${line.position}|$instanceId")   // a line sent again after a failure logs it once
+                            key = "$runId|${line.position}|$instanceId")   // a line sent again after a failure logs it once
                     }
                 }
             }
-            store.advance(source, bundle.runId, line.position, line.id)
+            store.advance(source, runId, line.position, line.id)
             carried++
         }
+        // Everything before the line the file reader stopped at is carried; that line stops the file here.
+        read.broken?.let { once(source, "BROKEN", "runId" to runId, "position" to lines.size + 1, "why" to it) }
         return Carried(carried, stopped = false)
     }
 
