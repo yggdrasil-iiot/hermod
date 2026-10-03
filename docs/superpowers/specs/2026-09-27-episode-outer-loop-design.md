@@ -1160,10 +1160,11 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - 끝난 인스턴스는 목록에 남는다. 그 주문의 뒤 통보마다 끝난 인스턴스 하나에 describe 하나와 `ROUTE_ENDED` 한 줄을 치른다. PoC 규모라 받아들인다.
 
 알려진 한계:
-- **한 `executionId` 를 두 에피소드가 이을 수 있다.** picasso 는 같은 주문의 뒤 승인에 `executionId` 를 그대로 두고(`revise()`), 다시
-  시작하면 `exec-N` 을 되풀이한다. 코어의 `usedExecutionIds` 는 에피소드마다다. 결과 통보는 주문이 같은 모든 에피소드로 가므로 둘이 같은
-  통보를 이을 수 있다. 지금은 UNKNOWN 까지만 간다(`targetUnit` 이 null 이라 DONE 이 없다). §19 의 대상 단위 답이 오기 전에 시도별 구분자와
-  함께 푼다.
+- **picasso 를 다시 시작하면 한 `executionId` 를 두 에피소드가 이을 수 있다.** picasso 의 `exec-N` 은 프로세스 안 셈이라 다시 시작하면
+  되풀이된다. 코어의 `usedExecutionIds` 는 에피소드마다다. 결과 통보는 주문이 같은 모든 에피소드로 가므로 둘이 같은 통보를 이을 수 있다.
+  한 프로세스 안에서는 생기지 않는다: picasso `5881e24`(PR #70, ADR 48) 부터 이미 실행 중인 주문의 뒤 승인은 `revise()` 로 가지 않고
+  `REMEDY_NOT_APPLIED` 로 거절되며(→ UNKNOWN(OUTCOME), §11), `executionId` 는 시도마다 새로 난다. 지금은 UNKNOWN 까지만 간다(`targetUnit` 이
+  null 이라 DONE 이 없다). 계획 C2 가 시도를 (picasso `instanceId`, `executionId`) 로 가려 푼다.
 - 결과 통보로는 여전히 DONE 에 닿지 않는다(위, §19). 결과 통보는 UNKNOWN(OUTCOME)으로만 몬다. 실물 에피소드는 사람의 `confirm` 이나 기한으로 끝난다.
 
 끝에서 끝까지 시험(`WatcherEndToEndTest`: 감시자 · `TemporalEpisodeSignals` · 실제 액티비티 · 시험 Postgres · Mock narrator · Mock picasso ·
@@ -1413,7 +1414,7 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
 | `PROPOSAL_CHANGED` 를 재진단 목록에 넣을지 — picasso 는 「다시 읽고 다시 시도」를 권한다(§7.3). 판 2 의 거절 값 열다섯은 picasso 코드로 확인했다(`584c6cd`, §8.4) | 사용자 결정 | 그 전까지 ESCALATED(`DISPATCH_REFUSED`) (§8.4 기본 갈래) |
 | 사건 줄 `resolution` 이 붙는 범위 — 「판단이 아직 안 실린 가장 최근 사건」이 판단한 (실행, 단위)의 사건과 늘 같은가 | picasso 에 물음 | `OPERATOR_DECISION` 의 근거로 `resolution` 을 쓰는 것 (§8.4) |
 | `NOT_DECLARED` 를 가르는 선언이 자격 선언과 같은 표인가 | picasso 에 물음 | §8.4 선언 행 |
-| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). (C1: 결과 통보 쪽에는 그 칸이 없다 — 아래 「결과 통보의 `executionId`」 행.) 결과 통보의 어느 단위가 이 조치의 대상인가. 주의: 같은 `jobOrderId` 에 대한 뒤의 승인은 picasso 가 `revise()` 로 보내 같은 `executionId` 를 그대로 둔다(picasso `Middleware.kt` ~265) — 평소 동작이라 같은 주문의 둘째 조치는 결과 통보에 잇지 못한다. 또 picasso 의 `jobResponseId`(`resp-N`) · `executionId`(`exec-N`) 는 프로세스 안 셈이라 재시작하면 되풀이된다 — koshei 는 앞 시도가 쓴 `executionId` 가 다시 오면 잇지 않는다(fail-closed). 대상 단위를 잇기 전에 시도별 구분자(주문 판 등)가 필요하다 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
+| 결과 통보를 대상 **단위**에 잇는 칸 — 실행은 `APPROVED` 답의 `executionId` 로 잇는다(picasso `584c6cd`). (C1: 결과 통보 쪽에는 그 칸이 없다 — 아래 「결과 통보의 `executionId`」 행.) 결과 통보의 어느 단위가 이 조치의 대상인가. 주의: (고침, picasso `5881e24`·PR #70) 이미 실행 중인 주문에 대한 뒤의 승인은 이제 `revise()` 로 가지 않고 `REMEDY_NOT_APPLIED` 로 거절된다 — 한 프로세스 안에서 `executionId` 는 시도마다 새로 난다. (그 전에는 `revise()` 가 같은 `executionId` 를 그대로 두었다, picasso `Middleware.kt` ~265.) 남는 것: picasso 의 `jobResponseId`(`resp-N`) · `executionId`(`exec-N`) 는 프로세스 안 셈이라 재시작하면 되풀이된다 — koshei 는 앞 시도가 쓴 `executionId` 가 다시 오면 잇지 않는다(fail-closed). 대상 단위를 잇기 전에 시도별 구분자(주문 판 등)가 필요하다 | picasso 에 물음 | §12 의 DONE 판정 (`completedUnits` 대조). 그 전까지 결과 통보로 DONE 에 못 닿고, 실물 에피소드는 사람이나 기한으로 끝난다 |
 | khala 변경 여섯: 프롬프트 지문 결함과 `prompt_version`, 브리지 구조화 출력, `answer_context`, `numbers[].found_in`, `corpus_version`, `search_fingerprint` | khala | R9 · R11 판 칸, `UNCITED` 재진단 조정 |
 | 개발용 동시 한도 | khala · narrator | narrator 워커 동시 실행 설정 (벽 순서는 계약 0.5 에서 정해짐) |
 | 고정 예제의 응답 넷 | narrator | §17 계약 시험 |

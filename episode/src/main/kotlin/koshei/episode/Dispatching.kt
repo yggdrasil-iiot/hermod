@@ -169,9 +169,9 @@ internal fun Out.onDispatched(event: EpisodeEvent, policy: PolicyTable, now: Ins
 
 private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, result: DispatchResult, policy: PolicyTable, now: Instant) {
     val judgement = judgeDispatch(intent.candidate.kind, result)
-    // An execution id can come again: picasso routes a later approval for the same jobOrderId to `revise()`, which keeps
-    // the same executionId (picasso Middleware.kt ~265) — normal operation, so a second remedy on one order never links to
-    // a JobResponse — and its counters restart with the process. Then nothing may link to it (fail closed).
+    // An execution id can come again: picasso's counters restart with the process, so `exec-N` repeats after a restart.
+    // (Within one process it no longer does: since picasso 5881e24 a later approval on an order already executing is
+    // refused REMEDY_NOT_APPLIED rather than routed to `revise()`.) Then nothing may link to it (fail closed).
     val reused = judgement is DispatchJudgement.Accepted && judgement.executionId in state.usedExecutionIds
     record(RecordKind.DISPATCH_RESULT) {
         put("judgement", judgement.label)
