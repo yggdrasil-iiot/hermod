@@ -35,7 +35,7 @@ class AgentOffBroadcast(
                 ended += id
             } catch (e: RuntimeException) {
                 // WorkflowServiceException's own message names only the workflow (id, run, type); the why is its cause.
-                val root = generateSequence(e as Throwable) { it.cause }.last()
+                val root = generateSequence(e as Throwable) { it.cause }.take(16).last()   // bounded, as EpisodeWatcher walks causes
                 failed += id to (root.message ?: root.javaClass.simpleName)
             }
         }
