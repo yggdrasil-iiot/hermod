@@ -12,8 +12,9 @@
   - 워크플로 id 에만 고정한 stub 으로 보낸다(그 id 의 **지금 run**). 열린 에피소드 전체가 대상이므로 run 을 고정할 까닭이 없다.
   - 나열과 보내기 사이에 끝난 run 은 `ended` 로 센다. 실패는 `failed` 로 세고 나머지를 계속 보낸다. 한 번 더 돌리면 된다 — `agentOff` 는 몇 번 받아도 같다(코어가 이미 끈 에피소드에 다시 와도 기록만 한다).
 - 재생 이력은 `episode-runtime/src/test/resources/replay/*.json`(Temporal `WorkflowExecutionHistory.toJson`)이다.
-  - 생성기는 시스템 속성 `koshei.writeReplayHistories=true` 일 때만 도는 시험이다. 평소에는 건너뛴다. 이력을 다시 쓰는 것은 **명령 순서를 일부러 바꾸고 `Workflow.getVersion` 을 건 뒤**뿐이다(§7.5).
-  - 재생 시험은 그 디렉터리의 모든 파일을 koshei 의 변환기로 재생한다(`EpisodeReplayTest` 와 같은 방법 — 기본 변환기로는 재생되지 않는다).
+  - 생성기는 시스템 속성 `koshei.writeReplayHistories=true` 일 때만 도는 시험이다. 평소에는 건너뛴다. 새 묶음을 쓰는 것은 **명령 순서를 일부러 바꾸고 `Workflow.getVersion` 을 건 뒤**뿐이다(§7.5).
+  - **(실행 중 리뷰로 바꿈) 이력은 묶음(`replay/<묶음 이름>/`)으로 두고 덮어쓰지 않는다.** 생성기는 `-Dkoshei.replaySet=<이름>`(기본은 오늘 날짜)의 새 묶음만 쓰고, 그 디렉터리가 있으면 거절한다. 옛 코드가 남긴 묶음은 그 `getVersion` 갈래를 지울 때 함께만 지운다 — 덮어쓰면 R3 가 지키려는 「옛 이력이 새 코드에서 재생된다」가 사라진다.
+  - 재생 시험은 모든 묶음의 모든 파일을 koshei 의 변환기로 재생한다(`EpisodeReplayTest` 와 같은 방법 — 기본 변환기로는 재생되지 않는다). 가장 새 묶음에는 시나리오 아홉이 다 있어야 한다. 재생 워커는 교착 감지를 늦춘다(차가운 JVM 의 첫 재생이 1초 감지기에 걸려 결정성 오류처럼 보였다). 실패 글은 비결정성인지 다른 오류인지를 가른다.
 - 권한은 스크립트 `scripts/episode-db-roles.sql` 이다. 스키마(`episode-schema.sql`)는 소유 계정이 적용한다. 런타임 역할은 표를 고치지 않는다.
   - Postgres 15 부터 `public` 스키마의 `CREATE` 는 PUBLIC 에 없다. `CREATE TABLE IF NOT EXISTS` 도 표가 있어도 스키마의 `CREATE` 를 먼저 검사하므로 런타임 역할에서는 실패한다. 그래서 `EpisodeStore.ensureSchema()` 는 스키마에 `CREATE` 권한이 없으면 DDL 을 건너뛰고, 다섯 표와 색인이 있는지만 확인한다. 없으면 「소유 계정으로 episode-schema.sql 을 먼저 적용하라」고 실패한다.
   - 워커는 같은 DB 연결로 블록 레지스트리 표도 읽는다. 그래서 워커 전체를 런타임 역할로 돌릴 수 없다. 에피소드 표만 쓰는 연결(`EpisodeStore`, `WatchStore`)에 따로 계정을 준다: `KOSHEI_EPISODE_DB_USER` · `KOSHEI_EPISODE_DB_PASS`(없으면 `KOSHEI_DB_USER` · `KOSHEI_DB_PASS`). URL 은 같다.
@@ -685,7 +686,7 @@ git commit -m "feat(db): episode runtime role - SELECT and INSERT only on the fi
 - [ ] **Step 1: 고친다** (한국어, 짧은 평서문, 한 문장 한 사실)
 1. **§10.4:** 「활성화 CLI 가 열린 에피소드 전체에 `agentOff` signal 을 방송한다(계획 D)」 아래 「구현(D-lite)」: 방송은 `AgentOffBroadcast` 와 개발 CLI `episode agent-off --all` 이다. 활성화 CLI 는 없다(§10.3 은 범위 밖). 끄는 절차는 ① 정책 파일의 `agentLayerEnabled: false` ② `episode agent-off --all`. 가시성에서 돌고 있는 `EpisodeWorkflow` 를 나열하고 저마다 지금 run 에 보낸다. 끝난 run 은 `ended`, 실패는 `failed` 로 세고 나머지를 계속 보낸다. 두 번 보내도 같다.
 2. **§7.2 의 CLI 목록(478행 근처 `episode agent-off <workflowId>`):** `--all` 을 더한다. 「§10.4 의 방송(계획 D)이 아니다」 문장은 「`--all` 이 §10.4 의 방송이다」로.
-3. **§7.5 (556행 근처 「R3 의 재생 시험 … 계획 D 다」):** 「구현(D-lite)」: 상태마다 멈춘 이력 아홉(이름 목록, `dispatched` 포함)을 `episode-runtime/src/test/resources/replay/` 에 커밋했다. `CommittedReplayTest` 가 오늘의 코드와 koshei 의 변환기로 재생한다. 이력은 `-Dkoshei.writeReplayHistories=true` 로만 다시 쓰고, 명령 순서를 바꾸는 변경은 `Workflow.getVersion` 을 건 뒤에만 다시 쓴다. Task 3 Step 5 에서 시험이 실제로 잡은 변경을 한 줄 적는다.
+3. **§7.5 (556행 근처 「R3 의 재생 시험 … 계획 D 다」):** 「구현(D-lite)」: 상태마다 멈춘 이력 아홉(이름 목록, `dispatched` 포함)을 묶음 `episode-runtime/src/test/resources/replay/2026-10-04/` 로 커밋했다. `CommittedReplayTest` 가 모든 묶음을 오늘의 코드와 koshei 의 변환기로 재생한다(교착 감지는 늦춘다 — 결정성과 상관없다). 새 묶음은 `-Dkoshei.writeReplayHistories=true -Dkoshei.replaySet=<이름>` 으로만 쓰고 있는 묶음은 덮어쓰지 않는다. 명령 순서를 바꾸는 변경은 `Workflow.getVersion` 을 건 뒤 새 묶음을 더하고, 옛 묶음은 그 갈래를 지울 때 함께 지운다. Task 3 Step 5 에서 시험이 실제로 잡은 변경을 한 줄 적는다.
 4. **§13:** 「런타임 계정에서 `UPDATE`/`DELETE` 권한 회수」와 구현(B3b) · (C1) 의 「계획 D 에서 한다」 두 곳에 「구현(D-lite)」: `scripts/episode-db-roles.sql` 이 런타임 역할 `koshei_episode_rt` 를 만든다. 다섯 표에 `SELECT` · `INSERT`, 두 시퀀스에 `USAGE` · `SELECT` 만. 실행 줄은 `psql -v ON_ERROR_STOP=1 -v rt_password='…' -U <소유 계정> -d koshei -f scripts/episode-db-roles.sql`. 스키마는 소유 계정이 먼저 적용한다. 런타임 역할의 `ensureSchema` 는 DDL 을 돌리지 않고 다섯 표와 세 색인이 있는지만 본다(Postgres 는 `IF NOT EXISTS` 에도 스키마 `CREATE` 를 먼저 검사한다). 이 역할은 에피소드 표 전용 연결에만 쓴다: `KOSHEI_EPISODE_DB_USER` · `KOSHEI_EPISODE_DB_PASS`(워커 · 감시자). 워커의 나머지(블록 레지스트리, `workflow_def`)는 `KOSHEI_DB_*` 그대로다.
 5. **§16:** 계획 표의 D 행 끝에 「D-lite 로 줄였다(2026-10-04, 사용자 결정): 방송 · 재생 이력 · 런타임 역할. 나머지는 범위 밖(아래)」. 「C2 끝」 아래에 「**D-lite 끝(날짜).**」 문단: 커밋 해시들, 모듈별 시험 수, 범위 밖으로 둔 다섯 묶음(이 계획의 범위 밖 표를 한 줄씩).
 6. **§19 또는 §16 의 남은 일:** 범위 밖 다섯 묶음을 「사용자 결정으로 미룸(2026-10-04)」으로 적는다.
