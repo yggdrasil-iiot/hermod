@@ -5,6 +5,8 @@ kotlin { jvmToolchain(21) }
 tasks.test {
     useJUnitPlatform()
     systemProperty("koshei.repoRoot", rootProject.projectDir.absolutePath)
+    // R3's history generator runs only when asked: -Dkoshei.writeReplayHistories=true (design §7.5, plan D-lite).
+    System.getProperty("koshei.writeReplayHistories")?.let { systemProperty("koshei.writeReplayHistories", it) }
 }
 // The Temporal shell around the pure episode core (design §4.1): workflow, activity interfaces, the Mock narrator.
 dependencies {
