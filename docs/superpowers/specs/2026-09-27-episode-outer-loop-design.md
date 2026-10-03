@@ -15,7 +15,7 @@ koshei 에 **예외 한 건(에피소드)을 접수부터 종료까지 관리하
 LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처럼 한 번 불리는 부작용 없는 액티비티다.
 
 기존 koshei 의 계약 기반 사가(SagaWorkflow, 블록 계약, 역순 보상)는 버리지 않는다. **koshei 가 직접 하는 조치 유형의
-실행체**로 자식 워크플로 자리에 남는다(§8.4, 계획 D).
+실행체**로 자식 워크플로 자리에 남는다(§8.4. 계획 D 의 것이고 범위 밖이다 — D-lite 에서 뺌, 2026-10-04).
 
 ### 하지 않는 것
 
@@ -113,7 +113,7 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 | 감시자 (`EpisodeWatcherMain`) | 접수: picasso 내보내기 디렉터리(개발용, §19 C) → signalWithStart / signal · 근거: 담는 쪽이 나른 결과 통보 → `evidence` signal (§12) | 커서는 Postgres. **운반만 한다** |
 | 담는 쪽 (picasso 배치 호스트, **koshei 밖**, 아직 없음) | picasso 인스턴스와 `pump()`, 승인 창구 `POST /approvals`(루프백, 인증 없음), 결과 통보 `pending()` / `ack` | koshei 는 소비자(§2). 자리는 §19 C |
 | 제어면 (`:authoring-api`) | 127.0.0.1:18090 | 조회·결정 중계만. 정책 편집은 하지 않는다 (R14) |
-| 정책 편집 | git + CLI `policy validate` / `policy activate` | 런타임과 다른 프로세스·권한 (R14, 계획 D) |
+| 정책 편집 | git + CLI `policy validate` / `policy activate` | 런타임과 다른 프로세스·권한 (R14, 계획 D). 범위 밖이다(D-lite 에서 뺌, 2026-10-04). 그때까지 정책은 파일 하나다(§8.2) |
 
 **구현(B3b).** 등록은 `:episode-runtime` 의 `EpisodeWorkers.register(factory, config, store)` 한 함수가 한다. `:app` 의 `Worker.kt` 는
 `EpisodeRuntimeConfig.fromEnv` 로 환경변수를 시작 때 한 번 읽어 그 함수를 부를 뿐이다(워크플로는 여전히 아무것도 읽지 않는다, §7.5).
@@ -402,7 +402,7 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 - 제 키조차 맞지 않으면(`id` 가 위 모양이 아니거나 — `:` 가 든 것 포함 — 키가 200자를 넘음) `correlate` 는 null 이고 감시자는 그 파일을 그 줄에서 멈춘다(`STUCK`, §12).
 
 알려진 한계:
-- 서로 참조는 감시 기록(`episode_watch_log`)에만 있고 에피소드 기록에는 붙지 않는다. §12 의 「서로 참조를 붙인다」를 반만 한 것이다. 화면은 계획 D.
+- 서로 참조는 감시 기록(`episode_watch_log`)에만 있고 에피소드 기록에는 붙지 않는다. §12 의 「서로 참조를 붙인다」를 반만 한 것이다. 화면은 계획 D. (D-lite 뒤: 화면과 나머지 반은 범위 밖이다 — D-lite 에서 뺌, 2026-10-04.)
 - 병합 규칙이 켜져도, 뒤 증상이 다음 폴링에 `correlatingMs` 를 넘겨 오면 이미 DIAGNOSING 에 간 에피소드에 합류만 한다(`SymptomJoined`,
   다음 진단의 스냅샷에 들어간다). ESCALATED 면 기록만 한다(§5.2).
 - 신호가 Temporal 에 닿은 뒤 커서를 옮기기 전에 감시자가 죽고, 그 사이 에피소드가 끝났으면, 다시 보낸 증상은 같은 키로 새 에피소드를 연다
@@ -421,7 +421,7 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
 | 종료 `close(outcome)` | Update, ESCALATED 에서만 | 제어면 |
 | 완료 근거 `evidence` | signal, `eventId` 로 중복 제거 | 감시자 |
 | 새 증상 합류 `symptom` | signal (signalWithStart), `eventId` 로 중복 제거 | 감시자 |
-| 에이전트 층 끄기 `agentOff` | signal, 열린 에피소드 전체에 방송 (계획 D) | 정책 활성화 CLI |
+| 에이전트 층 끄기 `agentOff` | signal, 하나씩 또는 열린 에피소드 전체에 방송 (§10.4, 방송은 D-lite) | 개발 CLI `episode agent-off <workflowId> \| --all`. 정책 활성화 CLI 는 범위 밖이다(§10.3, D-lite 에서 뺌, 2026-10-04) |
 
 - 제안 id = 인스턴스 id + 시도 번호.
 - 승인과 기한 만료가 겹치면 워크플로 단위 순차 처리로 하나만 먼저 먹는다. 기한이 먼저 먹었으면 뒤늦은 `decide` 는
@@ -475,8 +475,9 @@ Update 의 답(`Reply`, 거절도 값)이다. PROPOSED 는 순간 상태라 `Pha
     거절). `--key` 가 없으면 key 는 `<runId>:<id>` 이고, 그것이 `[A-Za-z0-9._:-]+` 에 맞지 않으면 `--key` 를 요구한다.
   - JSON 은 코어처럼 엄격하게 읽는다(키 중복 거절, BOM 거절, 객체만). jsonl 어디든 읽지 못하는 줄이 있으면 열지 않는다 — 건너뛰지
     않는다. 같은 id 를 든 줄이 둘 이상이면 고르지 않는다.
-  - `episode agent-off <workflowId>`: 그 에피소드 **하나**에 `agentOff` signal 을 보낸다. §10.4 의 방송(계획 D)이 아니다. id 는
-    `ep:<key>` 꼴만 받는다.
+  - `episode agent-off <workflowId>`: 그 에피소드 **하나**에 `agentOff` signal 을 보낸다. id 는 `ep:<key>` 꼴만 받는다.
+  - `episode agent-off --all`(D-lite): `--all` 이 §10.4 의 방송이다. 열린 에피소드 전체에 보낸다(§10.4 구현(D-lite)). 보낸 id,
+    보내기 전에 끝난 id(`ended`), 실패와 그 원인(`failed`)을 적는다. `failed` 가 하나라도 있거나 나열이 실패하면 1 로 끝난다.
   - 인자는 Temporal 에 닿기 전에 모두 검사한다. 거절은 사용 오류이고, 내보내기를 못 읽거나 Temporal 에 못 닿으면 `ERROR` 로 끝난다.
 
 **구현(C1).**
@@ -553,8 +554,28 @@ Temporal execution timeout 으로 두면 강제 종료라 ESCALATED 가 **상태
     알린다.
   - `dispatch` 의 멱등 열쇠도 같으므로 바탕 run 이 저장한 결과가 그대로 돌아온다. 둘째 조치는 나가지 않는다.
   - 운영자의 길은 여전히 `takeover` → `close` 다.
-- R3 의 재생 시험(상태별로 멈춘 이력을 커밋해 두고 판마다 재생)은 계획 D 다. 첫 배포부터는 명령 순서를 바꿀 때마다
+- R3 의 재생 시험(상태별로 멈춘 이력을 커밋해 두고 판마다 재생)은 계획 D 다. (D-lite 에서 했다, 아래 구현(D-lite).) 첫 배포부터는 명령 순서를 바꿀 때마다
   `Workflow.getVersion` 을 건다.
+
+**구현(D-lite).** R3 의 재생 시험이 섰다.
+- 상태마다 멈춘 이력 아홉을 묶음 `episode-runtime/src/test/resources/replay/2026-10-04/` 로 커밋했다: `awaiting-approval` ·
+  `dispatched` · `awaiting-evidence` · `unknown-outcome` · `resolved-by-report` · `resolved-by-person` · `escalated-agent-off` ·
+  `closed` · `continued-as-new`. 파일은 Temporal `WorkflowExecutionHistory.toJson` 이다.
+- `CommittedReplayTest` 가 모든 묶음의 모든 파일을 오늘의 코드로 재생한다. 변환기는 koshei 의 것이다(위 B3b 와 같은 까닭).
+- 재생 워커의 교착 감지는 60초다. 차가운 JVM 의 첫 재생이 1초 감지기에 걸려 결정성 오류처럼 보였다. 교착 감지는 벽시계를 잴 뿐
+  결정성과 상관없다.
+- 실패 글은 비결정성(`nondeterministic`)인지 다른 오류(`other`)인지를 가른다.
+- 이력은 워크플로 id `cr:<파일 이름>` 으로 재생한다. 인스턴스 id 가 워크플로 id 를 담기 때문이다(§7.1). 파일 이름을 바꾸면 재생이
+  분명하게 실패한다.
+- 새 묶음은 `-Dkoshei.writeReplayHistories=true -Dkoshei.replaySet=<이름>` 으로만 쓴다. 이름이 없으면 오늘 날짜다. 생성기는 평소에
+  건너뛰는 시험이다.
+- 있는 묶음은 덮어쓰지 않는다. 그 디렉터리가 있으면 생성기가 거절한다.
+- 명령 순서를 바꾸는 변경은 `Workflow.getVersion` 을 건 뒤 새 묶음을 더한다. 옛 묶음은 그 `getVersion` 갈래를 지울 때 함께만 지운다.
+  덮어쓰면 「옛 이력이 새 코드에서 재생된다」가 사라진다.
+- 가장 새 묶음에는 아홉이 다 있어야 한다.
+- 생성기는 고정한 identity 를 쓴다. 기본값(`pid@host`)이면 이 기계의 이름이 커밋한 이력마다 들어간다.
+- 시험이 실제로 잡는지 보았다. `run()` 의 첫 줄에 `Workflow.sleep(1ms)` 를 넣으면 아홉 파일이 모두 비결정성으로 실패했다.
+- DISPATCH_PENDING · REVALIDATING 에서 멈춘 이력은 없다. 범위 밖이다(§16 D-lite 끝).
 
 ---
 
@@ -584,7 +605,7 @@ P0 동안 `diagnose` 는 **Mock** 이다. Mock 은 계약 고정 예제의 응�
 마지막 유효 판을 계속 쓰고** `Notify(POLICY_REJECTED)` 를 낸다. 설정 하나로 모든 에피소드가 조용히 ESCALATED 로 가는 것을 막는다.
 유효 판이 한 번도 없었으면 `POLICY_MISSING` 이다.
 - 계획 B(P0): 정책 원천은 파일(`model/episode-policy/active.yaml`) 하나.
-- 계획 D(P1): git 정본 + DB 활성 판 포인터 + 감사(§10.3).
+- 계획 D(P1): git 정본 + DB 활성 판 포인터 + 감사(§10.3). 범위 밖이다(D-lite 에서 뺌, 2026-10-04). 그때까지 원천은 위 파일 하나다.
 
 v1 판단(계획 B2a): 활성 판이 **없다**고 읽히면(명시적 부재) 마지막 유효 판이 있어도 `POLICY_MISSING` 이다 — 판을 내린 것을
 의도로 읽는다. 파일을 **읽을 수 없으면**(문법 · 입출력 오류) 무효 판과 같게 마지막 유효 판을 쓴다. 거절된 판에 `agentLayerEnabled:
@@ -623,7 +644,7 @@ false` 가 글자 그대로 있으면 마지막 유효 판으로 돌아가지 �
 | 왜 따로 보나 | 승인 요청의 `sawSkillTypes` 는 조치 유형의 열만 대조한다. 같은 모양의 새 제안은 같은 것으로 지나간다 |
 | 규칙 | 후보는 자기를 만든 탐색 줄의 `searchId` 를 `ref` 에 든다(§9.2). 원천에 그 (기체, 주문)의 **더 새 탐색 줄**이 있으면 낡음 → FALSE (§5.2 REVALIDATING FALSE). 「더 새」는 같은 `runId` 의 내보내기에서 그 줄보다 뒤에 적힌 줄이다. `searchId` 는 분해해 견주지 않고(§12) 그 줄을 찾는 데만 쓴다. 구동마다 되풀이되므로 `runId` 를 넘어 견주지 않는다 |
 | 지금 기준 읽기 | 읽은 대장이 시간창 안(지금 기준)이 아니면 UNKNOWN 이다. **낡은 읽기로 TRUE 를 내지 않는다** — 더 새 줄이 아직 안 적혔을 수 있다. 이 규칙은 `APPROVE_REMEDY` 만이 아니라 원천을 다시 읽는 **모든 실물 종류**(`CHOOSE_SOURCE`, `OPERATOR_DECISION`, `SAGA_ACTION` 의 원천 재조회)에 걸린다 |
-| 사람이 확인할 명제 | UNKNOWN(PRECONDITION) 의 카드와 과업은 사람이 확인할 명제를 후보의 `ref` 값으로 채워 그대로 적는다. 명제는 **거짓으로 드러날 수 있는 세계의 사실**이어야 한다 — 「줄이 그대로다」 같은 명제는 쓰지 않는다. 종류별: `APPROVE_REMEDY` 「(기체, 주문)에 `searchId` X 뒤로 더 새 탐색 줄이 없다」(위 규칙과 같은 판정, 예: (hum-02, PATROL-1)) + 스냅샷 뒤에 합류한 증상을 함께 보인다 · `CHOOSE_SOURCE` 「주문 O 의 자재 M 이 아직 결품이고 대체 위치 B 가 아직 쓸 수 있다」 · `OPERATOR_DECISION` 「실행 ex 의 단위 u 가 아직 운영자 보류이고 판단이 나지 않았다」 · `SAGA_ACTION` 조치 목록 항목에 선언한 전제(계획 D) — 여기서 확인하면 자식 사가가 자동으로 돈다. 사람도 그 명제를 관측할 수 없으면 카드가 그렇다고 적고, `unknownMs` 가 지나게 둔다. 명제 없이 「전제 맞음」만 누르게 하지 않는다 — `ConfirmedPrecondition(true)` 가 도장 찍기가 되지 않게(코어는 `REFUSED_NO_PROPOSITION` 으로 거절한다, §7.2 B3c) |
+| 사람이 확인할 명제 | UNKNOWN(PRECONDITION) 의 카드와 과업은 사람이 확인할 명제를 후보의 `ref` 값으로 채워 그대로 적는다. 명제는 **거짓으로 드러날 수 있는 세계의 사실**이어야 한다 — 「줄이 그대로다」 같은 명제는 쓰지 않는다. 종류별: `APPROVE_REMEDY` 「(기체, 주문)에 `searchId` X 뒤로 더 새 탐색 줄이 없다」(위 규칙과 같은 판정, 예: (hum-02, PATROL-1)) + 스냅샷 뒤에 합류한 증상을 함께 보인다 · `CHOOSE_SOURCE` 「주문 O 의 자재 M 이 아직 결품이고 대체 위치 B 가 아직 쓸 수 있다」 · `OPERATOR_DECISION` 「실행 ex 의 단위 u 가 아직 운영자 보류이고 판단이 나지 않았다」 · `SAGA_ACTION` 조치 목록 항목에 선언한 전제(계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04) — 여기서 확인하면 자식 사가가 자동으로 돈다. 사람도 그 명제를 관측할 수 없으면 카드가 그렇다고 적고, `unknownMs` 가 지나게 둔다. 명제 없이 「전제 맞음」만 누르게 하지 않는다 — `ConfirmedPrecondition(true)` 가 도장 찍기가 되지 않게(코어는 `REFUSED_NO_PROPOSITION` 으로 거절한다, §7.2 B3c) |
 | 보수 쪽으로 틀림 | 탐색 줄은 제안 표가 아니다. NONE · SOURCE_MISSING 은 서 있던 FOUND 제안을 지우지 않는다(지우는 것은 접수 뒤 `settle` 하나). FOUND 뒤에 NONE 이 적히면 제안이 서 있어도 낡음으로 본다. 받아들인다 |
 | FOUND 밖 후보 | picasso 쪽 낡음 검사가 없다. `resolve` · `release` 는 대상이 이미 그 상태가 아니면 `false` 뿐이라 「이미 누가 했다」와 「처음부터 아니었다」가 접힌다(`NO_PROPOSAL` 과 같은 접힘). koshei 는 둘 다 부르지 않는다(§8.4) |
 
@@ -639,7 +660,7 @@ UNKNOWN(PRECONDITION)을 지나고, 사람의 `ConfirmedPrecondition` 이 없으
 | `APPROVE_REMEDY` | picasso 승인 창구 (제안 참조). picasso 쪽 선언이 전제다(아래). 멱등 열쇠는 창구가 조용히 버리므로 기대지 않는다 (§11) | picasso 가 제안을 소모하고 전달. `REMEDY_NOT_APPLIED` 는 수락이 아니다 → UNKNOWN(OUTCOME) | 결과 통보(JobResponse), 담는 쪽이 나름 (§12). 사건 대장이 아니다 — 제대로 끝난 단위는 사건이 안 된다 |
 | `CHOOSE_SOURCE` | 운영자 과업(주문을 고치는 사람에게 알림 + 과업 기록). picasso 쪽 문 없음 — 주문을 고쳐 다시 넣는 것은 상류 몫, 관문이 그때 다시 판정 | 과업 발행 | 사람의 `ConfirmedOutcome`(AWAITING_EVIDENCE 의 `confirm`, §7.2). 다시 넣은 주문의 결과 통보는 선택이다 — koshei 는 새 주문·실행 id 를 모른다 |
 | `OPERATOR_DECISION` | 운영자 과업. koshei 는 `resolve` 를 부르지 않는다 | 과업 발행 | 사람의 `ConfirmedOutcome` 만(AWAITING_EVIDENCE 의 `confirm`, §7.2. 없으면 `EVIDENCE_EXPIRED`). 사건 줄의 `resolution` 은 아직 근거로 쓰지 않는다 — 실시간이 아니고, 판단이 아직 안 실린 가장 최근 사건에 붙는다(붙는 범위는 picasso 에 묻는다, §19) |
-| `SAGA_ACTION` (계획 D) | koshei 자식 사가 | 자식 시작 | 자식 사가 결과 + 원천 재조회 |
+| `SAGA_ACTION` (계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04) | koshei 자식 사가 | 자식 시작 | 자식 사가 결과 + 원천 재조회 |
 
 - koshei 가 승인 창구에 보낸 `approverKind`(PERSON/AGENT — POLICY 자동 승인은 AGENT, picasso §7.1)와 답의 `executionId` · `steps` 를 기록한다. `steps` 가 「실제로 나간 값」이다(picasso §7.3) — 이력의 `dispatch.delivered` 가 이것이다(§9.4). 답에 참 · 거짓 `delivered` 칸은 없다(v0.5 는 그렇게 잘못 읽었다, 2026-10-01 picasso main `584c6cd` 의 `ApprovalWire` 로 바로잡음).
 - **멱등은 액티비티 안에서 지킨다(§11).** 자식 사가는 child workflow id 로 지킨다. `APPROVE_REMEDY` 는 열쇠로 결과를 조회할 표면이
@@ -657,7 +678,7 @@ picasso 와의 경계 (picasso 2026-09-30 답):
 | 사건 줄의 운영자 판단 | `resolution` 이 널이 아니면 판단이 났다(`{decision, at, wallClockAt}`, 판 5). 누가 눌렀는지는 없다. `unresolved` · `verification` · `reachedEvidence` 는 봉인 시점 값이라 판단 뒤에 바뀌지 않는다 |
 | 재할당 | **이 설계는 `reassign` 을 부르지 않는다.** 재할당은 배정 정책이 부른다(picasso ADR 41) — picasso 가 스스로 옮기지 않고, 바깥 루프의 후보도 명령도 아니다. 사용자가 달리 정하기 전까지 특히 결과 통보에 `inDoubtUnits` 가 있거나, `physicalState` 가 OPERATOR_HOLD 인데 `blockedBy` 가 빈 실행에는 부르지 않는다. picasso 는 보류로 간 단위를 도는 단위로 보지 않아 그 실행의 재할당을 막지 않고, 사람이 뒤에 `REWORK` 를 내면 새 기체에서 돈다(코드로 확인, 시험으로 밟지는 않음 — picasso 2026-09-30 답). **이 빈 곳은 §19 E ③ 전까지 막는 장치가 없다.** 배정 정책이 부르는 재할당은 koshei 밖이라, R8 의 「자동 재할당 0」은 koshei 만으로 검증할 수 없다 |
 
-**`SAGA_ACTION` 과 자식 사가 (계획 D).** koshei 가 직접 하는 조치 유형(OT 쓰기, MES 반영 등)은 정책 표의 **조치 목록(action
+**`SAGA_ACTION` 과 자식 사가 (계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04).** 이 문단은 그때를 위한 설계다. 지금 `actionCatalog` 는 `[]` 이다. koshei 가 직접 하는 조치 유형(OT 쓰기, MES 반영 등)은 정책 표의 **조치 목록(action
 catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(선언과 관측의 경로), `requiresPerson`, **전제(`preconditions`)** —
 사람이 UNKNOWN(PRECONDITION) 에서 확인할 명제(§8.3)이자 `revalidate` 가 재조회할 세계 사실. 전제를 하나도 선언하지 않은 항목은
 `validate`(§10.2)와 `policy activate` 가 거절한다 — 확인할 명제 없이 「전제 성립」을 누르게 되기 때문이다.
@@ -673,7 +694,7 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
   멈추는 경로가 없다.
 - 부모 쪽 타이머 `childMaxMs` 가 지나면 에피소드는 ESCALATED(`CHILD_OVERDUE`)로 가되 자식을 죽이지 않는다(ABANDON). 자식 결과는
   기록으로 받는다. 보상 도중에 끊기는 일이 없다.
-- 자식 사가가 확인 불가를 보고하는 경로(보상하지 않고 UNKNOWN)는 §14 의 현재 블록 동작을 바꾸는 일이라 계획 D 에서 한다.
+- 자식 사가가 확인 불가를 보고하는 경로(보상하지 않고 UNKNOWN)는 §14 의 현재 블록 동작을 바꾸는 일이라 계획 D 에서 한다. 범위 밖이다(D-lite 에서 뺌, 2026-10-04).
 
 **구현(B3b).**
 - 서명은 `dispatch(instanceId, intentJson, approverKind)` 다. 사람 과업과 그 알림이 어느 에피소드의 것인지 적으려고 인스턴스 id 가
@@ -706,8 +727,8 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
   - 실행 의도 기록(DISPATCH_PENDING): 결과를 `Recorded` / `RecordFailed` 사건으로 되먹인다. 실패하면 조치를 내지 않고
     ESCALATED(`RECORD_FAILED`).
   - 그 밖의 기록: 결과를 기다리지 않는다. 재시도 예산 안에서 끝내 실패하면 `Notify(RECORD_LAG)`. Temporal 이력에는 남아 있으므로
-    보존 기간 안에 이력에서 메울 수 있다(메우는 작업은 계획 D).
-- 계획 B(P0)부터 `episode_event` 테이블(§13)에 쓴다. 필수 항목 전체와 품질 이력 연결은 계획 D.
+    보존 기간 안에 이력에서 메울 수 있다(메우는 작업은 계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04).
+- 계획 B(P0)부터 `episode_event` 테이블(§13)에 쓴다. 필수 항목 전체와 품질 이력 연결은 계획 D 였고 범위 밖이다(D-lite 에서 뺌, 2026-10-04).
 
 **구현(B3b).**
 - `record`: 같은 seq 에 같은 기록(같은 종류, jsonb `=` 로 같은 값)이 있으면 조용히 넘긴다(재시도). 다른 기록이 있으면
@@ -748,7 +769,7 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
 
 ### 9.1 투영
 
-`project(snapshot, unknowns, catalog) → Candidates` 는 `:episode` 의 순수 함수다. picasso 가 내보낸 줄(과 계획 D 의 조치 목록)에서
+`project(snapshot, unknowns, catalog) → Candidates` 는 `:episode` 의 순수 함수다. picasso 가 내보낸 줄(과 계획 D 의 조치 목록 — 범위 밖, D-lite 에서 뺌, 2026-10-04)에서
 후보를 만든다. **후보 집합의 주인은 에피소드**다. narrator 는 받은 목록에서만 고르고, 고른 것을 에피소드가 다시 검증한다.
 
 | kind | 무엇 | 누르는 쪽 | 실행 계열 | 사람 관문 |
@@ -756,7 +777,7 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
 | `APPROVE_REMEDY` | 탐색이 찾은 조치 승인 | 승인 창구. 자동 승인은 koshei 정책 ∧ picasso 자격 | 예 | 정책에 따름 |
 | `CHOOSE_SOURCE` | 결품 줄의 대체 위치 선택 | 주문을 고치는 사람 | 예 | 사람 과업 (승인 단계 없음) |
 | `OPERATOR_DECISION` | 보류 단위를 `CONFIRM_DONE` / `REWORK` — 사건 줄의 `verification` 이 `MATCHED` 일 때만 세운다(picasso `resolve` 는 그때만 근거를 올린다; 아니면 현물 확인이 권고이고 둘 다 세우지 않는다, picasso 2026-09-30 답) | 사람만 | `REWORK` 만 예 | 사람 과업 (승인 단계 없음) |
-| `SAGA_ACTION` (계획 D) | 조치 목록의 koshei 조치 | 자식 사가 | 예 | `requiresPerson` |
+| `SAGA_ACTION` (계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04) | 조치 목록의 koshei 조치 | 자식 사가 | 예 | `requiresPerson` |
 | `ESCALATE` | 사람에게 넘김 | 사람 | 아니오 | — (항상 포함) |
 
 탐색 결과가 `NONE` 이거나 `WITHHELD`(조치 열이 없음)면 그 탐색에서는 후보가 서지 않는다. 사람의 진단이 먼저다.
@@ -791,7 +812,7 @@ v1 은 에피소드 전체에 적용한다. 전이 함수도 같은 조건을 �
 | `APPROVE_REMEDY` | 기체, 주문, 조치 열(`sawSkillTypes` 를 `+` 로 이음) | `APPROVE_REMEDY:hum-02:PATROL-1:pick_place` |
 | `CHOOSE_SOURCE` | 주문, 자재, 대체 위치 | `CHOOSE_SOURCE:SEQ-RELOCATE:<자재>:B-03` |
 | `OPERATOR_DECISION` | 실행, 단위, 판단 | `OPERATOR_DECISION:ex-9:u-2:REWORK` |
-| `SAGA_ACTION` | 사가 정의 `name@x.y.z`, 대상 | (계획 D) |
+| `SAGA_ACTION` | 사가 정의 `name@x.y.z`, 대상 | (계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04) |
 | `ESCALATE` | 없음 | `ESCALATE` |
 
 식별자는 비교에만 쓰고 분해하지 않는다. 같은 대상의 같은 조치는 시도가 달라도 같은 식별자라 `REPEATED_REMEDY` 를 셀 수 있다.
@@ -897,7 +918,7 @@ koshei 가 진단 응답(계약 0.6 §4)과 자기 상태로 그린다. narrator
 - 제안은 후보의 `kind` · `ref` 로 싣고 식별자를 분해하지 않는다. 이유가 없으면 `rationaleMissing: true`(화면은 "이유 없음").
   `cause` 는 싣지 않는다 — 기록에만 있다.
 - 확인할 전제(`precondition`)는 UNKNOWN_PRECONDITION 에서만, §8.3 의 종류별 명제를 후보 `ref` 값으로 채운 것이다. 종류에 명제가
-  없거나(`SAGA_ACTION` 은 계획 D) 명제가 부르는 값이 비었으면 `null` 이다 — **명제를 지어내지 않는다.** `APPROVE_REMEDY` 면 이 시도의
+  없거나(`SAGA_ACTION` 은 계획 D — D-lite 뒤로는 범위 밖, 2026-10-04) 명제가 부르는 값이 비었으면 `null` 이다 — **명제를 지어내지 않는다.** `APPROVE_REMEDY` 면 이 시도의
   `DIAGNOSIS_REQUESTED` 기록 뒤의 `SYMPTOM_JOINED` 줄을 `joinedAfterSnapshot` 으로, 질의가 센 수를 `joinedAfterSnapshotCount` 로
   함께 싣는다 — 줄이 수보다 적으면 기록이 늦은 것이다.
 - 결정 칸 `decision` 은 `{update, proposalId, candidatesVersion, deadlineMillis}`(`deadlineMillis` 는 상태 기한)이고 제안이 있어야
@@ -922,7 +943,7 @@ expiresAt: null
 agentLayerEnabled: true
 autoApprove:                                               # 자동 승인이 가능한 종류만 칸이 있다
   APPROVE_REMEDY: { allowed: false, requireClean: true, skills: [pick_place] }   # v1 은 끈다 (§18, 2026-10-01)
-actionCatalog: []                                          # SAGA_ACTION 항목, 항목마다 autoApprove.allowed (계획 D)
+actionCatalog: []                                          # SAGA_ACTION 항목, 항목마다 autoApprove.allowed (계획 D, 범위 밖 — D-lite 에서 뺌, 2026-10-04)
 deadlines:
   correlatingMs: …        # 병합 창
   approvalMs: …           # 라인 버퍼가 버티는 시간에서
@@ -981,7 +1002,10 @@ correlation:
 - `actionCatalog` 항목은 정확한 판의 사가 정의만(§8.4).
 - **UNKNOWN 의 실행 차단은 스키마에 칸이 없다.** 정책으로 풀 수 있는 구조 자체가 없다(R8).
 
-### 10.3 관리 (R6, R14 — 계획 D)
+### 10.3 관리 (R6, R14 — 계획 D, 범위 밖)
+
+이 절은 범위 밖이다(D-lite 에서 뺌, 2026-10-04, 사용자 결정). 지금은 파일 정책 하나로 충분하다. 런타임은 매 결정마다 파일을
+읽는다(§8.2). 그때까지 정책은 `model/episode-policy/active.yaml` 이다. 끄기는 파일의 `agentLayerEnabled: false` 와 방송이다(§10.4).
 
 - git 정본(`model/episode-policy/*.yaml`) + DB 의 활성 판 포인터 + 추가 전용 감사. 모양은 이미 있는 `FsmDeploymentStore`
   (활성·이전 판, soak, 롤백, `fsm_deployment_audit`)를 따른다.
@@ -994,10 +1018,24 @@ correlation:
 
 `agentLayerEnabled: false` 가 활성화되면:
 - 새 에피소드: 시작 때 `readPolicy` 로 알고 바로 ESCALATED(`AGENT_LAYER_OFF`), 알림 한 번. 감시자는 판정하지 않는다.
-- 진행 중: 다음 결정 시점의 `readPolicy` 로 안다. 대기 중인 에피소드가 곧바로 알게 하려고 활성화 CLI 가 열린 에피소드 전체에
-  `agentOff` signal 을 방송한다(계획 D). DISPATCHED 이전이면 즉시 인계(진단 취소), DISPATCHED / AWAITING_EVIDENCE 면 ESCALATED 로
+- 진행 중: 다음 결정 시점의 `readPolicy` 로 안다. 대기 중인 에피소드가 곧바로 알게 하려고 열린 에피소드 전체에
+  `agentOff` signal 을 방송한다(D-lite, 아래). DISPATCHED 이전이면 즉시 인계(진단 취소), DISPATCHED / AWAITING_EVIDENCE 면 ESCALATED 로
   가되 결과·근거 수신은 기록으로 계속한다 — 나간 조치의 뒷정리를 버리지 않는다.
 - 계획 B(P0) 시험은 `agentOff` signal 을 직접 보내고, 파일 정책의 스위치를 바꿔 신규 에피소드를 확인한다.
+
+**구현(D-lite).** 방송은 `:episode-runtime` 의 `AgentOffBroadcast` 와 개발 CLI `episode agent-off --all`(§7.2)이다. 코어와 워크플로는
+바뀌지 않았다 — 받는 쪽은 이미 있었다.
+- 활성화 CLI 는 없다. §10.3 은 범위 밖이다. 끄는 절차는 둘이다: ① 정책 파일의 `agentLayerEnabled: false` ② `episode agent-off --all`.
+- 순서가 중요하다. 가시성은 늦게 맞는다(eventually consistent). 방송 도중에 열린 에피소드는 나열에서 빠질 수 있다. 파일을 먼저 끄면
+  그런 에피소드도 시작 때 정책을 읽어 끈다.
+- 나열은 옛 API `ListOpenWorkflowExecutions` 로 쪽마다 읽는다. 시험 서버가 새 `ListWorkflowExecutions` 를 구현하지 않는다. 시험 서버는
+  종류 거르개도 무시한다. 그래서 종류(`EpisodeWorkflow`)를 받는 쪽에서 다시 거른다 — 방송이 넓어지지 않게.
+- 워크플로 id 마다 **지금 run** 에 보낸다. 열린 에피소드 전체가 대상이므로 run 을 고정하지 않는다.
+- `ended` 는 서버가 NOT_FOUND 로 답한 것이다. 나열과 보내기 사이에 run 이 끝났거나 그 id 가 처음부터 없었다.
+- 그 밖의 실패는 `failed` 다. 근본 원인(원인 사슬의 끝, 많아야 열여섯 단계)을 함께 적는다. 나머지는 계속 보낸다.
+- 한 번 더 돌리면 된다. 두 번 보내도 같다 — 이미 끈 에피소드에 다시 오면 코어는 기록만 한다.
+- CLI 는 `failed` 가 하나라도 있거나 나열이 실패하면 1 로 끝난다.
+- 시험은 방송을 받은 에피소드가 `AGENT_LAYER_OFF` 로 가는 것과 종류 거르개를 붙든다.
 
 ---
 
@@ -1114,7 +1152,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 - 결과 통보 파일에는 같은 줄 id(`<instanceId>/<jobResponseId>`)가 두 번 나올 수 있다(담는 쪽은 최소 한 번 나른다). 그래서 결과 통보는 id 가 겹쳐도 깨짐이 아니고,
   id 만으로는 자리를 못 정하므로 줄 수를 함께 둔다.
 
-*감시 기록 (`episode_watch_log`, §13).* 감시자가 나르지 못한 것, 묶지 않고 나른 것을 남긴다. 사람이 읽는다(화면은 계획 D).
+*감시 기록 (`episode_watch_log`, §13).* 감시자가 나르지 못한 것, 묶지 않고 나른 것을 남긴다. 사람이 읽는다(화면은 계획 D). (D-lite 뒤: 화면은 범위 밖이다 — D-lite 에서 뺌, 2026-10-04. 표를 직접 읽는다.)
 
 | 종류 | 언제 |
 |---|---|
@@ -1214,14 +1252,14 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 
 ## 13. 기록 (R11)
 
-- `episode_event(episode_instance_id, seq, kind, payload jsonb, at)` 추가 전용. 런타임 계정에서 `UPDATE`/`DELETE` 권한 회수.
+- `episode_event(episode_instance_id, seq, kind, payload jsonb, at)` 추가 전용. 런타임 계정에서 `UPDATE`/`DELETE` 권한 회수(D-lite, 아래 구현(D-lite)).
   기존 `schema.sql`(DROP 포함)과 분리된 스크립트로 만든다.
 - 필수 항목: 입력 스냅샷 · 판 칸 다섯(`promptVersion`, `corpusVersion`, `searchFingerprint`, `modelId`, `narratorCommit`) ·
   조치안 전문(이유, 인용, `uncitedSentences`, 검증 못 한 주장 분리) · 정책 판정(정책 판 포함) · 승인자(PERSON/POLICY, picasso 쪽
   PERSON/AGENT, `identityAssurance`) · 멱등 열쇠 · 완료 근거(등급, 3값).
 - 판 칸은 **"왜 달라졌나"를 가르는 조사 재료**다. 같은 질문에 같은 결정을 지키는 것은 판 칸이 아니라 narrator 의 첫 결과
   저장소다(§8.1). 샘플링(온도 등)은 응답에 드러나지 않으므로 판 칸이 같아도 답이 다를 수 있다는 점을 조사 때 전제한다.
-- 영향받은 작업 id · 차대번호 칸을 두어 품질 이력과 잇는다(계획 D).
+- 영향받은 작업 id · 차대번호 칸을 두어 품질 이력과 잇는다(계획 D). 범위 밖이다(D-lite 에서 뺌, 2026-10-04). 품질 시스템과의 잇기는 그쪽 결정이 먼저다.
 - Temporal 이력은 보존 기간이 지나면 지워진다. **감사 정본은 이 테이블**이고, Temporal 이력은 재생·디버깅용이다.
 - 알려진 한계: `jsonb` 가 담지 못하는 payload(NUL 문자, 짝 없는 서로게이트)는 저장되지 않는다. 재시도해도 같으므로 재시도하지 않는 실패(`RecordUnstorable`)로 내고 `RECORD_LAG` 를 알린다. 그 기록은 보존 기간이 끝날 때까지 Temporal 이력에만 남는다.
 
@@ -1234,7 +1272,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
   워커들 사이에서 차례로 돈다.
 - `IF NOT EXISTS` 는 이미 있는 표를 고치지 않는다. 뒤의 열 · 제약 변경은 따로 `ALTER … IF NOT EXISTS` 로 적어야 한다.
 - `at` 은 쓴 시각(DB `now()`)이다.
-- 런타임 계정의 `UPDATE`/`DELETE` 권한 회수는 스크립트 주석으로 적어 두고 계획 D 에서 한다. koshei 는 이 표들의 행을 고치거나
+- 런타임 계정의 `UPDATE`/`DELETE` 권한 회수는 스크립트 주석으로 적어 두고 계획 D 에서 한다. (D-lite 에서 했다, 아래 구현(D-lite).) koshei 는 이 표들의 행을 고치거나
   지우지 않는다.
 
 **구현(C1).** 같은 스크립트에 감시자의 표 둘과 색인 하나를 더했다. 표는 셋에서 다섯이 된다.
@@ -1246,9 +1284,34 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
   `episode_event` 의 `RecordUnstorable`(위 알려진 한계)과 달리 기록이 멈추지 않는다.
 - 색인 `episode_event_intent_order`: `DISPATCH_INTENT` 기록의 `payload -> 'candidate' -> 'ref' ->> 'jobOrderId'`(부분 색인). 결과 통보가 주문으로
   인스턴스를 찾는다(§12). 이미 있는 DB 에서는 이 줄 뒤 첫 시작이 색인을 만들며 그동안 `episode_event` 쓰기를 붙든다 — PoC 규모라 받아들인다.
-- 두 표도 추가 전용이다. 계획 D 의 권한 회수(`UPDATE`/`DELETE`)에 함께 넣는다.
+- 두 표도 추가 전용이다. 계획 D 의 권한 회수(`UPDATE`/`DELETE`)에 함께 넣는다. (D-lite 에서 함께 넣었다, 아래 구현(D-lite).)
 - 스키마는 워커만이 아니라 **감시자도 시작 때 돌린다**(`EpisodeStore.ensureSchema()`). 멱등이고 advisory lock 으로 차례로 돈다(위). 그래서 워커와
   감시자가 어느 쪽이 먼저 떠도 된다.
+
+**구현(D-lite).** 런타임 역할이 섰다. 스크립트는 `scripts/episode-db-roles.sql` 이다.
+- 소유 계정이 스키마(`episode-schema.sql`)를 먼저 적용한다. 그 뒤 소유 계정으로 스크립트를 돌린다:
+  `psql -v ON_ERROR_STOP=1 -v rt_password='…' -U <소유 계정> -d koshei -f scripts/episode-db-roles.sql`.
+- `-v` 값은 셸 이력과 프로세스 목록에 보인다. 버릴 값을 넘기고 진짜 비밀번호는 psql 의 `\password koshei_episode_rt` 로 정하기를 권한다.
+- 역할은 `koshei_episode_rt` 다. 이미 있던 역할도 LOGIN · NOSUPERUSER · NOCREATEDB · NOCREATEROLE · NOREPLICATION · NOBYPASSRLS 로
+  되돌린다.
+- 역할이 스키마에 `CREATE` 할 수 있으면 스크립트가 거절한다. 그런 역할은 감사 표를 만들고 가질 수 있다. 먼저 `public` 의 `CREATE` 를
+  PUBLIC 에서 회수한다(Postgres 15 전에는 PUBLIC 에 있다).
+- 표마다 `REVOKE ALL` 한 뒤 준다. 다섯 표에 `SELECT` · `INSERT`, 두 시퀀스(`episode_notice_id_seq`, `episode_watch_log_id_seq`)에
+  `USAGE` · `SELECT` 만이다. `UPDATE` · `DELETE` · `TRUNCATE` 는 없다.
+- 시험(Testcontainers): 다섯 표 모두에서 `UPDATE` · `DELETE` · `TRUNCATE` 가 42501 로 거절된다. 실제 `EpisodeStore` · `WatchStore` 의
+  메서드는 모두 그 역할로 돈다. 표 목록은 셋이 서로 붙들린다 — `SCHEMA_OBJECTS`, `episode-schema.sql`, 스크립트.
+- `EpisodeStore.ensureSchema()` 는 `CREATE` 권한이 아니라 소유로 정한다.
+  - 객체가 다 있으면: 사용자가 `episode_event` 의 소유 역할이거나 그 역할에 속하면 스키마 스크립트를 돌린다(전처럼 멱등). 아니면 있는지만
+    본다. 런타임 역할은 `CREATE` 가 있어도 DDL 을 돌리지 않는다 — `CREATE INDEX IF NOT EXISTS` 는 「must be owner」로 실패하고, 런타임
+    역할이 표를 가져서는 안 된다.
+  - 하나라도 없으면: 스키마에 `CREATE` 할 수 있는 계정은 스키마 스크립트를 돌린다. 아니면 「apply episode-schema.sql as the owner first」로
+    실패한다.
+- 에피소드 표는 제 로그인으로 연다: `KOSHEI_EPISODE_DB_USER` · `KOSHEI_EPISODE_DB_PASS`. 없으면 `Db` 의 로그인이다. URL 은 같다. 둘 중
+  하나만 있으면 거절한다.
+- 이 로그인은 워커와 감시자의 `EpisodeStore` · `WatchStore` 에만 쓴다. 워커의 나머지(블록 레지스트리, `workflow_def`)는 `KOSHEI_DB_*`
+  그대로다 — 같은 연결로 블록 레지스트리를 읽으므로 워커 전체를 런타임 역할로 돌릴 수 없다.
+- 남은 것(범위 밖, §16 D-lite 끝): 제어면(`:authoring-api`)은 에피소드 표를 소유 계정의 풀로 읽는다. 읽기 전용 역할은 뒤의 일이다.
+  `ensureSchema` 는 객체 이름만 보고 열은 보지 않는다.
 
 ---
 
@@ -1261,8 +1324,8 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | 타이머 전무, 게이트 무기한 대기 (`SagaWorkflowImpl.kt:76`) | R4 | 에피소드 대기는 전부 기한(§5.1). 자식은 `interactive=false`, `autoApprove=true`, 부모 쪽 타이머 `childMaxMs` |
 | 워커 시작마다 YAML 재해석·맨 이름 바인딩 (`Worker.kt:110`), 배포 정의도 `planFor` 가 블록 `^x`/`latest` 를 다시 풂 (`Worker.kt:72-80`, `Registry.kt:70-76`) | R3, 재생 비결정성 | 조치 목록은 정확한 판으로 고정된 정의만 받는다(§8.4) |
 | drift 자동 교정: 20초 스케줄, 먼저 시작 후 중복이면 abort (`AutoCorrectDispatcher.kt:72-79`), 승인에서 1시간 정체 (`:38`) | R1, R4, R5 | 에피소드 모드에서 자동 디스패치 끔. drift 는 감시자의 두 번째 입력으로 DETECTED 만(계획 C) |
-| ot-safe-hold 의 `opcua.call` 이 항상 `Recipe/ApplyRecipe` 를 발사, 정책 검사 없음 (`OpcUaCallBlock.kt:51`, `model/ot-site.yaml:13`) | "안전 보류"가 레시피 적용 | D5: 기록만. 계획 D 에서 safe-hold 전용 명령 노드와 `opcua.call` 정책 검사 |
-| 모름을 실패로 접음: NCMD 응답 없음 → `ok=false` (`SparkplugNcmdApplyPort.kt:77,96`), 완료 비트 시간 초과 → `ok=false` (`OpcUaApplyPort.kt:121-124`), 둘 다 `PermanentBlockFailure` → 역순 보상 | R8 | 계획 D: 블록이 "모름"을 따로 보고하고 보상하지 않는 경로. 그 전까지 `SAGA_ACTION` 은 쓰지 않는다 |
+| ot-safe-hold 의 `opcua.call` 이 항상 `Recipe/ApplyRecipe` 를 발사, 정책 검사 없음 (`OpcUaCallBlock.kt:51`, `model/ot-site.yaml:13`) | "안전 보류"가 레시피 적용 | D5: 기록만. 계획 D 에서 safe-hold 전용 명령 노드와 `opcua.call` 정책 검사 — 범위 밖이다(D-lite 에서 뺌, 2026-10-04). 자식 사가가 없으면 에피소드 경로에 닿지 않는다 |
+| 모름을 실패로 접음: NCMD 응답 없음 → `ok=false` (`SparkplugNcmdApplyPort.kt:77,96`), 완료 비트 시간 초과 → `ok=false` (`OpcUaApplyPort.kt:121-124`), 둘 다 `PermanentBlockFailure` → 역순 보상 | R8 | 계획 D: 블록이 "모름"을 따로 보고하고 보상하지 않는 경로 — 범위 밖이다(D-lite 에서 뺌, 2026-10-04). 그 전까지 `SAGA_ACTION` 은 쓰지 않는다 |
 | 공유 `source_rows` 에 세계 상태 사본, `db.read` 가 테이블 전체 읽음 (`SourceRowSeeder.kt:15`, `DbReadBlock.kt:12`) | R15 | 에피소드 경로에서 쓰지 않음. 참조 id + 관측 시각만 |
 | `schema.sql` 재실행 시 `comp_ledger`, `reconciliation_provenance` DROP (`schema.sql:3,52`), `RunStore` 가 행 DELETE (`RunStore.kt:92-94`) | R11 | 에피소드 기록은 별도 스크립트, 추가 전용 |
 | 끄기 스위치가 기능별 환경변수, 재시작 필요 (`AutoCorrectBean.kt:17`, `RunReconciler.kt:60`, `SoakSupervisorBean.kt:15`) | R5, R6 | 정책 표의 데이터 스위치 (§10.4) |
@@ -1295,18 +1358,18 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 |---|---|---|---|---|---|
 | R1 동시 재개 | P0 | 워크플로 id = 병합 키, signalWithStart, 순차 처리, 늦은 `decide` 는 값으로 거절 (§7.1, §7.2) | 승인 Update 와 기한 타이머 동시 발화 수천 회, 결과는 둘 중 하나, 섞임 0 | B | — |
 | R2 정확히 한 번 | P0 | 결정적 열쇠(koshei 기록·자식 사가), 두 번째 승인은 picasso 가 막음, `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · `CONSUMED` → UNKNOWN · 재시도 없음 (§11) | dispatch 직후·완료 보고 전 워커 강제 종료, Mock 로봇 반영 1회, 재시도는 UNKNOWN(OUTCOME) | C | picasso ★ |
-| R3 진행 중 버전 | P1 | getVersion, schemaVersion, 조치 목록 판 고정 (§7.5, §8.4) | 상태별로 멈춘 이력을 저장해 새 코드로 재생 + 실배포 후 정상 종료 | D | — |
+| R3 진행 중 버전 | P1 | getVersion, schemaVersion, 조치 목록 판 고정 (§7.5, §8.4) | 상태별로 멈춘 이력을 저장해 새 코드로 재생 + 실배포 후 정상 종료 | D-lite(커밋된 이력 재생, §7.5). 조치 목록 판 고정은 범위 밖 | — |
 | R4 시간 예산 | P0 | 모든 상태 기한(§5.1), 만료 경로 하나(기본 동작 유지 + ESCALATED), ScheduleToClose | 승인 무응답·진단 지연 → ESCALATED, dispatch 0. 라인 정지 0 은 라인 쪽 결정적 규칙(수동 전환·호출)이 선 뒤 (§19) | B | picasso, 라인 쪽 규칙, narrator(Mock) |
-| R5 에이전트 장애 | P0 | 시작 시 정책 읽기, `agentOff`, 인계 규칙, Mock 진단으로 LLM 없이 동작, koshei 워커에 picasso 를 세우지 않음 (§2, §8.1, §10.4) | narrator 워커 전멸 / Postgres 중단 / koshei 워커 전멸 / Temporal 중단 각각: dispatch 0, 복구 후 재개. 라인 가동은 picasso Mock 셀 | B (방송 CLI 는 D) | picasso |
-| R6 배포 없이 대응 | P1 | 정책 표 판·감사·조치 유형별 on/off (§10) | 운영 중 조치 유형 하나 끔 → 이후 자동 실행 없이 사람 승인으로 | D | picasso(자격) |
+| R5 에이전트 장애 | P0 | 시작 시 정책 읽기, `agentOff`, 인계 규칙, Mock 진단으로 LLM 없이 동작, koshei 워커에 picasso 를 세우지 않음 (§2, §8.1, §10.4) | narrator 워커 전멸 / Postgres 중단 / koshei 워커 전멸 / Temporal 중단 각각: dispatch 0, 복구 후 재개. 라인 가동은 picasso Mock 셀 | B (방송 CLI 는 D-lite, §10.4) | picasso |
+| R6 배포 없이 대응 | P1 | 정책 표 판·감사·조치 유형별 on/off (§10) | 운영 중 조치 유형 하나 끔 → 이후 자동 실행 없이 사람 승인으로 | D — 범위 밖(D-lite 에서 뺌, 2026-10-04) | picasso(자격) |
 | R7 신호의 한계 | P0 | 원천 재조회, 값 + 시간창 판정, 감시자 중복 제거, 완료 근거는 결과 통보(대장 스캔 아님), 낡은 권고는 `searchId` 로 (§8.3, §12) | 폴링보다 짧은 펄스, 순서 역전, 중복 주입 → 재확인·완료 판정 대조표 | C | picasso, 담는 쪽(§19 C) |
-| R8 확인 불가 | P0 | UNKNOWN 두 종류, 3값 타입, 실행 차단 코드 고정, 투영 제외, `reassign` 부르지 않음 (§5.1, §6, §8.4, §9.1) | dispatch 후 통신 절단 → 자동 재할당 0(koshei 가 부르지 않음까지만. 배정 정책의 재할당은 koshei 만으로 검증 못 함, §8.4), 현물 확인 요청 1 | B (자식 사가 보상 0 은 D) | picasso |
-| R9 모델 변경 관리 | P1 | 기록에 판 칸 다섯 (§13) | narrator 골든셋 재생 지표(유효 선택률, 후보 밖 비율, 확인 불가 중 실행 권고 비율 = 0) | D | narrator, khala |
+| R8 확인 불가 | P0 | UNKNOWN 두 종류, 3값 타입, 실행 차단 코드 고정, 투영 제외, `reassign` 부르지 않음 (§5.1, §6, §8.4, §9.1) | dispatch 후 통신 절단 → 자동 재할당 0(koshei 가 부르지 않음까지만. 배정 정책의 재할당은 koshei 만으로 검증 못 함, §8.4), 현물 확인 요청 1 | B (자식 사가 보상 0 은 D — 범위 밖, D-lite 에서 뺌) | picasso |
+| R9 모델 변경 관리 | P1 | 기록에 판 칸 다섯 (§13) | narrator 골든셋 재생 지표(유효 선택률, 후보 밖 비율, 확인 불가 중 실행 권고 비율 = 0) | D — 범위 밖(D-lite 에서 뺌, 2026-10-04) | narrator, khala |
 | R10 알림 | P1 | 병합 키, 병합 창, 애매하면 상호 참조, 상태 전이 때만 알림 (§5.1, §12) | 같은 원인 증상 3개 동시 주입 → 에피소드 1, 알림 1 | C | picasso |
-| R11 기록 | P1 | `episode_event` 추가 전용 (§13) | 임의 차대번호에서 에피소드와 근거 전체 역추적 | B(테이블)·D(항목 전체) | picasso, narrator |
+| R11 기록 | P1 | `episode_event` 추가 전용 (§13) | 임의 차대번호에서 에피소드와 근거 전체 역추적 | B(테이블)·D-lite(런타임 역할, §13)·D(항목 전체 — 범위 밖, D-lite 에서 뺌) | picasso, narrator |
 | R12 조치 유형만 | P0 | 후보 종류 고정 + 조치 목록(판 고정 사가) + picasso 제안, publish 봉쇄 (§8.4, §14) | 부작용 호출 경로 정적 감사, 목록 밖 조치 주입 거부 | A·B | picasso |
 | R13 LLM 출력 제약 | P0 | 후보 참조만, 이중 검증, 사유 분리 (§5.2, §9) | 형식 오류·후보 밖·확인 불가 중 실행 권고 주입 → 전부 실행 전 거부·기록 | B | narrator, khala |
-| R14 정의·실행 분리 | P1 | 정책 편집 CLI 분리, narrator 별도 프로세스, 제어면 축소 (§4.2, §10.3) | 오타 정책이 검증 없이 활성화되는 경로 0, narrator 워커 강제 종료 시 다른 에피소드 영향 0 | D | narrator |
+| R14 정의·실행 분리 | P1 | 정책 편집 CLI 분리, narrator 별도 프로세스, 제어면 축소 (§4.2, §10.3) | 오타 정책이 검증 없이 활성화되는 경로 0, narrator 워커 강제 종료 시 다른 에피소드 영향 0 | D — 범위 밖(D-lite 에서 뺌, 2026-10-04) | narrator |
 | R15 원천 비소유 | P1 | 참조 id + 관측 시각만, 판단 전 재조회 (§8.3, §14) | 저장소 감사, 원천 값 변경 직후 판단 반영 | C | picasso |
 
 `outer-loop-requirements.md` 와 다르게 가져간 곳:
@@ -1329,7 +1392,7 @@ narrator 의 "상태 없음, 부작용 없음" 계약을 지키려고 감시자�
 | **A. publish 봉쇄** | `/api/publish` 끄기 설정, `Class.forName(…, false, …)`, 제어면 127.0.0.1 바인딩. 기존 게이트로 퇴행 확인 | — | — |
 | **B. 에피소드 코어** | `:episode`(전이·투영·식별자·판·정책 검증·판정 함수), `:episode-runtime` 구동부·타이머·Update·쿼리, Mock `diagnose`·Mock picasso(`revalidate`/`dispatch`), 파일 정책, `episode_event` 테이블, 제어면 경로, 고정 예제 요청 넷 | — (A 뒤에 하는 것은 순서 선호) | — (Mock 으로 진행) |
 | **C. 현장 연결** | 감시자(접수·근거·병합, drift 입력), 에피소드 모드에서 drift 자동 디스패치 끄기, 실제 picasso 승인 창구 클라이언트, 결과 통보 수신, Mock 담는 쪽(먼저 온 · 관계없는 · `jobResponseId` 가 겹치는 결과 통보를 냄, §12) | B | picasso · 담는 쪽 (§19) |
-| **D. 운영 관리 (P1)** | 정책 git+DB 포인터·CLI·`agentOff` 방송, `SAGA_ACTION`·조치 목록·자식 사가, 블록의 "모름" 보고, 기록 항목 전체·품질 연결, R3 재생 시험, D5 결함 | B | khala·narrator(판 칸) |
+| **D. 운영 관리 (P1)** | 정책 git+DB 포인터·CLI·`agentOff` 방송, `SAGA_ACTION`·조치 목록·자식 사가, 블록의 "모름" 보고, 기록 항목 전체·품질 연결, R3 재생 시험, D5 결함. D-lite 로 줄였다(2026-10-04, 사용자 결정): 방송 · 재생 이력 · 런타임 역할. 나머지는 범위 밖(아래 D-lite 끝, §19) | B | khala·narrator(판 칸) |
 
 **B3b 끝(2026-10-01).** 계획 B 의 실제 액티비티와 배선이 섰다: 파일 정책(§8.2), 기록 표 셋(§13), 멱등 `dispatch`(§8.4),
 Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 끝까지 시험과 재생 시험(§7.5). 계획 B 에 남은 것:
@@ -1364,8 +1427,8 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
 - drift 를 감시자의 둘째 입력으로 — 코어에 증상 종류 `DRIFT` 와 drift 로 연 에피소드의 진단 요청 · 후보 투영(§9)이 먼저 필요하다.
 - 결과 통보를 나르는 모양 — C2 로 끝났다. picasso ResultExport 판 1 이고 줄이 `executionId` 를 든다(§12 구현(C2)). 실물 담는 쪽은 남는다(§19 C).
 - 제어면의 503 사유(`EpisodeController` 의 「no episode worker has run (KOSHEI_PICASSO)」)는 이제 감시자가 먼저 떠도 풀린다 — 감시자도 표를
-  만든다. 글을 고칠지는 계획 D 에서 본다.
-- 감시 기록(`episode_watch_log`)을 화면에 보이기, 애매한 병합의 서로 참조를 에피소드 기록에 붙이기 — 계획 D.
+  만든다. 글을 고칠지는 계획 D 에서 본다. (범위 밖이다 — D-lite 에서 뺌, 2026-10-04.)
+- 감시 기록(`episode_watch_log`)을 화면에 보이기, 애매한 병합의 서로 참조를 에피소드 기록에 붙이기 — 계획 D. (범위 밖이다 — D-lite 에서 뺌, 2026-10-04.)
 
 **C2 끝(2026-10-03).** picasso ADR 48(`3d6530a`)을 받았다. 승인 창구 판 4 읽기(§8.4), ResultExport 판 1 나르기(`ResultExportFile`, §12),
 (`instanceId`, `executionId`) 잇기, 모든 걸음 단위 + ONLINE 으로 DONE(§5.2, §12). `koshei-carry-0` 과 `targetUnit` 은 없앴다.
@@ -1380,6 +1443,29 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
 
 계획 C 에 남은 것: 실물 승인 창구 클라이언트와 실물 담는 쪽(§19 C). 위 C1 목록의 drift 입력, 503 사유, 감시 기록 화면도 그대로 남는다.
 
+**D-lite 끝(2026-10-04).** 계획 D 를 셋으로 줄였다(사용자 결정, 2026-10-04): 에이전트 층 끄기 방송(§10.4), 커밋된 재생 이력(§7.5),
+기록 표의 런타임 역할(§13). 계획 문서는 `7136fa6` 과 그 덧붙임 `0b60876`(재생 이력을 묶음으로)이다.
+- `:episode-runtime`: `AgentOffBroadcast`(`646e342`), 원인을 `failed` 에 싣고 시험이 `AGENT_LAYER_OFF` 와 종류 거르개를 붙듦(`63293e5`),
+  원인 사슬을 많아야 열여섯 단계(`c4c08c8`). R3 재생 이력과 `CommittedReplayTest`(`6545223`, `e8f7ced`).
+- `:app`: CLI `episode agent-off --all`(`da8ee3a`).
+- 런타임 역할: `scripts/episode-db-roles.sql` 과 `KOSHEI_EPISODE_DB_*`(`4d0039e`), 소유로 정하는 `ensureSchema` · 만들 수 있는 역할 거절 ·
+  그 역할로 도는 저장소 시험(`26a8c8f`).
+- 시험(`KOSHEI_*` 없이, Testcontainers 와 `TestWorkflowEnvironment` 만, 머리 `26a8c8f`): `:episode` 323, `:episode-runtime` 290(건너뜀 1 —
+  재생 이력 생성기), `:authoring-api` 146, `:app` 41, 모두 통과.
+
+범위 밖(D-lite 에서 뺌, 2026-10-04, 사용자 결정). 그때까지의 동작은 §19 「사용자 결정으로 미룬 것」이다.
+- 정책 관리: git 정본 + DB 활성 판 포인터 + 감사, CLI `policy validate` · `activate`(§10.3).
+- `SAGA_ACTION` · 조치 목록 · 자식 사가(§8.4, §9).
+- 블록의 「모름」 보고, safe-hold 결함 D5(§14).
+- 기록 필수 항목 전체 · 품질 이력 연결(작업 id, 차대번호)(§13).
+- 감시 기록 화면 · 애매한 병합의 서로 참조를 에피소드 기록에 붙이기(§12).
+- 이 다섯에 딱 들지 않는 계획 D 의 나머지도 범위 밖이다: 이력에서 기록 메우기(§8.5), 제어면 503 사유의 글 고치기(위 C1 목록), 정책 편집
+  권한의 분리(§4.2).
+- D-lite 를 하며 드러난 것 셋:
+  - 제어면(`:authoring-api`)은 에피소드 표를 소유 계정의 풀로 읽는다. 읽기만 하는 역할은 뒤의 일이다.
+  - `ensureSchema` 는 객체 이름만 보고 열은 보지 않는다.
+  - R3 에는 DISPATCH_PENDING · REVALIDATING 에서 멈춘 이력이 없다.
+
 ---
 
 ## 17. 시험 전략
@@ -1388,7 +1474,7 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
 |---|---|---|
 | `:episode` 순수 | §5.2 전이 표 전수, 정책 검증, 투영·식별자·판 | JUnit. 무작위 사건 열 속성 시험: UNKNOWN 중 Dispatch 0, 같은 열쇠 Dispatch ≤ 1, Record 없이 Dispatch 0, 모든 열이 유한 단계 안에 종료 상태 도달. 계획 B2b-2c 의 `EpisodePropertiesTest`: 씨앗 1000개 × 사건 60개, 기록 번호 연속 · 실행 횟수 · 기한 있는 대기 · 이력 여덟 칸 · ESCALATED 와 종료에서 에이전트 명령 0 · Update 마다 답 · 겹친 `eventId` 무시도 보고, 「모름」은 시험이 따로 계산한 목록과 맞춘다. 13개 상태를 다 지나는지 따로 본다. 계획 C2 의 방향 있는 시험: 통보는 이어짐 · 다 마침 · ONLINE · 의심 없음일 때만 끝낸다(씨앗 500개, §16 C2 끝) |
 | 구동부 | R1 경합, R4 기한, 인수(하트비트 취소), 끄기, 늦은 `decide` 의 값 거절 | `TestWorkflowEnvironment` 시간 건너뛰기 (기존 `SagaWorkflowTest` 방식) |
-| 재생 | R3: 상태별 멈춘 이력 저장 → 새 코드 재생 | `WorkflowReplayer` (기존 `ReplayDeterminismTest` 방식) |
+| 재생 | R3: 상태별 멈춘 이력 저장 → 새 코드 재생. D-lite: 커밋한 묶음을 `CommittedReplayTest` 가 재생한다(§7.5 구현(D-lite)) | `WorkflowReplayer` (기존 `ReplayDeterminismTest` 방식) |
 | 장애 주입 | R2 · R5: 워커·DB·Temporal·narrator 강제 종료 | 실제 프로세스. 기존 `run-crash-recovery.sh` 방식. 고정 sleep 대신 조건 대기 |
 | 계약 | Mock 진단 ↔ narrator 워커 | 고정 예제 넷. **요청은 koshei 가 투영 함수로**, **응답은 narrator 가** 쓴다 |
 
@@ -1516,5 +1602,18 @@ narrator 쪽 현황(2026-09-28): 진단 워커가 섰다 — 큐 `narrator-tq`, 
 | C | 담는 쪽의 자리. picasso 는 picasso 를 세우는 배치 호스트가 실시간 읽기와 승인 쓰기를 둘 다 담기를 권한다(koshei 는 아님). 배치 결정이다. 승인 창구는 루프백에만 붙으므로 **koshei 는 담는 쪽과 같은 기계에서 돌아야 한다.** 반응 시간(담는 쪽의 `pump()` 주기)과 결과 통보를 koshei 에 나르는 모양(A 와 함께)도 여기 딸린다 | 개발용으로만 파일 내보내기 + 감시자. 실물 완료 근거 없음(§12), 모든 실물 에피소드는 UNKNOWN(PRECONDITION)을 지난다(§8.3). C1: 개발용 나르는 모양 `koshei-carry-0`(담는 쪽이 `executionId` 를 덧붙인다고 가정)과 Mock 담는 쪽 `MockCarrier`(시험 전용)로 근거 경로를 시험한다(§12 구현(C1)). ResultExport 판 1 은 섰다(C2) — 담는 쪽이 무엇이든 koshei 는 이 형식을 읽는다. 담는 쪽 요건: 결과 통보 파일은 추가 전용 · 전체 이력(§12) |
 | D | 카드 순서. picasso 의 WITHHELD 는 의도적 비자동화다 — 사람이 안쪽 루프의 진단을 먼저 보면 그것은 진단이 아니라 동의가 된다. picasso 는 안쪽 루프 진단을 적어 두되 사람 진단 뒤에 대조 재료로만 보이기를 권한다. 그런 대조용 진단을 부르고 기록해 둘지, 사람 진단이 기록된 뒤에 보일지가 D 의 일이다 | §9.5 그대로. 다만 스냅샷에 `WITHHELD` 탐색 줄이 있으면 DIAGNOSING 에 들어가는 순간 `diagnose` 를 부르지 않고 ESCALATED(`WITHHELD_HUMAN_FIRST`). 카드는 사실과 `ESCALATE` 과업만 |
 | E | picasso 쪽 변경 후보: ② `resolve` 가 승인자를 받아 AGENT 를 거절하고 누가 눌렀는지 남김(문을 여는 변경과 함께) ③ 보류 단위가 있는 실행의 재할당 막기 ④ 대장의 증분 조회 `after`. (① 은 B) | 셋 다 없다고 보고 짓는다 — `resolve` · `reassign` 을 부르지 않고(§8.4), 실시간 대장 읽기가 없다(§8.3). ③ 전까지 보류 단위의 재할당 빈 곳을 막는 장치는 없다 — koshei 가 부르지 않는 것뿐이다 |
+
+**사용자 결정으로 미룬 것 (2026-10-04, D-lite)** — 계획 D 가운데 D-lite 에서 뺀 것이다. 모두 범위 밖이다(§16 D-lite 끝).
+
+| 무엇 | 왜 미루나 | 그때까지 |
+|---|---|---|
+| 정책 관리: git 정본 + DB 활성 판 포인터 + 감사, CLI `policy validate` · `activate`(§10.3) | 지금은 파일 정책 하나로 충분하다. 런타임은 매 결정마다 파일을 읽는다(§8.2) | 정책은 `model/episode-policy/active.yaml`. 끄기는 파일의 `agentLayerEnabled: false` + 방송(§10.4) |
+| `SAGA_ACTION` · 조치 목록 · 자식 사가(§8.4, §9) | 지금 에피소드의 조치는 picasso 승인뿐이다. koshei 가 직접 하는 조치는 새 능력이다 | `actionCatalog: []` |
+| 블록의 「모름」 보고, safe-hold 결함 D5(§14) | 자식 사가가 없으면 에피소드 경로에 닿지 않는다 | §14 의 기록 그대로 |
+| 기록 필수 항목 전체 · 품질 이력 연결(작업 id, 차대번호)(§13) | 품질 시스템과의 잇기는 그쪽 결정이 먼저다 | 지금의 기록 항목 |
+| 감시 기록 화면 · 애매한 병합의 서로 참조를 에피소드 기록에 붙이기(§12) | 운영 편의. 기록은 이미 `episode_watch_log` 에 있다 | 표를 직접 읽는다 |
+| 제어면이 에피소드 표를 읽는 역할 | 런타임 역할은 워커와 감시자의 것이다(§13 구현(D-lite)) | 제어면은 소유 계정의 풀로 읽는다. 읽기만 하는 역할은 뒤의 일이다 |
+| `ensureSchema` 의 열 검사 | D-lite 는 권한만 다뤘다 | 객체 이름만 본다. 열이 다른 표도 통과한다 |
+| R3 의 DISPATCH_PENDING · REVALIDATING 이력 | D-lite 의 아홉에 들지 않았다 | 아홉 이력만 재생한다(§7.5 구현(D-lite)) |
 
 계획 A 와 B 는 이 표들의 어느 답도 기다리지 않는다.
