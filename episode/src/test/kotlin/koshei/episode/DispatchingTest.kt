@@ -59,7 +59,7 @@ class DispatchingTest {
         assertFalse(s.records(RecordKind.EVIDENCE).single().entry.payload.get("counted").booleanValue())
         val accepted = s.recorded().returned(DispatchResult.Answer(PicassoAnswers.approved()))
         assertEquals(Phase.AWAITING_EVIDENCE, accepted.state.phase)   // it was not kept for later
-        assertTrue("jr-early" in accepted.state.seenJobResponseIds)     // a redelivered copy is a duplicate (EvidenceTest)
+        assertTrue("${PicassoAnswers.INSTANCE}/jr-early" in accepted.state.seenReports)     // a redelivered copy is a duplicate (EvidenceTest)
     }
 
     @Test fun `an approved answer waits for evidence and keeps what went out`() {
@@ -67,6 +67,8 @@ class DispatchingTest {
         assertEquals(Phase.AWAITING_EVIDENCE, s.state.phase)
         val a = s.state.attempt!!
         assertEquals("exec-42", a.executionId)
+        assertEquals(PicassoAnswers.INSTANCE, a.picassoInstanceId)
+        assertEquals(listOf(PicassoAnswers.UNIT), a.approvedUnits)
         assertEquals("ACCEPTED", a.dispatch!!.result)
         assertEquals("AGENT", a.dispatch!!.approverKind)
         assertEquals("pick_place", a.dispatch!!.delivered!![0].get("skillType").textValue())

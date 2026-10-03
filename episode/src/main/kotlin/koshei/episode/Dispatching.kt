@@ -144,10 +144,10 @@ internal fun Out.onDispatchPending(event: EpisodeEvent, policy: PolicyTable, now
         )
         is EpisodeEvent.EvidenceArrived -> {
             val e = event.evidence
-            if (e.jobResponseId in state.seenJobResponseIds) recordEvidence(e, counted = false, why = "duplicate jobResponseId")
+            if (e.reportKey in state.seenReports) recordEvidence(e, counted = false, why = "duplicate jobResponseId")
             else {
                 // Seen now, so a redelivered copy after the answer cannot count either.
-                state = state.copy(seenJobResponseIds = state.seenJobResponseIds + e.jobResponseId)
+                state = state.copy(seenReports = state.seenReports + e.reportKey)
                 recordEvidence(e, counted = false, why = "before this attempt's Recorded")
             }
         }
@@ -195,10 +195,10 @@ internal fun Out.onDispatched(event: EpisodeEvent, policy: PolicyTable, now: Ins
 
 private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, result: DispatchResult, policy: PolicyTable, now: Instant) {
     val judgement = judgeDispatch(intent.candidate.kind, result)
-    // An execution id can come again: picasso's counters restart with the process, so `exec-N` repeats after a restart.
-    // (Within one process it no longer does: since picasso 5881e24 a later approval on an order already executing is
-    // refused REMEDY_NOT_APPLIED rather than routed to `revise()`.) Then nothing may link to it (fail closed).
-    val reused = judgement is DispatchJudgement.Accepted && judgement.executionId in state.usedExecutionIds
+    // One execution is (instanceId, executionId) (ADR 48): unique per attempt, also across picasso restarts. Should picasso
+    // give the same pair twice, nothing may link to it (fail closed) — a report of the first attempt could resolve this one.
+    val execution = (judgement as? DispatchJudgement.Accepted)?.let { "${it.instanceId}/${it.executionId}" }
+    val reused = execution != null && execution in state.usedExecutions
     record(RecordKind.DISPATCH_RESULT) {
         put("judgement", judgement.label)
         if (result is DispatchResult.Answer) put("answer", result.json)
@@ -211,8 +211,13 @@ private fun Out.onDispatchResult(attempt: Attempt, intent: DispatchIntent, resul
     when (judgement) {
         is DispatchJudgement.Accepted -> {
             state = state.copy(
-                attempt = attempt.copy(executionId = if (reused) null else judgement.executionId, dispatch = summary("ACCEPTED", judgement.delivered)),
-                usedExecutionIds = state.usedExecutionIds + judgement.executionId,
+                attempt = attempt.copy(
+                    executionId = if (reused) null else judgement.executionId,
+                    picassoInstanceId = if (reused) null else judgement.instanceId,
+                    approvedUnits = judgement.units,
+                    dispatch = summary("ACCEPTED", judgement.delivered),
+                ),
+                usedExecutions = state.usedExecutions + execution!!,
             )
             enterAwaitingEvidence(policy, now)
         }

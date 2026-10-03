@@ -239,7 +239,7 @@ internal fun Out.ignore(event: EpisodeEvent, why: String) {
     // A JobResponse that could not count here is still seen: once a later attempt of this episode is waiting, a redelivered
     // copy must be a duplicate, not a report about the new attempt (design §12).
     if (event is EpisodeEvent.EvidenceArrived)
-        state = state.copy(seenJobResponseIds = state.seenJobResponseIds + event.evidence.jobResponseId)
+        state = state.copy(seenReports = state.seenReports + event.evidence.reportKey)
     if (reply == null) reply = event.refusal()
 }
 

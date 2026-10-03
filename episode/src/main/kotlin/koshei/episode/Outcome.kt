@@ -3,18 +3,24 @@ package koshei.episode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import java.time.Instant
 
+/** picasso's `ConnectionState` name for a robot it sees online (picasso `JobResponse.connection`). Anything else blocks DONE. */
+const val PICASSO_ONLINE = "CONNECTION_STATE_ONLINE"
+
+/** ① of design §12: a JobResponse belongs to this attempt only through the execution its approval named — instance and id. */
+private fun Attempt.links(e: Evidence): Boolean =
+    executionId != null && picassoInstanceId != null && e.executionId == executionId && e.picassoInstanceId == picassoInstanceId
+
 /** AWAITING_EVIDENCE: a JobResponse or a person's check decides; `evidenceMs` ends it (design §5.1, §5.2). */
 internal fun Out.enterAwaitingEvidence(policy: PolicyTable, now: Instant) {
     enter(Phase.AWAITING_EVIDENCE, now)
     stateTimer(now, policy.deadlines.evidenceMs)
     replayBuffered(policy, now)
-    // A remedy no JobResponse can complete (no target unit known, or its execution id was reused) ends only by a person
-    // or the deadline: say so. A person task needs no notice, the dispatch activity issued the task. After the replay, so
-    // a kept doubtful report that already moved the episode to UNKNOWN(OUTCOME) does not notify twice.
+    // A remedy no JobResponse can complete (its execution was given twice, design §12) ends only by a person or the
+    // deadline: say so. A person task needs no notice, the dispatch activity issued the task. After the replay, so a kept
+    // doubtful report that already moved the episode to UNKNOWN(OUTCOME) does not notify twice.
     val attempt = state.attempt
     val candidate = attempt?.candidate
-    if (state.phase == Phase.AWAITING_EVIDENCE && candidate?.kind == CandidateKind.APPROVE_REMEDY &&
-        (attempt.executionId == null || attempt.intent?.targetUnit == null))
+    if (state.phase == Phase.AWAITING_EVIDENCE && candidate?.kind == CandidateKind.APPROVE_REMEDY && attempt.executionId == null)
         notify(NoticeKind.CONFIRM_OUTCOME, detail = candidate.candidateId)
 }
 
@@ -37,8 +43,8 @@ internal fun Out.enterUnknownOutcome(policy: PolicyTable, now: Instant, outcomeU
 
 /** DISPATCHED keeps JobResponses that come before the answer (they leave the same pump as the acceptance, design §5.2). */
 internal fun Out.bufferEvidence(e: Evidence) {
-    if (e.jobResponseId in state.seenJobResponseIds) return recordEvidence(e, counted = false, why = "duplicate jobResponseId")
-    state = state.copy(bufferedEvidence = state.bufferedEvidence + e, seenJobResponseIds = state.seenJobResponseIds + e.jobResponseId)
+    if (e.reportKey in state.seenReports) return recordEvidence(e, counted = false, why = "duplicate jobResponseId")
+    state = state.copy(bufferedEvidence = state.bufferedEvidence + e, seenReports = state.seenReports + e.reportKey)
     recordEvidence(e, counted = false, why = "kept until the answer")
 }
 
@@ -52,8 +58,8 @@ internal fun Out.bufferEvidence(e: Evidence) {
 private fun Out.replayBuffered(policy: PolicyTable, now: Instant) {
     val buffered = state.bufferedEvidence
     if (buffered.isEmpty()) return
-    val executionId = state.attempt?.executionId
-    val doubtInBatch = executionId != null && buffered.any { it.executionId == executionId && it.inDoubt() }
+    val attempt = state.attempt
+    val doubtInBatch = attempt != null && buffered.any { attempt.links(it) && it.inDoubt() }
     state = state.copy(bufferedEvidence = emptyList())
     for (e in buffered) {
         if (state.phase == Phase.AWAITING_EVIDENCE || state.phase == Phase.UNKNOWN_OUTCOME)
@@ -71,19 +77,22 @@ private fun Evidence.inDoubt(): Boolean {
 
 /**
  * One JobResponse, in the design §12 order: ① record only (duplicate, not this attempt's execution) → ② UNKNOWN (anything
- * in doubt or not reported) → ③ DONE (the target unit completed). A report that says DONE and UNKNOWN at once is
- * UNKNOWN. JobResponses never say NOT_DONE (④ — only a person does). Anything else is recorded (⑤). [allowResolve] is
- * false while replaying a batch that holds a doubtful report: ③ then records instead of resolving.
+ * in doubt or not reported) → ③ DONE (every approved unit completed, and picasso sees the robot online). A report that
+ * says DONE and UNKNOWN at once is UNKNOWN. JobResponses never say NOT_DONE (④ — only a person does). Anything else is
+ * recorded (⑤): units still to complete, or a connection other than ONLINE — `CONNECTION_STATE_UNSPECIFIED` (picasso
+ * has not seen the robot yet) included: what is not known does not end the attempt. [allowResolve] is false while
+ * replaying a batch that holds a doubtful report: ③ then records instead of resolving.
+ * ③ reads one report's `completedUnits` as the execution's whole progress so far, as picasso writes it (the units
+ * completed, not the ones completed since the last report); a reporter that sent only increments would never reach DONE.
  */
 internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTable, now: Instant, allowResolve: Boolean = true) {
     val attempt = state.attempt ?: return recordEvidence(e, counted = false, why = "no attempt in progress")
     if (!replayed) {
-        if (e.jobResponseId in state.seenJobResponseIds) return recordEvidence(e, counted = false, why = "duplicate jobResponseId")
-        state = state.copy(seenJobResponseIds = state.seenJobResponseIds + e.jobResponseId)
+        if (e.reportKey in state.seenReports) return recordEvidence(e, counted = false, why = "duplicate jobResponseId")
+        state = state.copy(seenReports = state.seenReports + e.reportKey)
     }
-    // ① Linked only through the executionId picasso returned for this attempt's approval. Person tasks have none (§8.4).
-    if (attempt.executionId == null || e.executionId != attempt.executionId)
-        return recordEvidence(e, counted = false, why = "not linked to this attempt's execution")
+    // ① Linked only through the execution picasso returned for this attempt's approval. Person tasks have none (§8.4).
+    if (!attempt.links(e)) return recordEvidence(e, counted = false, why = "not linked to this attempt's execution")
     // ② In doubt, unverified, a person needed, or simply not reported: UNKNOWN — never DONE, never folded into NOT_DONE.
     if (e.inDoubt()) {
         recordEvidence(e, counted = true, why = "in doubt")
@@ -101,14 +110,16 @@ internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTabl
             enterUnknownOutcome(policy, now, outcomeUnknown = false, detail = "JobResponse ${e.jobResponseId} in doubt")
         return
     }
-    // ③ DONE: the target unit completed.
-    val unit = attempt.intent?.targetUnit
-    if (unit != null && e.completedUnits?.contains(unit) == true) {
-        if (!allowResolve) return recordEvidence(e, counted = false, why = "not resolved: a kept report is in doubt")
-        recordEvidence(e, counted = true, why = "target completed")
-        return resolve(EvidenceSummary(e.reachedEvidence, "DONE"), now)
-    }
-    recordEvidence(e, counted = false, why = if (unit == null) "target unit not known (design §19)" else "target not completed yet")
+    // ③ DONE: every unit the approval sent completed, while picasso sees the robot online. An attempt with no units cannot
+    // be judged (the answer reader refuses such an APPROVED; this guards containsAll's vacuous true).
+    val completed = e.completedUnits
+    if (attempt.approvedUnits.isEmpty() || completed == null || !completed.containsAll(attempt.approvedUnits))
+        return recordEvidence(e, counted = false, why = "not every approved unit completed yet")
+    if (e.connection != PICASSO_ONLINE)
+        return recordEvidence(e, counted = false, why = "connection ${e.connection}: not DONE unless picasso sees the robot online")
+    if (!allowResolve) return recordEvidence(e, counted = false, why = "not resolved: a kept report is in doubt")
+    recordEvidence(e, counted = true, why = "every approved unit completed")
+    resolve(EvidenceSummary(e.reachedEvidence, "DONE"), now)
 }
 
 /**
@@ -146,6 +157,8 @@ internal fun ObjectNode.putEvidence(e: Evidence) {
     putStrings("inDoubtUnits", e.inDoubtUnits)
     putStrings("unverifiedUnits", e.unverifiedUnits)
     put("operatorRequired", e.operatorRequired)
+    put("picassoInstanceId", e.picassoInstanceId)
+    put("connection", e.connection)
     put("receivedAt", e.receivedAt.toString())
 }
 

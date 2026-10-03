@@ -223,7 +223,7 @@ class EpisodePropertiesTest {
         if (event is EpisodeEvent.SymptomJoined && before != null && event.symptom.eventId in before.seenEventIds)
             assertEquals(before.symptoms, s.symptoms, "a duplicated eventId was joined")
         // A JobResponse seen before moves nothing (design §12) — unless the global rows escalated this very step.
-        if (event is EpisodeEvent.EvidenceArrived && before != null && event.evidence.jobResponseId in before.seenJobResponseIds &&
+        if (event is EpisodeEvent.EvidenceArrived && before != null && event.evidence.reportKey in before.seenReports &&
             !escalatedByGlobalRow(before, s)
         ) {
             assertEquals(before.phase, s.phase, "a duplicated jobResponseId moved the phase: $event")

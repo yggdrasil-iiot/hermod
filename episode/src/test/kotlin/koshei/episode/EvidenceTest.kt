@@ -15,12 +15,6 @@ class EvidenceTest {
 
     private fun Step.evidence(e: Evidence, now: Instant = state.enteredAt.plusSeconds(5)): Step = on(EpisodeEvent.EvidenceArrived(e), now)
 
-    /** [s] with an intent that names its target unit "u-1" — no kind does that yet (design §19). */
-    private fun withTarget(s: Step): Step {
-        val a = s.state.attempt!!
-        return Step(s.state.copy(attempt = a.copy(intent = a.intent!!.copy(targetUnit = "u-1"))), emptyList())
-    }
-
     private fun confirm(s: Step, done: Boolean, attempt: Int = 1, candidateId: String = REMEDY): Step =
         s.on(EpisodeEvent.ConfirmedOutcome(candidateId, "$INSTANCE#$attempt", done, OPERATOR), s.state.enteredAt.plusSeconds(10))
 
@@ -62,7 +56,7 @@ class EvidenceTest {
             jobResponse("f", unverified = null),
         )
         for (e in cases) {
-            val s = withTarget(accepted()).evidence(e)
+            val s = accepted().evidence(e)
             assertEquals(Phase.UNKNOWN_OUTCOME, s.state.phase, e.jobResponseId)
             assertEquals("UNKNOWN", s.state.attempt!!.evidence!!.outcome, e.jobResponseId)
         }
@@ -76,7 +70,7 @@ class EvidenceTest {
     }
 
     @Test fun `the target unit completed with nothing in doubt resolves`() {
-        val s = withTarget(accepted()).evidence(jobResponse("jr-1"))
+        val s = accepted().evidence(jobResponse("jr-1"))
         assertEquals(Phase.RESOLVED, s.state.phase)
         val entry = s.state.history.single().toJson()
         assertEquals("RESOLVED", entry.get("closedAs").textValue())
@@ -86,10 +80,52 @@ class EvidenceTest {
         assertEquals("pick_place", entry.get("dispatch").get("delivered")[0].get("skillType").textValue())
     }
 
-    @Test fun `no JobResponse completes an attempt while the target unit is not known`() {
-        val s = accepted().evidence(jobResponse("jr-1"))
+    @Test fun `a report of another picasso instance is only recorded, even with the same executionId`() {
+        val s = accepted().evidence(jobResponse("jr-1", instance = "mw-restarted"))
         assertEquals(Phase.AWAITING_EVIDENCE, s.state.phase)
-        assertEquals("target unit not known (design §19)", s.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+        assertEquals("not linked to this attempt's execution", s.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+    }
+
+    @Test fun `the same jobResponseId from another instance is another report - from the same instance it is a duplicate`() {
+        val first = accepted().evidence(jobResponse("jr-1", completed = listOf()))
+        val other = first.evidence(jobResponse("jr-1", instance = "mw-2", completed = listOf()))
+        assertEquals("not linked to this attempt's execution", other.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+        val dup = other.evidence(jobResponse("jr-1", completed = listOf()))
+        assertEquals("duplicate jobResponseId", dup.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+    }
+
+    @Test fun `DONE needs every approved unit completed`() {
+        val two = listOf("remedy-1-pick_place", "remedy-2-pick_place")
+        val a = dispatched().returned(DispatchResult.Answer(PicassoAnswers.approved(units = two)))
+        val half = a.evidence(jobResponse("jr-1", completed = listOf("remedy-1-pick_place")))
+        assertEquals(Phase.AWAITING_EVIDENCE, half.state.phase)
+        assertEquals("not every approved unit completed yet", half.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+        val all = half.evidence(jobResponse("jr-2", completed = two + "remedy-9-other"))
+        assertEquals(Phase.RESOLVED, all.state.phase)
+        assertEquals("every approved unit completed", all.records(RecordKind.EVIDENCE).single().entry.payload.get("why").textValue())
+    }
+
+    @Test fun `no DONE unless picasso sees the robot online - not yet seen included`() {
+        for (c in listOf("CONNECTION_STATE_UNSPECIFIED", "CONNECTION_STATE_OFFLINE", "CONNECTION_STATE_HIBERNATING", "CONNECTION_STATE_CONNECTION_BROKEN", "online", null)) {
+            val s = accepted().evidence(jobResponse("jr-1", connection = c))
+            assertEquals(Phase.AWAITING_EVIDENCE, s.state.phase, "$c")
+            val record = s.records(RecordKind.EVIDENCE).single().entry.payload
+            assertEquals(false, record.get("counted").booleanValue(), "$c")
+            assertTrue("connection" in record.get("why").textValue(), "$c: ${record.get("why")}")
+            assertEquals(Phase.RESOLVED, s.evidence(jobResponse("jr-2")).state.phase, "the next online report resolves after $c")
+        }
+    }
+
+    @Test fun `a report in doubt is UNKNOWN whatever the connection`() {
+        val s = accepted().evidence(jobResponse("jr-1", inDoubt = listOf(PicassoAnswers.UNIT), connection = "CONNECTION_STATE_CONNECTION_BROKEN"))
+        assertEquals(Phase.UNKNOWN_OUTCOME, s.state.phase)
+    }
+
+    @Test fun `the evidence record keeps the instance and the connection`() {
+        val payload = accepted().evidence(jobResponse("jr-1", connection = "CONNECTION_STATE_OFFLINE"))
+            .records(RecordKind.EVIDENCE).single().entry.payload
+        assertEquals(PicassoAnswers.INSTANCE, payload.get("picassoInstanceId").textValue())
+        assertEquals("CONNECTION_STATE_OFFLINE", payload.get("connection").textValue())
     }
 
     @Test fun `a person's DONE resolves with E3 - NOT_DONE re-diagnoses without the outcome unknown`() {

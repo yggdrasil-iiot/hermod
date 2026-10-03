@@ -36,8 +36,12 @@ data class Attempt internal constructor(
     val validUntil: Instant? = null,
     /** The intent DISPATCH_PENDING recorded (under [intentSeq]). */
     val intent: DispatchIntent? = null,
-    /** picasso's `executionId` from an APPROVED answer: what links a JobResponse to this attempt (design §12). */
+    /** picasso's `executionId` from an APPROVED answer: with [picassoInstanceId], what links a JobResponse to this attempt (design §12). */
     val executionId: String? = null,
+    /** picasso's `instanceId` from that answer: `executionId` is counted per instance, so only the pair names the execution (ADR 48). */
+    val picassoInstanceId: String? = null,
+    /** The `unitId` of every step that answer sent (ADR 48): a linked JobResponse is DONE when it completed all of them (§12). */
+    val approvedUnits: List<String> = emptyList(),
     val dispatch: DispatchSummary? = null,
     val evidence: EvidenceSummary? = null,
     /** NO_PROPOSAL, REMEDY_NOT_APPLIED, CONSUMED or an uncertain dispatch: a later DONE is "done, by whom unknown" (design §11). */
@@ -85,12 +89,14 @@ data class EpisodeState internal constructor(
     val episodeUnknowns: List<Unknown> = emptyList(),
     /** JobResponses that arrived in DISPATCHED, before the answer; applied on entering AWAITING_EVIDENCE / UNKNOWN(OUTCOME). */
     val bufferedEvidence: List<Evidence> = emptyList(),
-    val seenJobResponseIds: Set<String> = emptySet(),
+    /** Every JobResponse seen in this episode, by [Evidence.reportKey]: a redelivered one never counts twice (design §6). */
+    val seenReports: Set<String> = emptySet(),
     /**
-     * Every `executionId` an APPROVED answer gave in this episode. picasso counts them per process, so an id can come
-     * again after a restart: an attempt whose id was used before links no JobResponse (a stale one could resolve it).
+     * Every execution an APPROVED answer gave in this episode, as `<instanceId>/<executionId>`. The pair is unique per
+     * attempt (ADR 48), so a repeat is picasso's fault, not a restart: an attempt whose execution was used before links no
+     * JobResponse (a stale one could resolve it).
      */
-    val usedExecutionIds: Set<String> = emptySet(),
+    val usedExecutions: Set<String> = emptySet(),
     /** A person's confirmations of unknowns (design §7.2, §9.1). */
     val confirmations: List<UnknownConfirmation> = emptyList(),
 ) {

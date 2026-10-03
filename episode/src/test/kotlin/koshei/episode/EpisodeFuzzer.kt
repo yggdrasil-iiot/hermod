@@ -12,6 +12,8 @@ internal class EpisodeFuzzer(seed: Long) {
     private val r = Random(seed)
     /** Whether a precondition confirmation comes without its proposition: drawn apart from [r], whose draws stay as they were. */
     private val bare = Random(seed xor 0x5EED_B3C2L)
+    /** Instance, connection and completed units of a JobResponse (plan C2): drawn apart from [r] and [bare] for the same reason. */
+    private val reports = Random(seed xor 0x0A48_0048L)
 
     fun first(): Symptom = when (r.nextInt(12)) {
         0, 1, 2 -> Episodes.incident("incident-6")
@@ -176,10 +178,12 @@ internal class EpisodeFuzzer(seed: Long) {
             jobResponse(
                 "jr-${r.nextInt(n + 2)}",
                 executionId = if (r.nextInt(4) == 0) "exec-other" else (a.executionId ?: "exec-1"),
-                completed = listOf("u-1"),
+                completed = if (reports.nextInt(3) == 0) a.approvedUnits else listOf("u-1"),
                 inDoubt = if (twoInDoubt) listOf("u-1") else listOf(emptyList<String>(), listOf("u-1"), null).random(r),
                 unverified = if (twoInDoubt) listOf("u-2") else listOf(emptyList<String>(), listOf("u-2"), null).random(r),
                 operatorRequired = listOf(false, true, null).random(r),
+                instance = if (reports.nextInt(4) == 0) "mw-other" else (a.picassoInstanceId ?: PicassoAnswers.INSTANCE),
+                connection = if (reports.nextInt(4) == 0) "CONNECTION_STATE_UNSPECIFIED" else PICASSO_ONLINE,
             ),
         )
     }

@@ -29,7 +29,10 @@ data class SymptomSignal(
     val manifestJson: String? = null,
 )
 
-/** `evidence` signal: a JobResponse the host carried (design §12). A null list or flag means "not reported". */
+/**
+ * `evidence` signal: a JobResponse the host carried (design §12). A null list or flag means "not reported".
+ * [picassoInstanceId] and [connection] are picasso's `instanceId` and `connection` (ResultExport schema 1, ADR 48).
+ */
 data class EvidenceSignal(
     val jobResponseId: String = "",
     val executionId: String? = null,
@@ -40,6 +43,8 @@ data class EvidenceSignal(
     val unverifiedUnits: List<String>? = null,
     val operatorRequired: Boolean? = null,
     val receivedAtMillis: Long = 0,
+    val picassoInstanceId: String? = null,
+    val connection: String? = null,
 )
 
 /** `decide` Update (design §7.2). [reason] is a `RejectReason` name; [note] stays in the audit record. */

@@ -95,17 +95,19 @@ internal object PicassoAnswers {
         """{"approverId":"op-9","approverKind":"PERSON","at":"2026-10-03T00:00:00Z","wallClockAt":"2026-10-03T00:00:00Z","executionId":"$executionId","steps":[{"unitId":"remedy-1-pick_place","skillType":"pick_place","parameters":{}}]}"""
 }
 
-/** A JobResponse for the default execution: everything completed, nothing in doubt, unless told otherwise. */
+/** A JobResponse for the default attempt (instance and execution): every approved unit completed, nothing in doubt, online. */
 internal fun jobResponse(
     id: String,
     executionId: String? = PicassoAnswers.EXECUTION,
-    completed: List<String>? = listOf("u-1"),
+    completed: List<String>? = listOf(PicassoAnswers.UNIT),
     inDoubt: List<String>? = emptyList(),
     unverified: List<String>? = emptyList(),
     operatorRequired: Boolean? = false,
     at: Instant = Episodes.T0,
     reached: String? = "E2",
-): Evidence = Evidence(id, executionId, "DONE", reached, completed, inDoubt, unverified, operatorRequired, at)
+    instance: String? = PicassoAnswers.INSTANCE,
+    connection: String? = PICASSO_ONLINE,
+): Evidence = Evidence(id, executionId, "DONE", reached, completed, inDoubt, unverified, operatorRequired, at, instance, connection)
 
 /** DISPATCH_PENDING: auto-approved by the test table, revalidated TRUE one second later. */
 internal fun pending(first: Symptom = Episodes.search("search-1"), read: PolicyRead = Episodes.policy()): Step =

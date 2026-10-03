@@ -39,7 +39,7 @@ internal fun SymptomSignal.toSymptom(): Symptom {
 
 internal fun EvidenceSignal.toEvidence(): Evidence = Evidence(
     jobResponseId, executionId, physicalState, reachedEvidence, completedUnits, inDoubtUnits, unverifiedUnits,
-    operatorRequired, Instant.ofEpochMilli(receivedAtMillis),
+    operatorRequired, Instant.ofEpochMilli(receivedAtMillis), picassoInstanceId = picassoInstanceId, connection = connection,
 )
 
 /** design §8.2: a table that does not even parse is read like a rejected one (the core keeps the last valid table). */
@@ -112,7 +112,6 @@ internal fun intentJson(intent: DispatchIntent): String = strictJson.createObjec
         put("assurance", approval.approver?.assurance?.name)
         put("at", approval.at.toString())
     }
-    put("targetUnit", intent.targetUnit)
 }.toString()
 
 internal fun noticeJson(notice: Notice): String = strictJson.createObjectNode().apply {

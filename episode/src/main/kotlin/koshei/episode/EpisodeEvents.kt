@@ -117,6 +117,8 @@ sealed interface DispatchResult {
 /**
  * A picasso result notification (JobResponse) the host carried in (design §12), field by field as delivered. A `null`
  * list or flag means "not reported", which [transition] reads as unknown — never as empty or false.
+ * [picassoInstanceId] is the picasso instance that wrote it (ADR 48): `jobResponseId` and `executionId` are counted per
+ * instance, so only the pair names one report or one execution. [connection] is picasso's `ConnectionState` name.
  */
 class Evidence(
     val jobResponseId: String,
@@ -129,10 +131,18 @@ class Evidence(
     unverifiedUnits: List<String>?,
     val operatorRequired: Boolean?,
     val receivedAt: Instant,
+    val picassoInstanceId: String? = null,
+    val connection: String? = null,
 ) {
     val completedUnits: List<String>? = completedUnits?.toList()
     val inDoubtUnits: List<String>? = inDoubtUnits?.toList()
     val unverifiedUnits: List<String>? = unverifiedUnits?.toList()
+
+    /**
+     * One report: `<instanceId>/<jobResponseId>` (`null/…` when the instance is not known — such a report links to nothing).
+     * picasso's ids are `mw-<uuid>` and `resp-N`, neither holding `/`, so the join is unambiguous.
+     */
+    val reportKey: String get() = "$picassoInstanceId/$jobResponseId"
 
     /** A value: two reports with every field equal are equal (a restored state must compare equal to the one it came from). */
     override fun equals(other: Any?): Boolean {
@@ -141,13 +151,14 @@ class Evidence(
             physicalState == other.physicalState && reachedEvidence == other.reachedEvidence &&
             completedUnits == other.completedUnits && inDoubtUnits == other.inDoubtUnits &&
             unverifiedUnits == other.unverifiedUnits && operatorRequired == other.operatorRequired &&
-            receivedAt.compareTo(other.receivedAt) == 0
+            receivedAt.compareTo(other.receivedAt) == 0 &&
+            picassoInstanceId == other.picassoInstanceId && connection == other.connection
     }
 
     override fun hashCode(): Int = listOf(
         jobResponseId, executionId, physicalState, reachedEvidence, completedUnits, inDoubtUnits, unverifiedUnits,
-        operatorRequired, receivedAt,
+        operatorRequired, receivedAt, picassoInstanceId, connection,
     ).hashCode()
 
-    override fun toString(): String = "Evidence($jobResponseId, $executionId)"
+    override fun toString(): String = "Evidence($picassoInstanceId, $jobResponseId, $executionId)"
 }

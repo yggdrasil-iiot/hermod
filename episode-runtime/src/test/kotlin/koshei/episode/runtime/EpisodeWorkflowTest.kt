@@ -221,13 +221,15 @@ class EpisodeWorkflowTest {
         assertEquals(3, acts.calls.count { it.startsWith("dispatch:") })
     }
 
-    @Test fun `evidence in AWAITING_EVIDENCE is recorded and, with no target unit known, does not resolve`() {
+    @Test fun `evidence in AWAITING_EVIDENCE is recorded, and a linked report that completed every unit online resolves`() {
         val ep = open()
         val waiting = ep.until { it.phase == "AWAITING_EVIDENCE" }
-        ep.evidence(EvidenceSignal("jr-1", "exec-42", "IDLE", "E2", listOf("u-1"), emptyList(), emptyList(), false, 0))
-        val rec = eventually { records(waiting.instanceId).firstOrNull { it.kind == "EVIDENCE" && "jr-1" in it.payload } }
-        assertTrue("target unit not known" in rec.payload, rec.payload)
-        assertEquals("AWAITING_EVIDENCE", ep.view().phase)
+        ep.evidence(EvidenceSignal("jr-0", "exec-42", "IDLE", "E2", listOf("remedy-1-pick_place"), emptyList(), emptyList(), false, 0))
+        val unlinked = eventually { records(waiting.instanceId).firstOrNull { it.kind == "EVIDENCE" && "jr-0" in it.payload } }
+        assertTrue("not linked" in unlinked.payload, unlinked.payload)   // no instance: it names no execution
+        ep.evidence(EvidenceSignal("jr-1", "exec-42", "IDLE", "E2", listOf("remedy-1-pick_place"), emptyList(), emptyList(), false, 0,
+            picassoInstanceId = "mw-1", connection = "CONNECTION_STATE_ONLINE"))
+        assertEquals("RESOLVED", ep.result().phase)
     }
 
     @Test fun `a symptom joined after the start counts in the view`() {

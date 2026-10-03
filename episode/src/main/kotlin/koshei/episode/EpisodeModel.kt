@@ -109,15 +109,10 @@ class RecordEntry(val kind: RecordKind, payload: ObjectNode) {
     override fun toString(): String = "RecordEntry($kind, $payloadCopy)"
 }
 
-/**
- * What the DISPATCH_PENDING intent record says will be dispatched (design §5.2, §11). [targetUnit] is the unit whose
- * presence in a JobResponse's `completedUnits` counts as DONE (design §12). It is null for every kind today: picasso has
- * not said how a JobResponse names the target's unit (design §19), so no JobResponse can complete an attempt yet.
- */
+/** What the DISPATCH_PENDING intent record says will be dispatched (design §5.2, §11). */
 @ConsistentCopyVisibility
 data class DispatchIntent internal constructor(
     val candidate: Candidate,
     val idempotencyKey: String,
     val approval: Approval?,
-    val targetUnit: String? = null,
 )
