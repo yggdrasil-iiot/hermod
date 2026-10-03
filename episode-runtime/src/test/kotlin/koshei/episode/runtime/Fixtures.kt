@@ -114,7 +114,7 @@ internal object TestPolicies {
 
 /** picasso's approval-window answer for an approved remedy (picasso `ApprovalWire.encode`, schema 4). */
 internal const val PICASSO_APPROVED =
-    """{"schemaVersion":"4","contractSemver":"1.0.0","instanceId":"mw-1","outcome":"APPROVED","executionId":"exec-42","steps":[{"unitId":"remedy-1-pick_place","skillType":"pick_place","parameters":{"slot":"B-03"}}]}"""
+    """{"schemaVersion":"4","contractSemver":"0.9.0","instanceId":"mw-1","outcome":"APPROVED","executionId":"exec-42","steps":[{"unitId":"remedy-1-pick_place","skillType":"pick_place","parameters":{"slot":"B-03"}}]}"""
 
 /** One `record` call as the activity received it. */
 internal data class Rec(val instanceId: String, val seq: Long, val kind: String, val payload: String)

@@ -83,12 +83,12 @@ internal object PicassoAnswers {
     /** One step per unit, in order, as picasso names them (`remedy-{n}-{skillType}`, ADR 48). */
     fun approved(executionId: String = EXECUTION, instanceId: String = INSTANCE, units: List<String> = listOf(UNIT)): String {
         val steps = units.joinToString(",") { """{"unitId":"$it","skillType":"pick_place","parameters":{"slot":"B-03"}}""" }
-        return """{"schemaVersion":"4","contractSemver":"1.0.0","instanceId":"$instanceId","outcome":"APPROVED","executionId":"$executionId","steps":[$steps]}"""
+        return """{"schemaVersion":"4","contractSemver":"0.9.0","instanceId":"$instanceId","outcome":"APPROVED","executionId":"$executionId","steps":[$steps]}"""
     }
 
     /** [consumed] is the raw JSON of the `consumed` field: a consumption record for CONSUMED, `null` for every other refusal. */
     fun refused(refusal: String, schema: String = "4", consumed: String = "null"): String =
-        """{"schemaVersion":"$schema","contractSemver":"1.0.0","instanceId":"$INSTANCE","outcome":"REFUSED","refusal":"$refusal","reason":"r","consumed":$consumed}"""
+        """{"schemaVersion":"$schema","contractSemver":"0.9.0","instanceId":"$INSTANCE","outcome":"REFUSED","refusal":"$refusal","reason":"r","consumed":$consumed}"""
 
     /** A consumption record as picasso writes it (ADR 46): who, when, which execution, what went out. */
     fun consumedRecord(executionId: String = "exec-7"): String =

@@ -18,8 +18,8 @@ class BundlesTest {
 
     private fun lines(name: String, vararg lines: String) = Files.writeString(dir.resolve(name), lines.joinToString("\n", postfix = "\n"))
 
-    private fun read(unique: Boolean = true, readText: (Path) -> String = Files::readString) =
-        Bundles.read(dir, "runId", setOf("5"), files, unique, readText)
+    private fun read(readText: (Path) -> String = Files::readString) =
+        Bundles.read(dir, "runId", setOf("5"), files, readText)
 
     @Test fun `nothing is read before the manifest is there`() {
         lines("a.jsonl", """{"aId":"a-1"}""")
@@ -220,12 +220,12 @@ class BundlesTest {
         assertIs<BundleRead.Broken>(read())
     }
 
-    @Test fun `repeated ids are broken when ids must be unique, kept when they may repeat`() {
+    @Test fun `a repeated id is broken`() {
         lines("a.jsonl", """{"aId":"a-1"}""", """{"aId":"a-1"}""")
         lines("b.jsonl")
         manifest(a = 2, b = 0)
-        assertIs<BundleRead.Broken>(read(unique = true))
-        assertEquals(listOf("a-1", "a-1"), assertIs<BundleRead.Ready>(read(unique = false)).lines.getValue("a.jsonl").map { it.id })
+        val broken = assertIs<BundleRead.Broken>(read())
+        assertTrue("repeats aId 'a-1'" in broken.why, broken.why)
     }
 
     @Test fun `the manifest travels as written`() {

@@ -18,7 +18,7 @@ object ExportSymptoms {
 
     /** Incidents first, then searches: the order picasso writes them, and the order the watcher sends them. */
     fun read(dir: Path): BundleRead =
-        Bundles.read(dir, "runId", SCHEMA_VERSIONS, ExportKind.entries.map { it.file }, uniqueIds = true)
+        Bundles.read(dir, "runId", SCHEMA_VERSIONS, ExportKind.entries.map { it.file })
 
     /** `search:<runId>:<searchId>`, `incident:<runId>:<digest>`. Null for an incident without a digest: never guessed. */
     fun eventId(kind: ExportKind, runId: String, line: BundleLine): String? = when (kind) {

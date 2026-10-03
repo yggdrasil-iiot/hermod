@@ -82,7 +82,7 @@ class MockPicasso(val instanceId: String = "mock-${UUID.randomUUID()}") : Approv
 
     private fun answer(): ObjectNode = strictJson.createObjectNode().apply {
         put("schemaVersion", "4")
-        put("contractSemver", "1.0.0")
+        put("contractSemver", "0.9.0")
         put("instanceId", instanceId)
     }
 

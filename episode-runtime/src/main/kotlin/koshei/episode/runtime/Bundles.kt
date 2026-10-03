@@ -30,7 +30,8 @@ sealed interface BundleRead {
  * Reads a bundle written the picasso way (picasso `BundleWriter`): jsonl files first, `manifest.json` last, each by
  * rename. A live host rewrites the files whole as lines are added, so a file may be newer than the manifest: only the
  * first `counts.<key>` lines are taken, and the manifest is read again at the end — if it changed, the bundle is read
- * again later. JSON is read as strictly as the core reads it (duplicate keys refused, BOM refused, objects only).
+ * again later. JSON is read as strictly as the core reads it (duplicate keys refused, BOM refused, objects only), and
+ * an id repeated within a file is broken (result notices, where repeats are expected, are read by [ResultExportFile]).
  *
  * Nothing is called broken while the manifest is moving: a bundle replaced or rewritten under the reader can look
  * broken (a file of the next snapshot, a file gone) and is not. Every verdict "broken" is first checked against a fresh
@@ -52,7 +53,6 @@ object Bundles {
         runIdField: String,
         schemaVersions: Set<String>,
         files: List<BundleFile>,
-        uniqueIds: Boolean,
         readText: (Path) -> String = Files::readString,
     ): BundleRead {
         val manifestFile = dir.resolve(MANIFEST)
@@ -111,7 +111,7 @@ object Bundles {
                 val parsed = parse(line)
                 val node = parsed.node ?: return broken("$where ${parsed.notObject}")
                 val id = node.textOf(file.idField) ?: return broken("$where has no ${file.idField}")
-                if (uniqueIds && !seen.add(id)) return broken("$where repeats ${file.idField} '$id'")
+                if (!seen.add(id)) return broken("$where repeats ${file.idField} '$id'")
                 read += BundleLine(i + 1, id, line, node)
             }
             lines[file.name] = read
