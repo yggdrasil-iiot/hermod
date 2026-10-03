@@ -70,6 +70,86 @@ class EpisodePropertiesTest {
         assertTrue(directed.crowded >= 20, "too few confirmations of one episode item among several in the directed runs: crowded=${directed.crowded}")
     }
 
+    /** Seeds of the directed report runs: each starts from an accepted remedy, sometimes with reports kept before the answer. */
+    private val reportSeeds = 0L until 500L
+    private val maxReports = 8
+
+    @Test fun `a report resolves only when linked, complete, online and clean - directed`() {
+        val stats = Stats()
+        for (seed in reportSeeds) {
+            try {
+                reportRun(seed, stats)
+            } catch (e: AssertionError) {
+                throw AssertionError("report seed $seed: ${e.message}", e)
+            }
+        }
+        val seen = "evidenceResolved=${stats.evidenceResolved}, replayResolved=${stats.replayResolved}"
+        assertTrue(stats.evidenceResolved >= EVIDENCE_RESOLVED_FLOOR, "too few RESOLVED by an arriving report: $seen")
+        assertTrue(stats.replayResolved >= REPLAY_RESOLVED_FLOOR, "too few RESOLVED by a kept report on the answer: $seen")
+    }
+
+    /**
+     * One directed run: DISPATCHED, 0–3 reports kept on half the seeds, an APPROVED answer for one or two units from mw-1
+     * or mw-2, then up to [maxReports] random reports until the episode ends. Each report is right or wrong in each way
+     * with even odds, so every combination comes up. Both directions are checked: what resolves passes [checkResolution],
+     * and what [resolves] says completes the attempt does resolve.
+     */
+    private fun reportRun(seed: Long, stats: Stats) {
+        val rnd = kotlin.random.Random(seed)
+        val units = if (rnd.nextBoolean()) listOf(PicassoAnswers.UNIT) else listOf("remedy-1-pick_place", "remedy-2-pick_place")
+        val instance = if (rnd.nextBoolean()) "mw-1" else "mw-2"
+        val otherInstance = if (instance == "mw-1") "mw-2" else "mw-1"
+        val execution = PicassoAnswers.EXECUTION
+        val ids = mutableListOf<String>()
+        fun report(): Evidence {
+            val id = if (ids.isNotEmpty() && rnd.nextInt(4) == 0) ids.random(rnd) else "jr-${ids.size}".also { ids += it }
+            val doubt = if (rnd.nextBoolean()) -1 else rnd.nextInt(6)
+            return jobResponse(
+                id,
+                executionId = if (rnd.nextBoolean()) execution else "exec-other",
+                completed = if (rnd.nextBoolean()) units else listOf(units.dropLast(1), null).random(rnd),
+                inDoubt = when (doubt) { 0 -> listOf(units.first()); 4 -> null; else -> emptyList() },
+                unverified = when (doubt) { 1 -> listOf(units.first()); 5 -> null; else -> emptyList() },
+                operatorRequired = when (doubt) { 2 -> true; 3 -> null; else -> false },
+                instance = if (rnd.nextBoolean()) instance else listOf(otherInstance, null).random(rnd),
+                connection = if (rnd.nextBoolean()) PICASSO_ONLINE else NOT_ONLINE.random(rnd),
+            )
+        }
+        var step = dispatched()
+        var now = step.state.enteredAt
+        fun advance(event: EpisodeEvent) {
+            now = now.plusSeconds(1)
+            val before = step.state
+            step = transition(before, event, null, now)
+            checkResolution(before, event, step, stats)
+            val resolved = before.phase != Phase.RESOLVED && step.state.phase == Phase.RESOLVED
+            when (event) {
+                is EpisodeEvent.EvidenceArrived -> {
+                    val e = event.evidence
+                    val a = before.attempt
+                    val should = a != null && (before.phase == Phase.AWAITING_EVIDENCE || before.phase == Phase.UNKNOWN_OUTCOME) &&
+                        e.reportKey !in before.seenReports && resolves(e, a.picassoInstanceId, a.executionId, a.approvedUnits)
+                    assertEquals(should, resolved, "a report in ${before.phase} resolved=$resolved: $e")
+                }
+                is EpisodeEvent.DispatchReturned -> {
+                    val (instanceId, executionId, approved) = approvedExecution(event)
+                    val kept = before.bufferedEvidence
+                    val should = kept.none { linked(it, instanceId, executionId) && !clean(it) } &&
+                        kept.any { resolves(it, instanceId, executionId, approved) }
+                    assertEquals(should, resolved, "the answer resolved=$resolved with kept $kept")
+                }
+                else -> {}
+            }
+        }
+        if (rnd.nextBoolean()) repeat(rnd.nextInt(4)) { advance(EpisodeEvent.EvidenceArrived(report())) }
+        advance(EpisodeEvent.DispatchReturned(DispatchResult.Answer(PicassoAnswers.approved(execution, instance, units)), step.state.token))
+        var sent = 0
+        while (sent < maxReports && !step.state.phase.terminal && step.state.phase != Phase.ESCALATED) {
+            advance(EpisodeEvent.EvidenceArrived(report()))
+            sent++
+        }
+    }
+
     /**
      * One run: a fuzzed event sequence, then the timers alone until the end. A [directed] run starts instead from
      * UNKNOWN(OUTCOME) with unit u-1 in doubt and u-2 unverified, reached by the ordinary steps — each of them checked too,
@@ -172,11 +252,55 @@ class EpisodePropertiesTest {
     /** The test's own matching of an item by subject and kind — not the production `Unknown.matches`, which is under test. */
     private fun Unknown.names(subject: Map<String, String?>, what: UnknownWhat): Boolean = this.subject == subject && this.what == what
 
+    /**
+     * DONE from a report (design §12 ③): only a report linked to the attempt by (instanceId, executionId) that completed
+     * every approved unit, online, with nothing in doubt, resolves — whether it arrives now or was kept for the answer.
+     */
+    private fun checkResolution(before: EpisodeState?, event: EpisodeEvent?, step: Step, stats: Stats) {
+        if (before == null || before.phase == Phase.RESOLVED || step.state.phase != Phase.RESOLVED) return
+        when (event) {
+            is EpisodeEvent.EvidenceArrived -> {
+                val a = before.attempt
+                assertNotNull(a, "RESOLVED by a report with no attempt: $event")
+                assertTrue(resolves(event.evidence, a.picassoInstanceId, a.executionId, a.approvedUnits), "RESOLVED by a report that cannot complete the attempt: $event")
+                stats.evidenceResolved++
+            }
+            is EpisodeEvent.DispatchReturned -> {
+                val (instanceId, executionId, units) = approvedExecution(event)
+                assertFalse("$instanceId/$executionId" in before.usedExecutions, "RESOLVED on an answer whose execution was used before: $event")
+                assertTrue(
+                    before.bufferedEvidence.any { resolves(it, instanceId, executionId, units) },
+                    "RESOLVED on an answer with no kept report that completes it: $event, kept ${before.bufferedEvidence}",
+                )
+                stats.replayResolved++
+            }
+            else -> {}
+        }
+    }
+
+    /** The (instanceId, executionId, unit ids) an APPROVED answer names, read off its JSON. */
+    private fun approvedExecution(event: EpisodeEvent.DispatchReturned): Triple<String?, String?, List<String>> {
+        val answer = (event.result as? DispatchResult.Answer)?.let { mapper.readTree(it.json) }
+        assertNotNull(answer, "a dispatch result that is no answer: $event")
+        return Triple(
+            answer.get("instanceId")?.textValue(),
+            answer.get("executionId")?.textValue(),
+            answer.get("steps")?.map { it.get("unitId").textValue() }.orEmpty(),
+        )
+    }
+
+    /** ① of design §12, stated again here: linked by instance and execution, both known. */
+    private fun linked(e: Evidence, instanceId: String?, executionId: String?): Boolean =
+        instanceId != null && executionId != null && e.picassoInstanceId == instanceId && e.executionId == executionId
+
+    /** ② of design §12, stated again here: nothing in doubt, unverified or left to a person, and all of it reported. */
+    private fun clean(e: Evidence): Boolean =
+        e.inDoubtUnits?.isEmpty() == true && e.unverifiedUnits?.isEmpty() == true && e.operatorRequired == false
+
     /** What design §12 ③ asks of a report that ends an attempt as DONE, stated again here and not read off the code. */
     private fun resolves(e: Evidence, instanceId: String?, executionId: String?, units: List<String>): Boolean =
-        instanceId != null && executionId != null && e.picassoInstanceId == instanceId && e.executionId == executionId &&
-            units.isNotEmpty() && e.completedUnits.orEmpty().containsAll(units) && e.connection == PICASSO_ONLINE &&
-            e.inDoubtUnits?.isEmpty() == true && e.unverifiedUnits?.isEmpty() == true && e.operatorRequired == false
+        linked(e, instanceId, executionId) && units.isNotEmpty() && e.completedUnits.orEmpty().containsAll(units) &&
+            e.connection == PICASSO_ONLINE && clean(e)
 
     /** True when the global rows (policy, episode deadline, agent layer) escalated this very step, whatever the event was. */
     private fun escalatedByGlobalRow(before: EpisodeState, after: EpisodeState): Boolean =
@@ -242,30 +366,7 @@ class EpisodePropertiesTest {
             assertEquals(before.attempt, s.attempt, "a duplicated jobResponseId changed the attempt: $event")
             assertEquals(before.episodeUnknowns, s.episodeUnknowns, "a duplicated jobResponseId changed the unknowns: $event")
         }
-        // DONE from a report (design §12 ③): only a report linked to the attempt by (instanceId, executionId) that completed
-        // every approved unit, online, with nothing in doubt, resolves — whether it arrives now or was kept for the answer.
-        if (before != null && before.phase != Phase.RESOLVED && s.phase == Phase.RESOLVED) when (event) {
-            is EpisodeEvent.EvidenceArrived -> {
-                val a = before.attempt
-                assertNotNull(a, "RESOLVED by a report with no attempt: $event")
-                assertTrue(resolves(event.evidence, a.picassoInstanceId, a.executionId, a.approvedUnits), "RESOLVED by a report that cannot complete the attempt: $event")
-                stats.evidenceResolved++
-            }
-            is EpisodeEvent.DispatchReturned -> {
-                val answer = (event.result as? DispatchResult.Answer)?.let { mapper.readTree(it.json) }
-                assertNotNull(answer, "RESOLVED by a dispatch result that is no answer: $event")
-                val instanceId = answer.get("instanceId")?.textValue()
-                val executionId = answer.get("executionId")?.textValue()
-                val units = answer.get("steps")?.map { it.get("unitId").textValue() }.orEmpty()
-                assertFalse("$instanceId/$executionId" in before.usedExecutions, "RESOLVED on an answer whose execution was used before: $event")
-                assertTrue(
-                    before.bufferedEvidence.any { resolves(it, instanceId, executionId, units) },
-                    "RESOLVED on an answer with no kept report that completes it: $event, kept ${before.bufferedEvidence}",
-                )
-                stats.replayResolved++
-            }
-            else -> {}
-        }
+        checkResolution(before, event, step, stats)
         // Records are numbered 1, 2, 3, … across the run, the intent records included (design §13).
         var seq = lastSeq
         for (c in step.commands) {
@@ -327,6 +428,10 @@ class EpisodePropertiesTest {
             this is EpisodeEvent.ConfirmedUnknown || this is EpisodeEvent.TakenOver || this is EpisodeEvent.Closed
 
     private companion object {
+        val NOT_ONLINE = listOf("CONNECTION_STATE_UNSPECIFIED", "CONNECTION_STATE_OFFLINE", "CONNECTION_STATE_HIBERNATING", "CONNECTION_STATE_CONNECTION_BROKEN", null)
+        /** About half of what the 500 report seeds measure (82 and 12): fails if either path becomes unreachable. */
+        const val EVIDENCE_RESOLVED_FLOOR = 40
+        const val REPLAY_RESOLVED_FLOOR = 6
         val OWN_DEADLINE = setOf(Phase.CORRELATING, Phase.AWAITING_APPROVAL, Phase.UNKNOWN_PRECONDITION, Phase.AWAITING_EVIDENCE, Phase.UNKNOWN_OUTCOME)
         val HISTORY_KEYS = listOf("attempt", "candidatesVersion", "diagnosis", "approval", "dispatch", "evidence", "closedAs", "at")
         val GLOBAL_REASONS = setOf(EscalationReason.AGENT_LAYER_OFF, EscalationReason.POLICY_MISSING, EscalationReason.POLICY_EXPIRED, EscalationReason.EPISODE_EXPIRED)
