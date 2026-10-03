@@ -112,8 +112,8 @@ internal fun Out.takeEvidence(e: Evidence, replayed: Boolean, policy: PolicyTabl
 }
 
 /**
- * RESOLVED (design §5.2): the attempt closes with its evidence; after NO_PROPOSAL, REMEDY_NOT_APPLIED or CONSUMED the
- * record says "done; by whom unknown" (§11).
+ * RESOLVED (design §5.2): the attempt closes with its evidence; after NO_PROPOSAL, REMEDY_NOT_APPLIED, CONSUMED or an
+ * uncertain dispatch the record says "done; by whom unknown" (§11).
  */
 private fun Out.resolve(evidence: EvidenceSummary, now: Instant) {
     val attempt = state.attempt ?: return

@@ -21,7 +21,9 @@ import java.util.UUID
  * What it cannot read it does not act on: a candidate that is not an object, names no kind it knows, or is a remedy
  * without its robot and order revalidates UNKNOWN, and such a remedy is refused NO_PROPOSAL without consuming anything.
  *
- * A test double: the consumption records live in this process only, so a restarted worker approves again.
+ * A test double: the consumption records live in this process only, so a restarted worker approves again. It does not
+ * model the approver's id (always "koshei"), the consumption times (always the epoch), the REMEDY_NOT_APPLIED path (an
+ * approval for an order already executing), or a missing approverKind (real picasso rejects it; the mock assumes PERSON).
  */
 class MockPicasso(val instanceId: String = "mock-${UUID.randomUUID()}") : ApprovalWindow {
     private val consumed = HashMap<Pair<String, String>, ObjectNode>()   // (robotId, jobOrderId) -> consumption record

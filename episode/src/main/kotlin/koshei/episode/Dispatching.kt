@@ -96,7 +96,7 @@ internal fun judgePicassoAnswer(json: String): DispatchJudgement {
                 refusal == null || refusal !in PICASSO_REFUSALS -> DispatchJudgement.AnswerUnknown("refusal $refusal")
                 refusal in MAY_HAVE_LANDED -> DispatchJudgement.MayHaveLanded(
                     refusal,
-                    if (refusal == "CONSUMED") node.get("consumed")?.text("executionId") else null,
+                    if (refusal == "CONSUMED") node.get("consumed")?.text("executionId")?.takeIf { it.isNotBlank() } else null,
                 )
                 else -> DispatchJudgement.Refused(refusal)
             }

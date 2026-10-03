@@ -17,15 +17,25 @@ class PicassoAnswersTest {
     @Test fun `every refusal of schema 4 is understood - three may have landed, the rest are refusals`() {
         assertEquals(16, PICASSO_REFUSALS.size)
         for (r in PICASSO_REFUSALS) {
-            val j = judgePicassoAnswer(PicassoAnswers.refused(r))
-            if (r == "NO_PROPOSAL" || r == "REMEDY_NOT_APPLIED" || r == "CONSUMED") assertEquals(DispatchJudgement.MayHaveLanded(r), j, r)
-            else assertEquals(DispatchJudgement.Refused(r), j, r)
+            // real picasso always sends the consumption record with CONSUMED
+            val j = judgePicassoAnswer(
+                if (r == "CONSUMED") PicassoAnswers.refused(r, consumed = PicassoAnswers.consumedRecord()) else PicassoAnswers.refused(r),
+            )
+            when (r) {
+                "CONSUMED" -> assertEquals(DispatchJudgement.MayHaveLanded(r, consumedExecutionId = "exec-7"), j, r)
+                "NO_PROPOSAL", "REMEDY_NOT_APPLIED" -> assertEquals(DispatchJudgement.MayHaveLanded(r), j, r)
+                else -> assertEquals(DispatchJudgement.Refused(r), j, r)
+            }
         }
     }
 
     @Test fun `CONSUMED keeps the execution its consumption record names`() {
         val j = judgePicassoAnswer(PicassoAnswers.refused("CONSUMED", consumed = PicassoAnswers.consumedRecord("exec-7")))
         assertEquals(DispatchJudgement.MayHaveLanded("CONSUMED", consumedExecutionId = "exec-7"), j)
+    }
+
+    @Test fun `a CONSUMED without its record is still may-have-landed - lenient, never a retry`() {
+        assertEquals(DispatchJudgement.MayHaveLanded("CONSUMED"), judgePicassoAnswer(PicassoAnswers.refused("CONSUMED", consumed = "null")))
     }
 
     @Test fun `anything not understood is an unknown answer`() {
@@ -47,6 +57,7 @@ class PicassoAnswersTest {
             """{"schemaVersion":"4","instanceId":"mw","outcome":"APPROVED","executionId":"e","steps":[$step,$step]}""",
             """{"schemaVersion":"4","instanceId":"mw","outcome":"APPROVED","executionId":"e","steps":["remedy-1-pick_place"]}""",
             """{"schemaVersion":"4","instanceId":"mw","outcome":"MAYBE"}""",
+            """{"schemaVersion":"4","outcome":"REFUSED","refusal":"NO_PROPOSAL","reason":"r","consumed":null}""",
             """{"schemaVersion":"4","instanceId":"mw","outcome":"REFUSED","refusal":"NO_PROPOSAL","refusal":"REFUSED_BY_GATE"}""",
             "{",
             "[]",
