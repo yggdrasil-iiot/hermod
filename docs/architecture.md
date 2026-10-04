@@ -333,8 +333,8 @@ Temporal, Spring or JDBC; `:episode-runtime`'s main code imports only `RawJson` 
 
 ## 8. Verification strategy
 
-The test suite reports **1,243 tests, 0 failures, 1 skipped** across the 14 Gradle modules via
-`./gradlew test` at `14fdff7` (episode 323 · episode-runtime 308 · authoring-api 146 · opcua 115 ·
+The test suite reports **1,248 tests, 0 failures, 1 skipped** across the 14 Gradle modules via
+`./gradlew test` at `a6b5314` (episode 323 · episode-runtime 308 · authoring-api 151 · opcua 115 ·
 registry 102 · runtime 55 · compiler 47 · app 42 · conductor-runtime 39 · delegation 20 · blocks 17 ·
 core 17 · dispatch 7 · sdk 5). The skipped test is the R3 replay-history generator, which runs only
 with `-Dkoshei.writeReplayHistories=true` (§12). Outside Gradle, `authoring-ui` type-checks clean

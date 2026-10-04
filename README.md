@@ -62,7 +62,7 @@ Deep walkthrough: [`docs/scenario-ot-actuation-demo.md`](docs/scenario-ot-actuat
 
 ## What's proven (+ evidence)
 
-The test suite runs **1,243 tests with 0 failures** and 1 skipped via `./gradlew test` across 14 Gradle modules; the skipped test is the R3 replay-history generator, which runs only when asked. The two episode modules contain 631 of these tests (`episode` 323, `episode-runtime` 308). Beyond unit and integration tests, gate scripts (`scripts/run-*-gate.sh`), an end-to-end Playwright harness and a crash-recovery harness check live behaviour on real processes. Each table row links the gate script, test or GIF that proves it.
+The test suite runs **1,248 tests with 0 failures** and 1 skipped via `./gradlew test` across 14 Gradle modules; the skipped test is the R3 replay-history generator, which runs only when asked. The two episode modules contain 631 of these tests (`episode` 323, `episode-runtime` 308). Beyond unit and integration tests, gate scripts (`scripts/run-*-gate.sh`), an end-to-end Playwright harness and a crash-recovery harness check live behaviour on real processes. Each table row links the gate script, test or GIF that proves it.
 
 | Capability | Proof |
 |---|---|
@@ -131,7 +131,7 @@ Prerequisites: a JDK (the Gradle toolchain auto-provisions JDK 21 via foojay) an
 
 ```bash
 # Unit + integration tests (Testcontainers spins up real Postgres/Temporal/Conductor)
-./gradlew test                       # 1,243 tests, 0 failures, 1 skipped
+./gradlew test                       # 1,248 tests, 0 failures, 1 skipped
 
 # Objective gate proof (real processes; needs the compose stack)
 docker compose up -d                 # Postgres, Temporal, Conductor + UIs
