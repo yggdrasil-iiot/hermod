@@ -76,7 +76,9 @@ echo "[GATE] step 2: build the EXTERNAL greet-plugin against mavenLocal sdk"
 [ -f "$PLUGIN_JAR" ] || { echo "[GATE] FAIL: plugin jar not built at $PLUGIN_JAR"; exit 1; }
 
 echo "[GATE] step 3: publish the plugin jar via the SDK CLI"
-PUBLISH_OUT=$(./gradlew -q --no-daemon :app:cli --args="publish $PLUGIN_JAR_ABS")
+# Single-quote the path INSIDE --args: Gradle splits --args on whitespace (honouring quotes), and the
+# repo path may contain spaces.
+PUBLISH_OUT=$(./gradlew -q --no-daemon :app:cli --args="publish '$PLUGIN_JAR_ABS'")
 echo "$PUBLISH_OUT"
 echo "$PUBLISH_OUT" | grep -q "Published greet-plugin.jar successfully." \
   || { echo "[GATE] FAIL: CLI publish did not report success"; exit 1; }
@@ -85,7 +87,8 @@ echo "[GATE] step 4: HARD assert — DB block_index row count + jar artifact on 
 DB_COUNT=$(psql_q -tAc "SELECT count(*) FROM block_index WHERE id='io.example.greet' AND version='1.0.0'" | tr -d '[:space:]')
 echo "[GATE] block_index count for io.example.greet#1.0.0 = $DB_COUNT"
 [ "$DB_COUNT" = "1" ] || { echo "[GATE] FAIL: expected exactly 1 block_index row, got $DB_COUNT"; exit 1; }
-JAR_PATH=$(psql_q -tAc "SELECT jar_path FROM block_index WHERE id='io.example.greet' AND version='1.0.0'" | tr -d '[:space:]')
+# Strip only CR/LF (not all whitespace): the stored path may legitimately contain spaces.
+JAR_PATH=$(psql_q -tAc "SELECT jar_path FROM block_index WHERE id='io.example.greet' AND version='1.0.0'" | tr -d '\r\n')
 echo "[GATE] stored jar_path = $JAR_PATH"
 # jar_path is stored as a Windows absolute path; convert to MSYS for the shell file test.
 JAR_PATH_SH=$(cygpath -u "$JAR_PATH" 2>/dev/null || echo "$JAR_PATH")

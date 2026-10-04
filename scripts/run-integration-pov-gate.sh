@@ -147,7 +147,7 @@ echo "[GATE] worker poll-bound ot-recipe-stage-activate@1.0.0"
 echo "[GATE] step 4: start resequence control with recipe drift enabled (reads the shared sim vs koshei canonical)"
 : > "$RESEQ_LOG"
 ( cd "$RESEQUENCE_DIR" && mvn -q -f control/pom.xml spring-boot:run \
-    -Dspring-boot.run.jvmArguments="-Dpbs.drift.recipe.enabled=true -Dpbs.drift.recipe.canonical-path=$CANON -Dpbs.drift.recipe.opcua.endpoint=opc.tcp://localhost:48400" \
+    -Dspring-boot.run.jvmArguments="-Dpbs.drift.recipe.enabled=true -Dpbs.drift.recipe.canonical-path='$CANON' -Dpbs.drift.recipe.opcua.endpoint=opc.tcp://localhost:48400" \
   ) >"$RESEQ_LOG" 2>&1 &
 RUP=0
 for i in $(seq 1 120); do curl -sf "$DRIFT" >/dev/null 2>&1 && { RUP=1; break; }; sleep 2; done

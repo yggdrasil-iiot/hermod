@@ -136,7 +136,7 @@ while IFS= read -r LINE || [ -n "$LINE" ]; do
 
   set +e
   CONF_OUT="$(./gradlew -q --console=plain :app:cli \
-    --args="conformance --model-dir $(native_path "$TMP_MODEL/model") --workflow-dir $(native_path "$WF")" 2>&1)"
+    --args="conformance --model-dir '$(native_path "$TMP_MODEL/model")' --workflow-dir '$(native_path "$WF")'" 2>&1)"
   CONF_RC=$?
   set -e
 
@@ -173,7 +173,7 @@ if [ "$CODE" = "200" ]; then
   if node "$TO_YAML" "$RESP_JSON" "packml-smoke${CASE_N}" "smoke${CASE_N}" > "$DRAFT_YAML" 2>"$WORK/case${CASE_N}.yaml.err"; then
     TMP_MODEL="$(mktemp -d)"; cp -r model "$TMP_MODEL/model"; cp "$DRAFT_YAML" "$TMP_MODEL/model/fsm/packml-assist-smoke.yaml"
     set +e
-    CONF_OUT="$(./gradlew -q --console=plain :app:cli --args="conformance --model-dir $(native_path "$TMP_MODEL/model") --workflow-dir $(native_path "$WF")" 2>&1)"
+    CONF_OUT="$(./gradlew -q --console=plain :app:cli --args="conformance --model-dir '$(native_path "$TMP_MODEL/model")' --workflow-dir '$(native_path "$WF")'" 2>&1)"
     CONF_RC=$?
     set -e
     if [ "$CONF_RC" -eq 0 ] && echo "$CONF_OUT" | grep -q "conformance: 0 errors"; then
