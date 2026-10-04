@@ -62,12 +62,13 @@ Deep walkthrough: [`docs/scenario-ot-actuation-demo.md`](docs/scenario-ot-actuat
 
 ## What's proven (+ evidence)
 
-The test suite runs **1,238 tests with 0 failures** and 1 skipped via `./gradlew test` across 14 Gradle modules; the skipped test is the R3 replay-history generator, which runs only when asked. The two episode modules contain 631 of these tests (`episode` 323, `episode-runtime` 308). Beyond unit and integration tests, gate scripts (`scripts/run-*-gate.sh`), an end-to-end Playwright harness and a crash-recovery harness check live behaviour on real processes. Each table row links the gate script, test or GIF that proves it.
+The test suite runs **1,243 tests with 0 failures** and 1 skipped via `./gradlew test` across 14 Gradle modules; the skipped test is the R3 replay-history generator, which runs only when asked. The two episode modules contain 631 of these tests (`episode` 323, `episode-runtime` 308). Beyond unit and integration tests, gate scripts (`scripts/run-*-gate.sh`), an end-to-end Playwright harness and a crash-recovery harness check live behaviour on real processes. Each table row links the gate script, test or GIF that proves it.
 
 | Capability | Proof |
 |---|---|
 | **Engine-neutral compile → both engines**: one contract compiles to an engine-neutral IR, lowered to Temporal and Conductor (incl. branch-parallel concurrency, reverse-topo compensation). | [`run-compiler-ir-gate.sh`](scripts/run-compiler-ir-gate.sh), [`run-conductor-exec-gate.sh`](scripts/run-conductor-exec-gate.sh), [`run-conductor-concurrency-gate.sh`](scripts/run-conductor-concurrency-gate.sh), [`run-scenario-gate.sh`](scripts/run-scenario-gate.sh) |
 | **Saga compensation timeline** (both engines): completed work unwinds in reverse-topo order, best-effort. | [`run-compensation-timeline-gate.sh`](scripts/run-compensation-timeline-gate.sh), [`run-conductor-comp-timeline-gate.sh`](scripts/run-conductor-comp-timeline-gate.sh) |
+| **Third-party plugins**: a plugin block published as a jar runs on both engines. | [`run-add-block-gate.sh`](scripts/run-add-block-gate.sh), [`run-conductor-plugin-gate.sh`](scripts/run-conductor-plugin-gate.sh) |
 | **Crash recovery**: a worker killed mid-`db.upsert` is replayed by Temporal on a fresh worker to a consistent state. | [`run-crash-recovery.sh`](scripts/run-crash-recovery.sh) |
 | **Idempotent convergence**: duplicate triggers converge to one row. | [`IdempotencyConvergenceTest.kt`](runtime/src/test/kotlin/koshei/runtime/IdempotencyConvergenceTest.kt) |
 | **Authoring UI + operator Compose canvas**: palette projected from the block registry; React Flow canvas. | [`run-authoring-gate.sh`](scripts/run-authoring-gate.sh), [`run-compose-run-gate.sh`](scripts/run-compose-run-gate.sh) |
@@ -130,7 +131,7 @@ Prerequisites: a JDK (the Gradle toolchain auto-provisions JDK 21 via foojay) an
 
 ```bash
 # Unit + integration tests (Testcontainers spins up real Postgres/Temporal/Conductor)
-./gradlew test                       # 1,238 tests, 0 failures, 1 skipped
+./gradlew test                       # 1,243 tests, 0 failures, 1 skipped
 
 # Objective gate proof (real processes; needs the compose stack)
 docker compose up -d                 # Postgres, Temporal, Conductor + UIs

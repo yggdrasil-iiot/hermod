@@ -333,15 +333,15 @@ Temporal, Spring or JDBC; `:episode-runtime`'s main code imports only `RawJson` 
 
 ## 8. Verification strategy
 
-The test suite reports **1,238 tests, 0 failures, 1 skipped** across the 14 Gradle modules via
+The test suite reports **1,243 tests, 0 failures, 1 skipped** across the 14 Gradle modules via
 `./gradlew test` at `14fdff7` (episode 323 · episode-runtime 308 · authoring-api 146 · opcua 115 ·
-registry 102 · runtime 55 · compiler 47 · app 42 · conductor-runtime 34 · delegation 20 · blocks 17 ·
+registry 102 · runtime 55 · compiler 47 · app 42 · conductor-runtime 39 · delegation 20 · blocks 17 ·
 core 17 · dispatch 7 · sdk 5). The skipped test is the R3 replay-history generator, which runs only
 with `-Dkoshei.writeReplayHistories=true` (§12). Outside Gradle, `authoring-ui` type-checks clean
 (`tsc --noEmit`), runs 83 vitest tests, and runs 20 Playwright tests in `e2e/episodes.spec.ts`
 against a mocked `/api/episodes…`. The disposable de-risking spike is excluded from these figures.
 Engine-touching tests use Testcontainers (real Postgres, Temporal, and Conductor), development is
-TDD, and there are 33 gate scripts (`scripts/run-*-gate.sh`) plus a Playwright E2E-to-GIF harness
+TDD, and there are 34 gate scripts (`scripts/run-*-gate.sh`) plus a Playwright E2E-to-GIF harness
 (`scripts/run-e2e.sh`, specs in `authoring-ui/e2e/`) and a crash-recovery harness
 (`scripts/run-crash-recovery.sh`).
 
@@ -359,6 +359,7 @@ gate scripts:
 | Human gate + interventions | `run-intervention-gate.sh` |
 | Conductor retry/abort + R-1 self-dispatch | `run-conductor-retry-abort-gate.sh` |
 | Conductor end-to-end execution | `run-conductor-exec-gate.sh` |
+| Plugin block on Conductor (published while the worker runs) | `run-conductor-plugin-gate.sh` |
 | Console (both engines) | `run-console-gate.sh`, `run-conductor-console-gate.sh` |
 | Add-a-block / authoring / compose-run | `run-add-block-gate.sh`, `run-authoring-gate.sh`, `run-compose-run-gate.sh` |
 | Full OT scenario | `run-scenario-gate.sh` |
@@ -373,9 +374,10 @@ portal. It does so **by design**, subject to the as-built caveat at the end of t
 - **Backend scales horizontally.** Workers poll a shared task queue, so throughput increases by
   adding worker replicas without code changes. On Temporal, `app/.../Worker.kt` starts a
   `WorkerFactory` worker that polls the shared `koshei-v0_1-tq` task queue (`factory.start()`). On
-  Conductor, `conductor-runtime/.../ConductorWorkerMain.kt` boots one `ForwardWorker` per builtin
-  blockId (task type = blockId) plus a `CompensateWorker`, all polling Conductor via
-  `TaskRunnerConfigurer`. Additional replicas add pollers competing for the same queue.
+  Conductor, `conductor-runtime/.../ConductorWorkerMain.kt` boots one `ForwardWorker` per block id
+  the registry knows (the builtins and every published plugin block, task type = blockId) plus a
+  `CompensateWorker`, all polling Conductor via `TaskRunnerConfigurer`. Additional replicas add
+  pollers competing for the same queue.
   The `:authoring-api` control plane is a thin, mostly stateless edge: durable state lives in
   Postgres (`workflow_def`, `run_index`, `comp_ledger`) and in the engine, so the control
   plane can run multi-replica behind a load balancer (its only per-process state is an idempotent
