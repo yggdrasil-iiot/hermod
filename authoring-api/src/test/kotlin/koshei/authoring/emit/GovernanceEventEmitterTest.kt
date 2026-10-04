@@ -1,5 +1,6 @@
 package koshei.authoring.emit
 
+import koshei.opcua.OpcuaDbConnectionOverride
 import koshei.opcua.emit.GovernanceEvent
 import koshei.opcua.emit.GovernedNode
 import koshei.registry.EmittedEventStore
@@ -8,10 +9,18 @@ import koshei.runtime.CompensationEvent
 import koshei.runtime.EnginePort
 import koshei.runtime.WorkflowInput
 import koshei.runtime.WorkflowOutput
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class GovernanceEventEmitterTest {
+
+    // Pure unit test: point OpcuaDb at a dead port so any DB-backed default the emitter inherits fails
+    // on every machine, instead of passing only while a local Postgres happens to be up.
+    private var savedDbUrl: String? = null
+    @BeforeEach fun noDb() { savedDbUrl = OpcuaDbConnectionOverride.url; OpcuaDbConnectionOverride.url = "jdbc:postgresql://127.0.0.1:1/none" }
+    @AfterEach fun restoreDb() { OpcuaDbConnectionOverride.url = savedDbUrl }
 
     // ---- fakes ----
 
@@ -59,8 +68,10 @@ class GovernanceEventEmitterTest {
     private fun audit(runId: String) =
         listOf(GovernedNode("recipe.rpmSetpoint", 1450.0, "CONFIRMED", "ns=2;s=Recipe/Rpm"))
 
+    private fun noDefRef(runId: String): String? = null
+
     private fun emitter(session: SparkplugEdgeSession, log: EmittedEventStore, now: Long = 1000L) =
-        GovernanceEventEmitter(session, log, { staged }, ::audit, { now })
+        GovernanceEventEmitter(session, log, { staged }, ::audit, { now }, ::noDefRef)
 
     // ---- tests ----
 
@@ -113,7 +124,7 @@ class GovernanceEventEmitterTest {
         val s = CapturingSession(); val log = FakeEmittedLog()
         // summarize returns empty (R1 audit not run-keyed) -> emitter uses staged canonical nodes,
         // re-tagged with the terminal outcome so the event still carries the governed node key.
-        val e = GovernanceEventEmitter(s, log, { staged }, { emptyList() }, { 1000L })
+        val e = GovernanceEventEmitter(s, log, { staged }, { emptyList() }, { 1000L }, ::noDefRef)
         e.observe("wf-1", row(), FakePort("COMPLETED"))
         val node = s.events.single().nodes.single()
         assertEquals("recipe.rpmSetpoint", node.logicalKey)   // twin can correlate the finding
@@ -135,9 +146,19 @@ class GovernanceEventEmitterTest {
         assertEquals("RECON_FAILED", s.events.single().type)
     }
 
+    @Test fun `events carry the run's version reference from the provenance lookup`() {
+        val s = CapturingSession(); val log = FakeEmittedLog()
+        val sha = "d".repeat(40)
+        val e = GovernanceEventEmitter(s, log, { staged }, ::audit, { 1000L }, { runId -> if (runId == "wf-1") sha else null })
+        e.observe("wf-1", row(), FakePort("RUNNING", mapOf("stage" to "DONE", "activate" to "RUNNING")))
+        e.observe("wf-1", row(), FakePort("COMPLETED"))
+        assertEquals(listOf("RECONCILING", "CONFIRMED"), s.events.map { it.type })
+        assertEquals(listOf(sha, sha), s.events.map { it.defRef })
+    }
+
     @Test fun `publish throwing does not escape observe (fail-open)`() {
         val log = FakeEmittedLog()
-        val e = GovernanceEventEmitter(ThrowingSession(), log, { staged }, ::audit, { 1L })
+        val e = GovernanceEventEmitter(ThrowingSession(), log, { staged }, ::audit, { 1L }, ::noDefRef)
         assertDoesNotThrow { e.observe("wf-1", row(), FakePort("COMPLETED")) }
     }
 
