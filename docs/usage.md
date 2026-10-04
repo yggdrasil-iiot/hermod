@@ -207,9 +207,9 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_EPISODE_DB_USER` | DB user for the episode tables only (`EpisodeStore`, `WatchStore`) in the worker and the watcher — in production the runtime role `koshei_episode_rt`. Unset or blank: the `KOSHEI_DB_*` login. Same URL as `KOSHEI_DB_URL` |
 | `KOSHEI_EPISODE_DB_PASS` | Its password. Set both or neither: one without the other is refused at start |
 | `KOSHEI_PICASSO` | `off` (default) \| `mock` (the test Mock) \| `picasso` (the real window) |
-| `KOSHEI_PICASSO_URL` | The window's origin, `http://127.0.0.1:<port>` or `http://localhost:<port>` only; the client adds `/approvals` |
-| `KOSHEI_PICASSO_AGENT_ID` | The approver id a POLICY approval sends as AGENT |
-| `KOSHEI_PICASSO_TIMEOUT_MS` | One request's limit, default 8000; keep it at most `(dispatchMs − 3000) / 3` |
+| `KOSHEI_PICASSO_URL` | Required when `KOSHEI_PICASSO=picasso`; only the worker reads it. The window's origin, `http://127.0.0.1:<port>` or `http://localhost:<port>` only; the client adds `/approvals`. `localhost` must resolve only to loopback addresses, with an IPv4 loopback address (127.0.0.1) first; otherwise the start is refused, so use `http://127.0.0.1:<port>` |
+| `KOSHEI_PICASSO_AGENT_ID` | Required when `KOSHEI_PICASSO=picasso`; only the worker reads it. The approver id a POLICY approval sends as AGENT |
+| `KOSHEI_PICASSO_TIMEOUT_MS` | One request's limit, default 8000; keep it at most `(dispatchMs − 3000) / 3`, where `dispatchMs` is the episode policy's `dispatchMs` (30000 in v1 → 9000) |
 | `KOSHEI_CONDUCTOR_URL` | Conductor API base URL (**override needed — see callout below**) |
 | `KOSHEI_PLUGIN_DIR` | Where published plugin jars are stored/loaded |
 | `KOSHEI_PUBLISH_DISABLED` | `true` (or `1`) closes `POST /api/publish` with 403 (no new plugin code accepted). Default: publish open |

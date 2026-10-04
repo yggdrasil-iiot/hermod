@@ -43,7 +43,7 @@ LLM 진단(안쪽 루프)은 그 안의 한 상태(DIAGNOSING)에서 함수처�
 4. **koshei 는 picasso 의 소비자다. 담는 쪽이 아니다.** 소비자는 picasso 의 대장을 읽고 승인을 시도한다. picasso 는 소비자를
    부르지 않는다(picasso §3). 담는 쪽은 picasso 를 제 프로세스에 세우고 `pump()` 를 돌리고 승인면을 내며(picasso §6, §7.4), 결과
    통보도 담는 쪽이 꺼내 나른다(§12). koshei 워커 안에 picasso 를 세우지 않는다 —
-   에이전트 층이 죽을 때 실행 보증도 같이 죽는다(picasso §6, R5). 담는 쪽은 아직 없고, 어디에 둘지는 배치 결정이다(§19 C).
+   에이전트 층이 죽을 때 실행 보증도 같이 죽는다(picasso §6, R5). 담는 쪽은 아직 없고, 어디에 둘지는 배치 결정이다(§19 C). (C3: 결정됨 — 별도 배치 저장소, §19 C)
    승인 창구는 루프백에만 붙고 신원을 인증하지 않는다(picasso §7.5 · §15.3, picasso 2026-09-30 답).
 
 ---
@@ -730,8 +730,11 @@ catalog)** 에 선언한다. 항목: 사가 정의 `name@x.y.z`, 값의 출처(�
 - picasso 는 PERSON 이든 AGENT 든 승인자 id 마다 선언을 찾는다. 선언되지 않은 id 는 `NOT_DECLARED` 다(위 「선언」 행).
 - 200 은 본문을 글자 그대로 돌려준다. 승인이든 거절이든 판 4 의 답이고, 판정은 코어(`judgePicassoAnswer`)가 한다.
 - 그 밖의 상태는 재시도하지 않는다. 종류 `PicassoRequestRefused` 의 재시도 없는 실패다. 같은 요청에는 같은 답이 오기 때문이다.
-  코어는 이것을 `DispatchResult.Uncertain` 으로 받아 UNKNOWN(OUTCOME)으로 간다. 나가지 않은 것이 분명하지만 지금 모델에는 그 값이 없어 보수 쪽에 둔다.
-- 기록의 `detail` 에는 그 종류와 상태가 남는다. 워크플로는 `ActivityFailure` 의 바깥 글이 아니라 가장 깊은 Temporal 실패의 글을 적는다(`dispatchFailureDetail`).
+  코어는 이것을 `DispatchResult.Uncertain` 으로 받아 UNKNOWN(OUTCOME)으로 간다. 참조 구동기의 400 · 405 는 `attemptApproval` 앞에서 답하므로
+  나가지 않은 것이 분명하다. 그 밖의 상대와 상태는 그렇다고 말할 수 없다. 지금 모델에는 「나가지 않음」 값이 없어 모두 보수 쪽에 둔다.
+  배치 저장소의 담는 쪽은 시도를 받지 않았을 때만 200 밖의 상태로 답해야 한다(§19 C).
+- 기록의 `detail` 에는 그 종류와 상태가 남는다. 워크플로는 `ActivityFailure` 의 바깥 글만 적지 않는다(`dispatchFailureDetail`).
+  `ActivityFailure` 가 아닌 가장 바깥 Temporal 실패의 글을 적는다. 가장 깊은 것이 그와 다르면(시간 초과 때) 그 글을 뒤에 붙인다.
 - 거절된 본문은 걸러서 싣는다. 제어 문자와 짝 없는 서로게이트는 버리고, 많아야 500 코드 포인트다. 기록은 jsonb 라 NUL 과 짝 없는 서로게이트를 담지 못한다.
 - 무응답 · 연결 거부 · 시간 초과는 재시도한다(액티비티 시도 셋). 두 번 나감은 picasso 가 막는다(`CONSUMED`, §11).
 - `revalidate` 는 늘 UNKNOWN 이다(§8.3). 그래서 실물 에피소드는 UNKNOWN(PRECONDITION)을 지나고, 사람이 카드의 명제로 전제를 확인해야 디스패치한다.
@@ -1426,7 +1429,7 @@ Mock picasso(§11), `RECORD_LAG`(§8.5), `:app` 워커 등록(§4.2), 끝에서 
 **B3c(API·CLI) 끝(2026-10-02).** 제어면 `/api/episodes…` 가 섰다: 목록과 상세(§7.3), 운영자 카드(§9.5), `X-Koshei-Operator` 아래의
 결정 넷(§7.2), 알림 흐름(§8.5). 개발용 CLI `episode open` · `episode agent-off`(§7.2)도 섰다. 코어에는 `REFUSED_NO_PROPOSITION`
 (§7.2, §8.3)이 더해졌다. 계획 B 에 남은 것:
-- 실물 picasso 승인 창구 클라이언트 — 그대로 §19 C 뒤.
+- 실물 picasso 승인 창구 클라이언트 — 그대로 §19 C 뒤. (C3: 섰다 — `HttpApprovalWindow`)
 - B3c-2 — 화면. 위 경로와 알림 흐름을 읽어 카드를 그리고 결정을 보낸다.
 
 **B3c-2(화면) 끝(2026-10-02).** authoring-ui 에 탭 「07 Episodes」가 섰다: 목록, 상세(운영자 카드 · 결정 넷 · 이력 · 후보 · 기록),
@@ -1501,7 +1504,8 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
   - 호출 전체를 `sendAsync(...).get(timeout)` 로 묶는다.
   - `localhost` 는 IPv4 가 먼저인 루프백으로 풀려야 한다. 포트는 1 ~ 65535 다.
   - 설정 오류의 글은 사용자 정보를 가린다.
-  - 디스패치의 `detail` 은 가장 깊은 Temporal 실패까지 내려간다(`dispatchFailureDetail`).
+  - 디스패치의 `detail` 은 가장 깊은 Temporal 실패까지 내려간다(`dispatchFailureDetail`). (최종 검토: 정확히는 `ActivityFailure` 가 아닌
+    가장 바깥 것의 글이고, 가장 깊은 것이 다르면 그 글을 붙인다 — §8.4 구현(C3).)
 - 시험(`KOSHEI_*` 없이, Testcontainers 와 `TestWorkflowEnvironment` 와 시험 안의 `HttpServer` 만, 머리 `5e8f897`): `:episode` 323, `:episode-runtime` 308(건너뜀 1 —
   재생 이력 생성기), `:authoring-api` 146, `:app` 42, 모두 통과.
 
@@ -1519,7 +1523,7 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
   - 나간 요청(`POST /approvals`): `{"approverId":"op-c3","approverKind":"PERSON","robotId":"hum-02","jobOrderId":"PATROL-APPROVES","sawSkillTypes":["pick_place"]}`.
   - 답: 판 4 APPROVED, `executionId` `exec-5`, 걸음 `remedy-1-pick_place`(값 `destination=DROP-01`, `object_id=SEQ-IN-02.BIN-A`).
   - 결과 통보 `resp-1` 이 (instanceId, executionId)로 이어졌다. `completedUnits=[remedy-1-pick_place]` 이고 ONLINE 이다.
-  - 그러나 `operatorRequired=true`, `physicalState=OPERATOR_HOLD` 다. 그래서 ② 의심(§5.2) → UNKNOWN_OUTCOME 이다.
+  - 그러나 `operatorRequired=true` 다. 그래서 ② 의심(§5.2) → UNKNOWN_OUTCOME 이다. `physicalState` 는 OPERATOR_HOLD 였다. ② 는 이 칸을 읽지 않는다.
 - hum-05: `op-c3` 의 승인 → 판 4 REFUSED `ROBOT_OUT_OF_SCOPE` → ESCALATED(`DISPATCH_REFUSED`).
 - 조치 의도가 없는 주문의 결과 통보(SEQ-1..4, `resp-2..5`)는 감시 기록에 UNROUTED 로만 남았다.
 - picasso 의 읽기(2026-10-04): hum-02 는 참조 시나리오의 알려진 끝이다(picasso `handoff/narrator/INDEX.txt` 296–307).
@@ -1669,10 +1673,10 @@ narrator 쪽 현황(2026-09-28): 진단 워커가 섰다 — 큐 `narrator-tq`, 
 |---|---|---|
 | A | 다섯째 후보 — 막는 결함을 감수하고 다음 단위로 갈지. 결과 통보의 `blockedBy` · `operatorRequired`(막힘 자체는 사건을 안 엶), 문은 `Middleware.release(executionId)` 로 프로세스 안에만 있다. 결과 통보를 접수 입력으로 삼을지(C 와 함께)도 여기서 정한다. 사람을 부르지만 문이 없는 경우 — `operatorRequired` 가 참이 되는 나머지(UNVERIFIED · 검증 불일치 · 출발 용기 불일치 · 취소 뒤 정리 실패)와 진행 정체 알림 — 도 같은 자리다. picasso 는 이것들을 NONE 과 같은 모양(누구에게 무엇을 확인시킬지)으로 권한다 | 후보로 내지 않는다. 결과 통보가 접수 입력이 아니므로 koshei 는 막는 결함과 위의 경우들을 보지 못한다 — 담는 쪽이나 라인이 사람을 부른다. 이미 열린 에피소드 안에서 보이면 `ESCALATE` 가 맡는다 |
 | B | picasso 가 제안한 거절 `CONSUMED` — `settle` 이 (기체, 주문)마다 소모 기록(승인자 · 시각 · executionId · 나간 걸음과 값)을 남기고 서 있는 제안이 없을 때 돌려준다. 창구 스키마 판 2 → 3, ADR 44 개정. picasso ADR 9(소비자 존재 원칙)상 koshei 가 실제로 읽겠다고 해야 들어온다. 대가: 기록이 재시작에 진다, 남의 승인자 id 가 인증 없는 창구에서 보인다. **전제:** 「한 (기체, 주문)에 한 승인자 id 로 시도 하나만」이면 소모 기록의 승인자로 「내 요청」을 가를 수 있다. picasso 가 권하는 순서는 값을 먼저 가르고, 그 가정이 안 설 때만 열쇠를 더하는 것이다. **koshei 는 지금 그 가정을 깬다** — `repeatedRemedyThreshold: 2` 라 같은 후보를 두 번 낼 수 있고, POLICY 자동 승인은 모두 같은 AGENT 승인자 id 로 간다. **2026-10-01 메모(C1):** picasso 가 `CONSUMED` 를 이미 냈다(창구 schema `3`, `cf81e02`). 결정은 그대로 사용자의 것이고, 위 기다리는 것 표의 「schema `3`」 행이 막는 항목이다. **C2 에서 닫음:** `CONSUMED` 를 읽되 좁히지 않는다(UNKNOWN(OUTCOME), §18) | `NO_PROPOSAL` · `REMEDY_NOT_APPLIED` · `CONSUMED` → UNKNOWN(OUTCOME) |
-| C | 담는 쪽의 자리. picasso 는 picasso 를 세우는 배치 호스트가 실시간 읽기와 승인 쓰기를 둘 다 담기를 권한다(koshei 는 아님). 배치 결정이다. 승인 창구는 루프백에만 붙으므로 **koshei 는 담는 쪽과 같은 기계에서 돌아야 한다.** 반응 시간(담는 쪽의 `pump()` 주기)과 결과 통보를 koshei 에 나르는 모양(A 와 함께)도 여기 딸린다. **결정(2026-10-04, 사용자, picasso 동의):** 실물 담는 쪽은 별도 배치 저장소다. 현장 운영 쪽이 소유한다. 그 저장소는 picasso 를 라이브러리로 쓴다 — main 소스만이다: `ApprovalWire`, `ResultExport`, `Middleware`. 참조 구동기 조각(`ApprovalHost`, `ScenarioHost`, `BundleWriter.carry`)은 picasso 의 시험 소스다. 그래서 그 저장소가 제 것을 새로 쓴다. 그 저장소에 넘길 조건: 결과 통보 파일은 추가 전용 · 전체 이력이다(§12). 실물 현장이 생길 때 선다 | 개발용으로만 파일 내보내기 + 감시자. 실물 완료 근거 없음(§12), 모든 실물 에피소드는 UNKNOWN(PRECONDITION)을 지난다(§8.3). C1: 개발용 나르는 모양 `koshei-carry-0`(담는 쪽이 `executionId` 를 덧붙인다고 가정)과 Mock 담는 쪽 `MockCarrier`(시험 전용)로 근거 경로를 시험한다(§12 구현(C1)). ResultExport 판 1 은 섰다(C2) — 담는 쪽이 무엇이든 koshei 는 이 형식을 읽는다. 담는 쪽 요건: 결과 통보 파일은 추가 전용 · 전체 이력(§12). C3: 실물 승인 창구 클라이언트가 섰다(§8.4 구현(C3)). 배치 저장소가 서기 전까지 연결 시험의 상대는 picasso 의 참조 구동기(`runApprovalHost`)다 |
+| C | 담는 쪽의 자리. picasso 는 picasso 를 세우는 배치 호스트가 실시간 읽기와 승인 쓰기를 둘 다 담기를 권한다(koshei 는 아님). 배치 결정이다. 승인 창구는 루프백에만 붙으므로 **koshei 는 담는 쪽과 같은 기계에서 돌아야 한다.** 반응 시간(담는 쪽의 `pump()` 주기)과 결과 통보를 koshei 에 나르는 모양(A 와 함께)도 여기 딸린다. **결정(2026-10-04, 사용자, picasso 동의):** 실물 담는 쪽은 별도 배치 저장소다. 현장 운영 쪽이 소유한다. 그 저장소는 picasso 를 라이브러리로 쓴다 — main 소스만이다: `ApprovalWire`, `ResultExport`, `Middleware`. 참조 구동기 조각(`ApprovalHost`, `ScenarioHost`, `BundleWriter.carry`)은 picasso 의 시험 소스다. 그래서 그 저장소가 제 것을 새로 쓴다. 그 저장소에 넘길 조건은 둘이다. 결과 통보 파일은 추가 전용 · 전체 이력이다(§12). 승인 창구는 시도를 받지 않았을 때만 200 밖의 상태로 답한다(§8.4 구현(C3)). 실물 현장이 생길 때 선다 | 개발용으로만 파일 내보내기 + 감시자. 실물 완료 근거 없음(§12), 모든 실물 에피소드는 UNKNOWN(PRECONDITION)을 지난다(§8.3). C1: 개발용 나르는 모양 `koshei-carry-0`(담는 쪽이 `executionId` 를 덧붙인다고 가정)과 Mock 담는 쪽 `MockCarrier`(시험 전용)로 근거 경로를 시험한다(§12 구현(C1)). ResultExport 판 1 은 섰다(C2) — 담는 쪽이 무엇이든 koshei 는 이 형식을 읽는다. 담는 쪽 요건: 결과 통보 파일은 추가 전용 · 전체 이력(§12). C3: 실물 승인 창구 클라이언트가 섰다(§8.4 구현(C3)). 배치 저장소가 서기 전까지 연결 시험의 상대는 picasso 의 참조 구동기(`runApprovalHost`)다 |
 | D | 카드 순서. picasso 의 WITHHELD 는 의도적 비자동화다 — 사람이 안쪽 루프의 진단을 먼저 보면 그것은 진단이 아니라 동의가 된다. picasso 는 안쪽 루프 진단을 적어 두되 사람 진단 뒤에 대조 재료로만 보이기를 권한다. 그런 대조용 진단을 부르고 기록해 둘지, 사람 진단이 기록된 뒤에 보일지가 D 의 일이다 | §9.5 그대로. 다만 스냅샷에 `WITHHELD` 탐색 줄이 있으면 DIAGNOSING 에 들어가는 순간 `diagnose` 를 부르지 않고 ESCALATED(`WITHHELD_HUMAN_FIRST`). 카드는 사실과 `ESCALATE` 과업만 |
 | E | picasso 쪽 변경 후보: ② `resolve` 가 승인자를 받아 AGENT 를 거절하고 누가 눌렀는지 남김(문을 여는 변경과 함께) ③ 보류 단위가 있는 실행의 재할당 막기 ④ 대장의 증분 조회 `after`. (① 은 B) | 셋 다 없다고 보고 짓는다 — `resolve` · `reassign` 을 부르지 않고(§8.4), 실시간 대장 읽기가 없다(§8.3). ③ 전까지 보류 단위의 재할당 빈 곳을 막는 장치는 없다 — koshei 가 부르지 않는 것뿐이다 |
-| F | DONE 의 뜻 (C3 연결 시험에서 드러남, 2026-10-04, §16 C3 끝). koshei 의 ②(§5.2)는 주문 단위의 `operatorRequired` 를 조치에 대한 의심으로 읽는다. 승인된 단위가 모두 끝났어도 그렇다. DONE 이 「조치가 됐다」(승인된 단위의 완료, `residualHold`)인지 「주문이 끝났다」인지 정해야 한다. koshei 의 결정이다. 지금 `residualHold` 는 나르지 않는다(§12 구현(C2)) | 「주문」으로 읽는다(보수 쪽). `operatorRequired` 가 참이면 UNKNOWN(OUTCOME)이다 |
+| F | DONE 의 뜻 (C3 연결 시험에서 드러남, 2026-10-04, §16 C3 끝). koshei 의 ②(§5.2)는 주문 단위의 `operatorRequired` 를 조치에 대한 의심으로 읽는다. 승인된 단위가 모두 끝났어도 그렇다. DONE 이 「조치가 됐다」(승인된 단위의 완료, `residualHold`)인지 「주문이 끝났다」인지 정해야 한다. koshei 의 결정이다. 「조치」로 정하면 `operatorRequired` 만이 아니라 ② 가 읽는 세 칸(`operatorRequired` · `inDoubtUnits` · `unverifiedUnits`)을 모두 승인된 단위로 좁혀야 한다. 지금 `residualHold` · `incompleteUnits` · `blockedBy` 는 나르지 않는다(§12 구현(C2)) | ② 는 통보 전체(주문)의 `operatorRequired`(참 · 보고 안 함) · `inDoubtUnits` · `unverifiedUnits`(비지 않음 · 보고 안 함)를 의심으로 읽는다. ③ DONE 은 승인된 단위의 완료와 ONLINE 만 본다(주문의 다른 단위가 끝났는지는 보지 않는다). 그래서 지금 DONE 은 「조치가 됐고 주문에 의심이나 사람 필요가 없다」다 |
 
 **사용자 결정으로 미룬 것 (2026-10-04, D-lite)** — 계획 D 가운데 D-lite 에서 뺀 것이다. 모두 범위 밖이다(§16 D-lite 끝).
 
