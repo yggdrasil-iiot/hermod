@@ -28,6 +28,9 @@ class WatcherConfigTest {
         assertEquals(Path.of("model/episode-policy/active.yaml"), c.policyPath)
     }
 
+    @Test fun `the real window is episode mode too - the watcher starts with KOSHEI_PICASSO=picasso`() =
+        assertEquals(listOf(Path.of("a")), WatcherConfig.fromEnv(mapOf("KOSHEI_PICASSO" to "picasso", "KOSHEI_WATCH_EXPORTS" to "a")).exports)
+
     @Test fun `what is wrong stops the start`() {
         listOf(
             mapOf(on),

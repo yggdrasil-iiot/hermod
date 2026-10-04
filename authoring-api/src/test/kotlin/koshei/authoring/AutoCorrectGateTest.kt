@@ -23,6 +23,7 @@ class AutoCorrectGateTest {
     @Test fun `episode mode alarms only, and refuses the one-shot dispatch`() {
         val g = gate("KOSHEI_PICASSO" to "mock")
         assertEquals(AutoCorrectGate(AutoCorrectMode.ALARM_ONLY, episodeMode = true), g)
+        assertEquals(AutoCorrectGate(AutoCorrectMode.ALARM_ONLY, episodeMode = true), gate("KOSHEI_PICASSO" to "picasso"))   // the real window is episode mode too
         assertFalse(g.oneShotAllowed)
         assertEquals(AutoCorrectMode.OFF, gate("KOSHEI_PICASSO" to "mock", "KOSHEI_AUTOCORRECT_DISABLED" to "1").mode)
     }
