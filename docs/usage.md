@@ -9,7 +9,7 @@ This guide is for a developer who wants to **run** Koshei on their own machine, 
 Two things to know before you start:
 
 - **License — noncommercial.** Koshei is *source-available* under the [PolyForm Noncommercial License 1.0.0](../LICENSE.md). Noncommercial use is freely permitted; **commercial use is reserved**. This is **not** an OSI-approved open-source license — "OSS" here means publicly available and contributable, not OSI Open Source.
-- **Maturity — demo-grade.** What you run from this repo is a **single-process local demo**: one worker, the Docker Compose stack on one host. There are **no real OT connectors** (no PLC/OPC/MQTT), **no Kubernetes / production deployment**, and the Conductor observation overlay is **eventually consistent**. It is an engineering artifact that proves the durable-saga core, not a shippable product. See [§5](#5-limits--license).
+- **Maturity — demo-grade.** What you run from this repo is a **single-process local demo**: one worker, the Docker Compose stack on one host. There are **no real OT connectors** (no PLC/OPC/MQTT), **no Kubernetes / production deployment**, and the Conductor observation overlay is **eventually consistent**. It is an engineering artifact that proves the durable-saga core, not a shippable product. See [§6](#6-limits--license).
 
 ---
 
@@ -210,6 +210,11 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_PICASSO_URL` | Required when `KOSHEI_PICASSO=picasso`; only the worker reads it. The window's origin, `http://127.0.0.1:<port>` or `http://localhost:<port>` only; the client adds `/approvals`. `localhost` must resolve only to loopback addresses, with an IPv4 loopback address (127.0.0.1) first; otherwise the start is refused, so use `http://127.0.0.1:<port>` |
 | `KOSHEI_PICASSO_AGENT_ID` | Required when `KOSHEI_PICASSO=picasso`; only the worker reads it. The approver id a POLICY approval sends as AGENT |
 | `KOSHEI_PICASSO_TIMEOUT_MS` | One request's limit, default 8000; keep it at most `(dispatchMs − 3000) / 3`, where `dispatchMs` is the episode policy's `dispatchMs` (30000 in v1 → 9000) |
+| `KOSHEI_NARRATOR` | `mock` (default: the worker registers the Mock narrator on `narrator-tq`) \| `remote` (it does not; narrator's Python worker serves that queue). Run only one poller on the queue. Any other value stops the worker at start |
+| `KOSHEI_EPISODE_POLICY` | The episode policy file, read by the worker and the watcher. `:app:run` and `:app:watcher` pass the absolute path of `model/episode-policy/active.yaml` when it is unset. A missing file makes every episode `POLICY_MISSING` (the worker warns at start) |
+| `KOSHEI_WATCH_EXPORTS` | Watcher only, required: picasso export directories, separated by `File.pathSeparator` (`;` on Windows, `:` elsewhere) |
+| `KOSHEI_WATCH_CARRY` | Watcher only, optional: the directory holding picasso's `job-responses.jsonl` (ResultExport schema 1). Unset: no result reports are carried |
+| `KOSHEI_WATCH_INTERVAL_MS` | Watcher only: poll interval, 100..60000, default 2000 |
 | `KOSHEI_CONDUCTOR_URL` | Conductor API base URL (**override needed — see callout below**) |
 | `KOSHEI_PLUGIN_DIR` | Where published plugin jars are stored/loaded |
 | `KOSHEI_PUBLISH_DISABLED` | `true` (or `1`) closes `POST /api/publish` with 403 (no new plugin code accepted). Default: publish open |
@@ -262,7 +267,96 @@ Each run chooses its engine via `RunRequest.engine`, one of `"temporal"` or `"co
 
 ---
 
-## 5. Limits & license
+## 5. Run the episode loop
+
+The episode outer loop handles one fault from symptom to resolution: picasso's exports come in as symptoms, narrator diagnoses, a person approves, koshei dispatches to picasso's approval window, and picasso's result reports close the episode. How it works: [`docs/architecture.md` §12](architecture.md#12-episode-outer-loop-as-built); the design (in Korean): [`docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md`](superpowers/specs/2026-09-27-episode-outer-loop-design.md). Every variable below is in the [§4](#4-configure) table.
+
+### Worker modes
+
+`KOSHEI_PICASSO` picks the approval window, and with it whether the loop runs at all:
+
+| Value | What runs |
+|---|---|
+| `off` (default) | No episode worker and no episode tables. The saga worker and the gate scripts behave as before |
+| `mock` | The episode worker on `koshei-episode-tq` with the test Mock window (`MockPicasso`, in the worker's memory). Remedies reach no robot; the worker prints a warning at start |
+| `picasso` | The episode worker with the real window, `HttpApprovalWindow`: `POST /approvals` on `KOSHEI_PICASSO_URL` (loopback only), approvals sent as PERSON, or as AGENT under `KOSHEI_PICASSO_AGENT_ID` |
+
+`KOSHEI_NARRATOR` picks the diagnosis: `mock` (default) answers in-process with a stand-in that recommends the first offered candidate with a clean, cited answer; `remote` leaves `narrator-tq` to narrator's Python worker (diagnosis contract 0.6).
+
+Each process reads only its own environment. The worker, the watcher and `:authoring-api` must see the same `KOSHEI_PICASSO`: a control plane started from another shell does not know it is in episode mode and could still dispatch drift auto-corrections. The Gradle tasks forward `KOSHEI_*` from the shell, so starting all three from one shell keeps them in step. A value the code does not know stops the process at start.
+
+### Start it
+
+```bash
+docker compose up -d && bash scripts/init-db.sh     # as in §1
+export KOSHEI_PICASSO=mock                          # in each shell below
+./gradlew :app:run                                  # worker: sagas + episodes (+ Mock narrator)
+./gradlew :authoring-api:run                        # control plane: /api/episodes…
+cd authoring-ui && npm run dev                      # UI: tab "07 Episodes"
+```
+
+To feed it, either run the watcher or open one episode by hand with the dev CLI.
+
+**The watcher** (`./gradlew :app:watcher`, a separate process) polls picasso export directories and, when `KOSHEI_WATCH_CARRY` is set, picasso's `job-responses.jsonl`. It reads a bundle only after its `manifest.json` appears, keeps its cursor in `episode_watch_cursor`, and writes what it could not carry to `episode_watch_log` (there is no screen for that log; read the table). It refuses to start with `KOSHEI_PICASSO=off`. Its working directory is `app/`, so give it absolute paths.
+
+```bash
+export KOSHEI_WATCH_EXPORTS=/abs/path/to/picasso/export
+export KOSHEI_WATCH_CARRY=/abs/path/to/picasso/carry     # optional
+./gradlew :app:watcher
+```
+
+**The dev CLI** opens one episode from one export line, read the same way the watcher reads it, and switches the agent off:
+
+```bash
+# open: signalWithStart ep:<key> with one line; the default key is <runId>:<id>
+./gradlew :app:cli --args="episode open --export /abs/path/to/export --search search-1"
+./gradlew :app:cli --args="episode open --export /abs/path/to/export --incident incident-1 --key my-key"
+
+# agent-off: one episode, or every open one; the episode goes to a person (AGENT_LAYER_OFF)
+./gradlew :app:cli --args="episode agent-off ep:my-key"
+./gradlew :app:cli --args="episode agent-off --all"
+```
+
+The repo carries a sample export at `episode-runtime/src/test/resources/picasso/run-1` (four searches, nine incidents). Pass it as an absolute path: `:app:cli` runs in `app/`.
+
+### The policy file
+
+`model/episode-policy/active.yaml` is policy table v1 (version `2026-10-03.2`). The runtime reads it afresh at every decision; an unreadable or rejected file keeps the last valid table and suspends auto-approval. What v1 sets:
+
+- `agentLayerEnabled: true`. Set it to `false` and every episode hands over to a person; `episode agent-off --all` makes the open ones act on it at once.
+- `autoApprove.APPROVE_REMEDY.allowed: false`: a person approves every remedy.
+- `deadlines`: every wait has one, e.g. `approvalMs` 5 min, `evidenceMs` 10 min, `episodeMs` 1 h.
+- `diagnosis`: two attempts of 540 s within 1,200 s, heartbeat 30 s (narrator contract 0.6).
+- `correlation`: one rule, a robot's search line and incident line on one order are one episode.
+- `actionCatalog: []`: koshei's own remedies are out of scope.
+
+Editing the file is the only policy management for now. Git + DB pointer + `policy validate` / `activate` is out of scope (design §19).
+
+### Decide: the control plane and the UI
+
+`:authoring-api` serves the episodes on 127.0.0.1:18090. It reads the episode tables and relays decisions to the workflow as Workflow Updates; the core decides, and a refusal comes back as a value.
+
+| Route | What |
+|---|---|
+| `GET /api/episodes?limit=` | episode instances |
+| `GET /api/episodes/notices?after=&limit=` | the notice feed, in id order |
+| `GET /api/episodes/{workflowId}/{run}` | records, notices, and while the run is live its view and operator card |
+| `POST /api/episodes/{workflowId}/{run}/decide` | approve or reject a proposal |
+| `POST /api/episodes/{workflowId}/{run}/confirm` | confirm a precondition, an outcome or an unknown |
+| `POST /api/episodes/{workflowId}/{run}/takeover` | a person takes the episode over |
+| `POST /api/episodes/{workflowId}/{run}/close` | close an escalated episode |
+
+The `POST` routes need the operator's id in the `X-Koshei-Operator` header and refuse unknown or repeated body fields. The control plane has no authentication (see the security note in §4). The UI tab **07 Episodes** shows the list, the detail (card, the four decisions, history, candidates, records) and the notice feed.
+
+With `KOSHEI_PICASSO=picasso`, revalidation is always UNKNOWN, so every dispatch waits for a person to confirm the precondition the card shows (`confirm` with `PRECONDITION`).
+
+### The episode tables and the runtime role
+
+The worker (or the watcher), started with the owner login, creates five tables from `episode-runtime/src/main/resources/episode-schema.sql`: `episode_event`, `episode_notice`, `episode_dispatch`, `episode_watch_cursor`, `episode_watch_log`. In production the worker and the watcher should use the runtime role from `scripts/episode-db-roles.sql` (`SELECT` and `INSERT` only); how to run it is in [§4](#4-configure), after the environment table. The control plane still reads the tables with the owner login.
+
+---
+
+## 6. Limits & license
 
 **License — PolyForm Noncommercial 1.0.0.** Source-available; **noncommercial use only — commercial use is reserved** ([`LICENSE.md`](../LICENSE.md)). Not OSI-approved open source.
 
@@ -271,6 +365,7 @@ Each run chooses its engine via `RunRequest.engine`, one of `"temporal"` or `"co
 - **Single-process local stack.** One worker, the Compose stack on one host — not a scaled or production deployment, and there is no Kubernetes/production deploy path here.
 - **No real OT connectors.** There are no PLC / OPC / MQTT integrations; the `actuate` block models an irreversible actuation for the demo, it does not drive real hardware.
 - **Conductor overlay is eventually consistent.** The Conductor observation/compensation overlay reflects state with a lag; Temporal is the load-bearing durable engine (crash-recovery/replay is proven on Temporal).
+- **The episode loop is a one-machine PoC.** There is no real picasso host yet (a separate deployment repo is decided; picasso's reference host is the test peer), revalidation with the real window is always UNKNOWN, and what DONE means is an open decision. See [`docs/architecture.md` §12.6](architecture.md#126-limits).
 
 For the full as-built limits and non-goals see [`docs/architecture.md` §10](architecture.md#10-honest-limits-and-non-goals-current).
 

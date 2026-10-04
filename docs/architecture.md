@@ -233,8 +233,10 @@ and the rest of the unwind continues (§5).
 
 ## 7. Module map and dependency graph
 
-Eleven Gradle modules (from `settings.gradle.kts`; `authoring-ui` is the React app, not a Gradle
-module). Edges point in the direction of the dependency (A → B means A depends on B).
+Fourteen Gradle modules (from `settings.gradle.kts`; `authoring-ui` is the React app, not a Gradle
+module). Edges point in the direction of the dependency (A → B means A depends on B). The graph shows
+the main-scope edges that carry the architecture; `app` also depends on `core`, `registry`, `blocks`,
+`compiler` and `opcua` for its conformance checks (see `app/build.gradle.kts`).
 
 ```mermaid
 flowchart TD
@@ -249,6 +251,9 @@ flowchart TD
   api["authoring-api<br/>(ConductorEnginePort, Spring edge)"]
   app["app<br/>(Spring boot edge)"]
   opcua["opcua<br/>(Milo, OPC-UA blocks, command-policy, audit)"]
+  delegation["delegation<br/>(DelegationPolicy, scoring sim)"]
+  episode["episode<br/>(pure state machine: transition, candidates, policy)"]
+  episodert["episode-runtime<br/>(EpisodeWorkflow, activities, watcher logic, stores)"]
 
   sdk --> core
   registry --> core
@@ -275,6 +280,13 @@ flowchart TD
   api --> dispatch
   api --> opcua
   app --> runtime
+  delegation --> sdk
+  dispatch --> delegation
+  app --> delegation
+  episodert --> episode
+  episodert --> runtime
+  app --> episodert
+  api --> episodert
 
   classDef edge fill:#eee,stroke:#888;
   class api,app edge;
@@ -284,13 +296,19 @@ flowchart TD
 **not** on `:runtime` or `io.temporal`; Spring lives only in the `:authoring-api` / `:app` edges, so
 `:core / :registry / :compiler / :dispatch` stay framework-free. `ConductorEnginePort` is hoisted up
 into `:authoring-api` precisely to keep `:conductor-runtime` clean of the `EnginePort` (Temporal)
-seam.
+seam. The same rule holds for the episode loop: `:episode` has no project dependency at all (Jackson's
+JSON tree only, `episode/build.gradle.kts`), so it knows nothing of Temporal, Spring or JDBC;
+`:episode-runtime`'s main code imports only `RawJson` from `:runtime`.
 
 ## 8. Verification strategy
 
-**319 tests green, 0 failures** across the 11 product modules via `./gradlew build` (registry 67 ·
-authoring-api 48 · compiler 47 · opcua 44 · runtime 37 · conductor-runtime 33 · blocks 17 · core 17 ·
-dispatch 5 · sdk 4 · app 0). The disposable de-risking spike is excluded from that figure. Engine-touching
+**1,238 tests, 0 failures, 1 skipped** across the 14 Gradle modules via `./gradlew test` at
+`14fdff7` (episode 323 · episode-runtime 308 · authoring-api 146 · opcua 115 · registry 102 ·
+runtime 55 · compiler 47 · app 42 · conductor-runtime 34 · delegation 20 · blocks 17 · core 17 ·
+dispatch 7 · sdk 5). The skipped test is the R3 replay-history generator, which runs only with
+`-Dkoshei.writeReplayHistories=true` (§12). Outside Gradle, `authoring-ui` type-checks clean
+(`tsc --noEmit`), runs 83 vitest tests, and runs 20 Playwright tests in `e2e/episodes.spec.ts`
+against a mocked `/api/episodes…`. The disposable de-risking spike is excluded from these figures. Engine-touching
 tests use **Testcontainers** (real Postgres / Temporal / Conductor), development is TDD, and there
 are **20 objective gate scripts** (`scripts/run-*-gate.sh`) plus a Playwright E2E → GIF harness
 (`scripts/run-e2e.sh`, specs in `authoring-ui/e2e/`) and a crash-recovery harness
@@ -313,6 +331,7 @@ Headline capability → the artifact that proves it:
 | Add-a-block / authoring / compose-run | `run-add-block-gate.sh`, `run-authoring-gate.sh`, `run-compose-run-gate.sh` |
 | Full OT scenario | `run-scenario-gate.sh` |
 | Crash recovery (Temporal) | `run-crash-recovery.sh` |
+| Episode outer loop | the tests listed in §12 (no gate script yet) |
 
 ## 9. Scale-out & deployment topology
 
@@ -392,8 +411,149 @@ See the broader honesty inventory in §10.
 - **E2E/GIFs run locally / on-demand**, not in continuous CI.
 - The **product / demand axis is unvalidated** — this is an engineering artifact, not a
   market-proven product.
+- **Episode outer loop** (§12) — a PoC on one machine. There is no real host for picasso yet (a
+  separate deployment repo is decided; picasso's reference host is the test peer). With the real
+  approval window revalidation is always UNKNOWN, so a person confirms each precondition. What DONE
+  means is an open decision (design §19 F). Several plan-D items are out of scope (design §16
+  "D-lite 끝"). The Episodes UI e2e runs against a mocked API only.
 
 ## 11. Design rationale and decision record
 
 - `docs/scenario-ot-actuation-demo.md` — the deep walkthrough of the `ot-recipe-apply` scenario.
 - `docs/usage.md` — the **Using & Extending Koshei** developer guide: run it, author your own block (the SDK + `:app:cli` scaffold/publish flow), operate, and configure.
+- `docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md` — the episode outer loop design (in Korean), with its decision record (§18) and open decisions (§19). §12 below summarizes what was built.
+
+## 12. Episode outer loop (as-built)
+
+The saga (§5) runs a workflow an operator composed. The episode outer loop manages one fault, an
+*episode*, from the first symptom to its resolution. It is a deterministic state machine; the LLM
+diagnosis is one side-effect-free activity called from one of its states (design §1). It is
+**Temporal-only**: nobody draws it, so it does not go through the engine-neutral IR or Conductor
+(design §4.1). It is off by default.
+
+### 12.1 Modules and boundaries
+
+| Where | What | Knows about |
+| --- | --- | --- |
+| `:episode` | The pure core: `transition(state, event, policy, now)` returns the next state and the commands to run; candidate projection, `candidateId` / `candidatesVersion`, the policy table and its validation, `takeEvidence` (result-report verdict, `Outcome.kt`), `correlate` (merge key, `Correlation.kt`) | Jackson's JSON tree only. No Temporal, Spring or JDBC (`episode/build.gradle.kts`) |
+| `:episode-runtime` | The Temporal shell: `EpisodeWorkflow(Impl)` drives `transition` and decides nothing itself; the activities (`diagnose` remote on `narrator-tq`, `readPolicy`, `revalidate`, `record`, `dispatch`, `notify`); the approval windows (`MockPicasso`, `HttpApprovalWindow`); the watcher's logic (`EpisodeWatcher`, `Bundles`, `ExportSymptoms`, `ResultExportFile`, `WatchStore`); `EpisodeStore`; `AgentOffBroadcast` | `:episode`, `RawJson` from `:runtime`, Temporal SDK, Postgres |
+| `:app` | `Worker.kt` registers the episode worker on `koshei-episode-tq` next to the saga worker (`koshei-v0_1-tq`) when `KOSHEI_PICASSO` is not `off`; `Watcher.kt` is the watcher process (`./gradlew :app:watcher`); `EpisodeCli.kt` is the dev CLI | `:episode-runtime` |
+| `:authoring-api` | `EpisodeController`, `/api/episodes…` on 127.0.0.1:18090: list, detail with the operator card, the notice feed, and the decisions `decide` / `confirm` / `takeover` / `close` under the `X-Koshei-Operator` header. It reads and relays; the core decides | `:episode-runtime` |
+| `authoring-ui` | Tab "07 Episodes" (`src/views/episodes/`): list, detail (card, decisions, history, candidates, records), notice feed | `/api/episodes…` |
+
+Three boundaries carry the design:
+
+- **Pure core vs. Temporal shell.** The workflow feeds events to `transition` and runs the commands
+  it returns. Every rule (deadlines, "UNKNOWN blocks every execution command", "no dispatch without
+  a recorded intent") is a property of the transition table and is tested in the pure module
+  (design §5.2, §6, §17).
+- **Decisions as Workflow Updates.** A person's decision is a Workflow Update. The validator only
+  rejects what cannot be decoded; a stale or refused decision is returned by the handler as a value,
+  so it stays in the history (design §3 D2, §3.1 spike).
+- **The watcher is a separate process.** It carries and does not judge. It reads picasso's export
+  bundles only after `manifest.json` appears, keeps its cursor in Postgres, delivers at least once
+  (the core de-duplicates by `eventId` and by (`instanceId`, `jobResponseId`)), and sends a result
+  report to the episode instance whose recorded dispatch intent names that order (design §12).
+
+### 12.2 Processes and queues
+
+| Process | Queue / surface |
+| --- | --- |
+| koshei worker (`./gradlew :app:run`) | `koshei-episode-tq` (episodes), `koshei-v0_1-tq` (sagas); with `KOSHEI_NARRATOR=mock` (default) also the Mock narrator on `narrator-tq` |
+| narrator worker (Python, sibling repo) | `narrator-tq`, activity `diagnose`, diagnosis contract 0.6, when `KOSHEI_NARRATOR=remote` |
+| watcher (`./gradlew :app:watcher`) | reads picasso export directories (`KOSHEI_WATCH_EXPORTS`) and `job-responses.jsonl` (`KOSHEI_WATCH_CARRY`, picasso ResultExport schema 1); signals Temporal |
+| picasso host (outside koshei, not built yet) | the approval window `POST /approvals` (loopback, unauthenticated) and the result reports |
+| control plane (`:authoring-api`) | 127.0.0.1:18090, `/api/episodes…` |
+
+### 12.3 The episode, in short
+
+States (design §5.1): CORRELATING → DIAGNOSING → PROPOSED → AWAITING_APPROVAL → REVALIDATING →
+DISPATCH_PENDING → DISPATCHED → AWAITING_EVIDENCE → RESOLVED, with UNKNOWN (PRECONDITION or
+OUTCOME), ESCALATED, SUPERSEDED and CLOSED. Every wait has a deadline from the policy table.
+
+- **Diagnosis.** koshei computes the candidates; narrator may only point at one or choose ESCALATE.
+  A recommendation inside the candidates, on the same candidates version, with at least one verified
+  citation becomes a proposal. Everything else (NO_GROUNDS, UNCITED, ESCALATE, out of candidates, a
+  contract violation, a timeout) escalates to a person (design §5.2).
+- **Approval.** Policy v1 (`model/episode-policy/active.yaml`, version `2026-10-03.2`) keeps
+  auto-approval of `APPROVE_REMEDY` off, so a person approves (design §18).
+- **Revalidation and dispatch.** The precondition is re-read before dispatch. The Mock answers TRUE
+  while the proposal stands; with the real window it is always UNKNOWN, because there is no live
+  ledger read, so a person confirms the proposition shown on the card (design §8.3, §16 "C3 끝").
+  The dispatch intent is recorded first, and a dispatch leaves only after that record. A lost or
+  timed-out answer, or `NO_PROPOSAL`, `REMEDY_NOT_APPLIED`, `CONSUMED`, is UNKNOWN(OUTCOME) and is
+  never retried; an answer koshei cannot read escalates as `DISPATCH_ANSWER_UNKNOWN` (design §5.2, §11).
+- **Resolution.** A result report resolves the episode only when it links to this attempt by
+  (`instanceId`, `executionId`), every approved unit is in `completedUnits`, the report says no unit
+  is in doubt or unverified and no operator is required, and the connection is
+  `CONNECTION_STATE_ONLINE`. A doubtful report makes the outcome UNKNOWN; a person can confirm it
+  (design §5.2, §12, §19 F).
+- **Off switches.** `agentLayerEnabled: false` in the policy file, or `agentOff` (one episode, or
+  every open one with `--all`), hands episodes to a person (design §10.4).
+- **Saga behaviour is unchanged.** With `KOSHEI_PICASSO=off` no episode worker starts and no episode
+  table is created (design §4.2). With the loop on, the control plane refuses drift auto-correct
+  dispatch, including the one-shot `POST /api/autocorrect/sweep` (409 `EPISODE_MODE`), so no remedy
+  leaves outside an episode (design §14, §18).
+
+### 12.4 Tables
+
+`episode-runtime/src/main/resources/episode-schema.sql` creates five append-only tables, idempotently
+and under an advisory lock (design §13):
+
+| Table | Holds |
+| --- | --- |
+| `episode_event` | the audit record of every episode, keyed `(episode_instance_id, seq)`; the audit source of truth, since Temporal history expires |
+| `episode_notice` | the notice feed for people |
+| `episode_dispatch` | what a dispatch came back with, by idempotency key (picasso's answer verbatim) |
+| `episode_watch_cursor` | the watcher's cursor per (source, run), one row per step forward |
+| `episode_watch_log` | what the watcher could not carry or carried unmerged (`NOT_READY`, `BROKEN`, `STUCK`, `AMBIGUOUS`, `UNROUTED`, `ROUTE_ENDED`, `SIGNAL_FAILED`, `POLICY_UNUSABLE`) |
+
+`scripts/episode-db-roles.sql` creates the runtime role `koshei_episode_rt` with `SELECT` and `INSERT`
+only on the five tables, and refuses a role that may `CREATE` in the schema. The worker and the watcher
+use it through `KOSHEI_EPISODE_DB_USER` / `KOSHEI_EPISODE_DB_PASS`; the control plane still reads with
+the owner login (design §13 "구현(D-lite)").
+
+### 12.5 Evidence
+
+Tests (counts in §8):
+
+- `:episode` — the transition table, policy validation, projection, and `EpisodePropertiesTest`:
+  1,000 seeds × up to 60 random events, checking no dispatch while UNKNOWN, at most one dispatch per
+  key, no dispatch without a record, and that every run ends; plus a directed test that a report
+  resolves only when linked, complete, online and clean.
+- `:episode-runtime` — `EpisodeEndToEndTest` (real activities, test Postgres, Mock narrator and
+  Mock picasso, policy v1), `WatcherEndToEndTest` (watcher, signals, `MockCarrier` result reports:
+  merge rule, early and duplicate reports, resolution only while ONLINE),
+  `PicassoWindowEndToEndTest` (the real client over HTTP), `EpisodeDbRolesTest` (`UPDATE`, `DELETE`,
+  `TRUNCATE` refused as the runtime role), and `CommittedReplayTest`, which replays the nine
+  committed histories in `src/test/resources/replay/2026-10-04/` against today's code (R3, design §7.5).
+- `:authoring-api` — `EpisodeControllerTest`, `EpisodeGatewayTest`.
+- `authoring-ui` — `e2e/episodes.spec.ts`, against a mocked `/api/episodes…` only.
+
+Live runs:
+
+- **Through narrator, 2026-10-03 (UTC).** A koshei episode opened from the export line `search-1`
+  called narrator's Python worker on `narrator-tq`, which called khala. The answer came back in
+  255.5 s with 13 of 13 citations verified and recommended ESCALATE, so the episode went to a person
+  (ESCALATED). The run is recorded in narrator's repo (its correspondence log), not in this one.
+- **Against picasso's reference host, 2026-10-04** (design §16 "C3 끝"). With
+  `KOSHEI_PICASSO=picasso` and the Mock narrator, a person approved a remedy for hum-02, confirmed
+  the precondition, and picasso answered APPROVED. The linked JobResponse completed the approved unit
+  while ONLINE but carried `operatorRequired`, so the episode went to UNKNOWN_OUTCOME. picasso's reading
+  is that the next unit of the order blocked, not the remedy; this is why what DONE means is open
+  (design §19 F).
+
+### 12.6 Limits
+
+- **No real picasso host.** It is decided as a separate deployment repo (design §19 C); until then
+  picasso's reference host is the test peer. The approval window is loopback-only, so koshei must run
+  on the same machine.
+- **Revalidation with the real window is always UNKNOWN**, so a person confirms each precondition.
+- **DONE** today means "the remedy's units completed and the order shows no doubt and no need for a
+  person". Whether it should mean the remedy or the order is open (design §19 F).
+- **Out of scope** (design §16 "D-lite 끝", §19): policy management (git + DB pointer + CLI),
+  `SAGA_ACTION` remedies and child sagas, the blocks' "unknown" report, the full record fields and
+  quality-history links, a watcher-log screen, a read-only role for the control plane, column checks
+  in `ensureSchema`, and replay histories stopped in DISPATCH_PENDING or REVALIDATING.
+- **Drift is not yet a watcher input** (design §16, C1 remaining).
+- **One machine, PoC scale.**
