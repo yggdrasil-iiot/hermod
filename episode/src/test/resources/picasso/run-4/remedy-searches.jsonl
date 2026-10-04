@@ -1,0 +1,2 @@
+{"searchId":"search-1","robotId":"hum-02","jobOrderId":"PATROL-AFTER-1","at":"2026-09-06T00:00:05Z","wallClockAt":"2026-09-22T16:47:45.654726400Z","outcome":"FOUND","steps":[{"skillType":"pick_place","requires":[],"expectedHold":"HOLD_KIND_EMPTY","onFailureHold":"HOLD_KIND_HOLDING"}]}
+{"searchId":"search-2","robotId":"hum-04","jobOrderId":"PATROL-AFTER-2","at":"2026-09-06T00:00:10Z","wallClockAt":"2026-09-22T16:47:45.887779900Z","outcome":"WITHHELD"}

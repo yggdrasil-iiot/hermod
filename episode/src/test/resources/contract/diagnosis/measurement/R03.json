@@ -1,0 +1,59 @@
+{
+  "contractVersion" : "0.6",
+  "episodeId" : "ep:measure-R03",
+  "attempt" : 1,
+  "snapshot" : {
+    "manifest" : {
+      "schemaVersion" : "5",
+      "runId" : "run-2026-09-22T16:47:37.854173400Z-1",
+      "writtenAt" : "2026-09-22T16:47:37.854173400Z",
+      "virtualNow" : "2026-09-06T00:02:34Z",
+      "contractSemver" : "0.9.0",
+      "counts" : {
+        "incidents" : 9,
+        "remedySearches" : 4
+      }
+    },
+    "incidents" : [ ],
+    "searches" : [
+      {
+        "searchId" : "search-1",
+        "robotId" : "hum-02",
+        "jobOrderId" : "PATROL-1",
+        "at" : "2026-09-06T00:00:01Z",
+        "wallClockAt" : "2026-09-22T16:47:30.473263200Z",
+        "outcome" : "FOUND",
+        "steps" : [
+          {
+            "skillType" : "pick_place",
+            "requires" : [ ],
+            "expectedHold" : "HOLD_KIND_EMPTY",
+            "onFailureHold" : "HOLD_KIND_HOLDING"
+          }
+        ]
+      }
+    ]
+  },
+  "candidates" : [
+    {
+      "candidateId" : "APPROVE_REMEDY:hum-02:PATROL-1:pick_place",
+      "kind" : "APPROVE_REMEDY",
+      "ref" : {
+        "robotId" : "hum-02",
+        "jobOrderId" : "PATROL-1",
+        "searchId" : "search-1"
+      },
+      "sawSkillTypes" : [
+        "pick_place"
+      ]
+    },
+    {
+      "candidateId" : "ESCALATE",
+      "kind" : "ESCALATE",
+      "ref" : null
+    }
+  ],
+  "candidatesVersion" : "sha256:fd1ea1118d55a5e076e6b2c9a176cf525ecd97d100c9a7a90ab44b192149fef2",
+  "unknowns" : [ ],
+  "history" : [ ]
+}

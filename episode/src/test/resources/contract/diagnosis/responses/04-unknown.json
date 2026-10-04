@@ -1,0 +1,66 @@
+{
+  "contractVersion": "0.6",
+  "episodeId": "ep:fixture-04-unknown",
+  "attempt": 1,
+  "outcome": "RECOMMENDED",
+  "candidateId": "OPERATOR_DECISION:exec-8:RACK-204.S06:CONFIRM_DONE",
+  "picked": null,
+  "sawCandidatesVersion": "sha256:5bc80acc0e11d78b7b09c9584cdd08fcc95a0600b9a02daa8401ba8483e66ca4",
+  "rationale": "연결이 끊긴 동안 단위가 무엇을 했는지 모르고 설비는 목적지에서 기대 품목을 봤으므로, 사람이 슬롯을 육안으로 확인해 자재가 맞게 있으면 단위를 수동으로 완료하는 것이 절차다 [출처: SOP-02 안착 실패와 품번 불일치, §4.2].",
+  "card": [
+    {
+      "label": "절차",
+      "text": "사람이 슬롯을 육안으로 확인하고 자재가 맞게 있으면 단위를 수동으로 완료 처리한다 [출처: SOP-02 안착 실패와 품번 불일치, §4.2]."
+    },
+    {
+      "label": "먼저",
+      "text": "모른다고 FAILED 로 적지 않는다 [출처: SOP-06 제어권 상실과 명령 덮어쓰기, §4]."
+    },
+    {
+      "label": "금지",
+      "text": "확인 전에 재작업을 돌리지 않는다. 이미 놓였으면 자재를 하나 더 올린다 [출처: SOP-02 안착 실패와 품번 불일치, §3]."
+    },
+    {
+      "label": "갈림",
+      "text": "설비가 목적지에서 기대 품목을 봤으므로 현물이 그 자리에 있는지가 가른다."
+    },
+    {
+      "label": "근거 세기",
+      "text": "로봇 보고와 설비 신호 둘이다."
+    }
+  ],
+  "cause": "## 원인 후보\n후보 ① — 연결이 끊긴 동안 단위가 끝났을 수 있다. 설비가 목적지에서 기대 품목을 봤다.",
+  "citations": [
+    {
+      "title": "SOP-02 안착 실패와 품번 불일치",
+      "section": "§4.2",
+      "verified": true,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    },
+    {
+      "title": "SOP-06 제어권 상실과 명령 덮어쓰기",
+      "section": "§4",
+      "verified": true,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    },
+    {
+      "title": "SOP-02 안착 실패와 품번 불일치",
+      "section": "§3",
+      "verified": true,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    }
+  ],
+  "unverifiedClaims": [],
+  "uncitedSentences": [],
+  "versions": {
+    "modelId": "claude-sonnet-5",
+    "promptVersion": "73536dc7c9c0",
+    "corpusVersion": "d462b22017d6",
+    "searchFingerprint": "b071397c854c",
+    "narratorCommit": "0000000"
+  },
+  "elapsedSeconds": 212.4
+}

@@ -1,0 +1,48 @@
+{
+  "contractVersion" : "0.6",
+  "episodeId" : "ep:measure-R04",
+  "attempt" : 1,
+  "snapshot" : {
+    "manifest" : {
+      "schemaVersion" : "5",
+      "runId" : "run-2026-09-22T16:47:37.854173400Z-1",
+      "writtenAt" : "2026-09-22T16:47:37.854173400Z",
+      "virtualNow" : "2026-09-06T00:02:34Z",
+      "contractSemver" : "0.9.0",
+      "counts" : {
+        "incidents" : 9,
+        "remedySearches" : 4
+      }
+    },
+    "incidents" : [ ],
+    "searches" : [
+      {
+        "searchId" : "search-2",
+        "robotId" : "hum-03",
+        "jobOrderId" : "PATROL-2",
+        "at" : "2026-09-06T00:00:50Z",
+        "wallClockAt" : "2026-09-22T16:47:32.868341Z",
+        "outcome" : "NONE",
+        "cause" : "NO_CAPABILITY",
+        "unmet" : [
+          {
+            "subject" : "PRECONDITION_SUBJECT_HOLD",
+            "required" : "HOLD_KIND_EMPTY",
+            "observed" : "HOLD_KIND_HOLDING",
+            "detail" : "요구=EMPTY 관측=HOLDING"
+          }
+        ]
+      }
+    ]
+  },
+  "candidates" : [
+    {
+      "candidateId" : "ESCALATE",
+      "kind" : "ESCALATE",
+      "ref" : null
+    }
+  ],
+  "candidatesVersion" : "sha256:4fd8fdfb9cf9be8ab199f8479cbe8780aad700155f8f7e3efed7539d416621a8",
+  "unknowns" : [ ],
+  "history" : [ ]
+}

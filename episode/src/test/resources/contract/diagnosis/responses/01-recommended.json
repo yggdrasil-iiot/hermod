@@ -1,0 +1,52 @@
+{
+  "contractVersion": "0.6",
+  "episodeId": "ep:fixture-01-recommended",
+  "attempt": 1,
+  "outcome": "RECOMMENDED",
+  "candidateId": "APPROVE_REMEDY:hum-02:PATROL-1:pick_place",
+  "picked": null,
+  "sawCandidatesVersion": "sha256:fd1ea1118d55a5e076e6b2c9a176cf525ecd97d100c9a7a90ab44b192149fef2",
+  "rationale": "파지 실패 단위는 원 위치에 자재가 있으면 같은 위치로 한 번 다시 하는 것이 절차다 [출처: SOP-01 파지 실패와 잔여 파지 처리, §5.1].",
+  "card": [
+    {
+      "label": "절차",
+      "text": "원 위치에 자재가 있는지 육안으로 먼저 확인한다 [출처: SOP-01 파지 실패와 잔여 파지 처리, §5.1]."
+    },
+    {
+      "label": "먼저",
+      "text": "근거 없음."
+    },
+    {
+      "label": "금지",
+      "text": "재시도도 실패하면 재시도를 반복하지 않는다 [출처: SOP-01 파지 실패와 잔여 파지 처리, §5.1]."
+    },
+    {
+      "label": "갈림",
+      "text": "근거 없음."
+    },
+    {
+      "label": "근거 세기",
+      "text": "로봇 자체 보고 하나다."
+    }
+  ],
+  "cause": "## 원인 후보\n후보 ① — 파지물 낙하. 로봇이 보고한 실패 분류가 PAYLOAD_LOST 다.",
+  "citations": [
+    {
+      "title": "SOP-01 파지 실패와 잔여 파지 처리",
+      "section": "§5.1",
+      "verified": true,
+      "provenance_tier": "authored",
+      "provenance_mark": ""
+    }
+  ],
+  "unverifiedClaims": [],
+  "uncitedSentences": [],
+  "versions": {
+    "modelId": "claude-sonnet-5",
+    "promptVersion": "73536dc7c9c0",
+    "corpusVersion": "d462b22017d6",
+    "searchFingerprint": "b071397c854c",
+    "narratorCommit": "0000000"
+  },
+  "elapsedSeconds": 212.4
+}

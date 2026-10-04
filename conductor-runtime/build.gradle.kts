@@ -22,7 +22,7 @@ dependencies {
     testImplementation(libs.testcontainers.junit)
 }
 application { mainClass.set("koshei.conductor.ConductorWorkerMainKt") }
-val envKeys = listOf("KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_WORKER_NAME", "CONDUCTOR_SERVER_URL")
+val envKeys = listOf("KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_WORKER_NAME", "KOSHEI_WF_POLL_MS", "CONDUCTOR_SERVER_URL")
 fun JavaExec.fwd() = envKeys.forEach { k -> System.getenv(k)?.let { environment(k, it) } }
 tasks.named<JavaExec>("run") { fwd() }
 tasks.register<JavaExec>("ctl") {

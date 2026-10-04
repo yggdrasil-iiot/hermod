@@ -1,0 +1,183 @@
+{
+  "contractVersion" : "0.6",
+  "episodeId" : "ep:measure-R22",
+  "attempt" : 1,
+  "snapshot" : {
+    "manifest" : {
+      "schemaVersion" : "5",
+      "runId" : "run-2026-09-22T16:47:37.854173400Z-1",
+      "writtenAt" : "2026-09-22T16:47:37.854173400Z",
+      "virtualNow" : "2026-09-06T00:02:34Z",
+      "contractSemver" : "0.9.0",
+      "counts" : {
+        "incidents" : 9,
+        "remedySearches" : 4
+      }
+    },
+    "incidents" : [
+      {
+        "incidentId" : "incident-3",
+        "jobOrderId" : "PATROL-4",
+        "executionId" : "exec-5",
+        "robotId" : "hum-05",
+        "unitId" : "PUMP-01.travel",
+        "at" : "2026-09-06T00:01:40Z",
+        "wallClockAt" : "2026-09-22T16:47:35.211836200Z",
+        "failureClass" : "LOCALIZATION_LOST",
+        "fault" : {
+          "failureClass" : "LOCALIZATION_LOST",
+          "errorType" : "LOCALIZATION_LOST",
+          "vendorDetail" : "",
+          "errorHint" : "로봇을 알려진 랜드마크 앞으로 옮기고 재측위를 실행하십시오.",
+          "references" : [ ],
+          "canContinueCurrentTask" : false,
+          "canAcceptNewTask" : false,
+          "activeUntilKind" : "KIND_UNTIL_CLEARED",
+          "activeUntilTime" : ""
+        },
+        "blockedBy" : [
+          {
+            "failureClass" : "LOCALIZATION_LOST",
+            "errorType" : "LOCALIZATION_LOST",
+            "vendorDetail" : "",
+            "errorHint" : "로봇을 알려진 랜드마크 앞으로 옮기고 재측위를 실행하십시오.",
+            "references" : [ ],
+            "canContinueCurrentTask" : false,
+            "canAcceptNewTask" : false,
+            "activeUntilKind" : "KIND_UNTIL_CLEARED",
+            "activeUntilTime" : ""
+          }
+        ],
+        "residualHold" : {
+          "kind" : "HOLD_KIND_EMPTY",
+          "objectRef" : "",
+          "reason" : ""
+        },
+        "unresolved" : false,
+        "preconditionSubjects" : [ ],
+        "evidenceWindow" : [
+          {
+            "sequence" : 5,
+            "occurredAt" : "2026-09-06T00:01:39Z",
+            "kind" : "RESYNC",
+            "detail" : "snapshot: next sequence=5, faults=0, connection=CONNECTION_STATE_ONLINE",
+            "local" : true
+          },
+          {
+            "sequence" : 5,
+            "occurredAt" : "2026-09-06T00:01:39Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "PATROL-4#PUMP-01.travel TASK_STATE_UNSPECIFIED->TASK_STATE_ACCEPTED rev=1 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 6,
+            "occurredAt" : "2026-09-06T00:01:40Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "PATROL-4#PUMP-01.travel TASK_STATE_ACCEPTED->TASK_STATE_RUNNING rev=1 attempt=0",
+            "local" : false
+          },
+          {
+            "sequence" : 7,
+            "occurredAt" : "2026-09-06T00:01:40Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "PATROL-4#PUMP-01.travel navigate_to SKILL_STATE_READY->SKILL_STATE_RUNNING",
+            "local" : false
+          },
+          {
+            "sequence" : 8,
+            "occurredAt" : "2026-09-06T00:01:40Z",
+            "kind" : "FAULT_RAISED",
+            "detail" : "LOCALIZATION_LOST class=LOCALIZATION_LOST can_accept_new_task=false",
+            "local" : false
+          },
+          {
+            "sequence" : 9,
+            "occurredAt" : "2026-09-06T00:01:40Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "PATROL-4#PUMP-01.travel navigate_to SKILL_STATE_RUNNING->SKILL_STATE_HALTED",
+            "local" : false
+          },
+          {
+            "sequence" : 10,
+            "occurredAt" : "2026-09-06T00:01:40Z",
+            "kind" : "SKILL_TRANSITION",
+            "detail" : "PATROL-4#PUMP-01.travel navigate_to SKILL_STATE_HALTED->SKILL_STATE_READY",
+            "local" : false
+          },
+          {
+            "sequence" : 11,
+            "occurredAt" : "2026-09-06T00:01:40Z",
+            "kind" : "TASK_TRANSITION",
+            "detail" : "PATROL-4#PUMP-01.travel TASK_STATE_RUNNING->TASK_STATE_NEEDS_INTERVENTION rev=1 attempt=0",
+            "local" : false
+          }
+        ],
+        "windowTruncated" : false,
+        "expectedHold" : null,
+        "observedHold" : "HOLD_KIND_EMPTY",
+        "effectMismatch" : null,
+        "requiredEvidence" : "E0",
+        "reachedEvidence" : "E0",
+        "verification" : "NOT_REQUESTED",
+        "step" : {
+          "at" : 1,
+          "plan" : [
+            "PUMP-01.travel",
+            "PUMP-01"
+          ],
+          "completed" : [ ]
+        },
+        "route" : "ROBOT",
+        "intent" : {
+          "workMasterId" : "InspectAsset",
+          "orderVersion" : 1,
+          "orderParameters" : { },
+          "materials" : [ ],
+          "equipment" : [
+            {
+              "id" : "PUMP-01",
+              "equipmentUse" : "inspection_target",
+              "properties" : {
+                "location" : "PUMP-ROOM-1"
+              }
+            }
+          ],
+          "capabilityMaxEvidence" : "E0",
+          "evidenceWindowBefore" : "PT30S",
+          "evidenceWindowAfter" : "PT15S",
+          "skillType" : "navigate_to",
+          "unitParameters" : {
+            "location" : "PUMP-ROOM-1"
+          },
+          "source" : null,
+          "destination" : "PUMP-ROOM-1",
+          "expectedIdentity" : null
+        },
+        "observation" : {
+          "linkBroken" : false,
+          "lateEvents" : [ ],
+          "progressObservable" : true,
+          "progressStalled" : false
+        },
+        "profileRevision" : 1,
+        "contractSemver" : "0.9.0",
+        "approvedBy" : null,
+        "review" : null,
+        "resolution" : null,
+        "digest" : "1b2afa127508ad837ab7599d00901e53c29ba50832c67b7928b42dfa1dde2b4a"
+      }
+    ],
+    "searches" : [ ]
+  },
+  "candidates" : [
+    {
+      "candidateId" : "ESCALATE",
+      "kind" : "ESCALATE",
+      "ref" : null
+    }
+  ],
+  "candidatesVersion" : "sha256:4fd8fdfb9cf9be8ab199f8479cbe8780aad700155f8f7e3efed7539d416621a8",
+  "unknowns" : [ ],
+  "history" : [ ]
+}

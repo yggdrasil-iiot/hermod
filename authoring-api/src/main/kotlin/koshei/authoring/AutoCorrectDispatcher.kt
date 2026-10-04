@@ -15,6 +15,11 @@ import org.springframework.stereotype.Component
 import java.io.File
 import java.util.UUID
 
+/** The one-shot sweep the endpoint runs (sweep, reconcile, dispatch). */
+fun interface OneShotSweep {
+    fun runOnce(modelDir: File): List<AutoCorrectAction>
+}
+
 /**
  * Turns swept AutoCorrectActions into auto-dispatched corrective runs, guarded by the drift_correction dedup
  * ledger (design 2026-07-04). Shared by the @Scheduled AutoCorrectBean and the one-shot POST /api/autocorrect/
@@ -31,7 +36,7 @@ class AutoCorrectDispatcher(
     private val runStore: RunStore,
     private val workflowStore: WorkflowStore,
     private val router: EngineRouter,
-) {
+) : OneShotSweep {
     private val log = LoggerFactory.getLogger(javaClass)
     private val endpoint = System.getenv("KOSHEI_OPCUA_URL") ?: "opc.tcp://localhost:48400"
     private val saga = "ot-safe-hold"; private val sagaVersion = "1.0.0"
@@ -47,7 +52,7 @@ class AutoCorrectDispatcher(
     )
 
     /** Full cycle: sweep, then reconcile PENDING corrections + dedup-guarded auto-dispatch. */
-    fun runOnce(modelDir: File): List<AutoCorrectAction> {
+    override fun runOnce(modelDir: File): List<AutoCorrectAction> {
         val actions = sweepAlarmOnly(modelDir)
         AutoCorrectDispatchCore.run(
             actions = actions,

@@ -1,0 +1,56 @@
+{
+  "contractVersion" : "0.6",
+  "episodeId" : "ep:fixture-03-out-of-candidates",
+  "attempt" : 1,
+  "snapshot" : {
+    "manifest" : {
+      "schemaVersion" : "5",
+      "runId" : "run-2026-09-22T16:47:37.854173400Z-1",
+      "writtenAt" : "2026-09-22T16:47:37.854173400Z",
+      "virtualNow" : "2026-09-06T00:02:34Z",
+      "contractSemver" : "0.9.0",
+      "counts" : {
+        "incidents" : 9,
+        "remedySearches" : 4
+      }
+    },
+    "incidents" : [ ],
+    "searches" : [
+      {
+        "searchId" : "search-4",
+        "robotId" : "hum-03",
+        "jobOrderId" : "SEQ-RELOCATE",
+        "at" : "2026-09-06T00:02:34Z",
+        "wallClockAt" : "2026-09-22T16:47:37.751685200Z",
+        "outcome" : "SOURCE_MISSING",
+        "material" : "ENGINE-COVER-B",
+        "source" : "SEQ-IN-03.BIN-A",
+        "observed" : null,
+        "alternatives" : [
+          "SEQ-IN-03.BIN-B"
+        ]
+      }
+    ]
+  },
+  "candidates" : [
+    {
+      "candidateId" : "CHOOSE_SOURCE:SEQ-RELOCATE:ENGINE-COVER-B:SEQ-IN-03.BIN-B",
+      "kind" : "CHOOSE_SOURCE",
+      "ref" : {
+        "jobOrderId" : "SEQ-RELOCATE",
+        "material" : "ENGINE-COVER-B",
+        "missingSource" : "SEQ-IN-03.BIN-A",
+        "alternative" : "SEQ-IN-03.BIN-B",
+        "searchId" : "search-4"
+      }
+    },
+    {
+      "candidateId" : "ESCALATE",
+      "kind" : "ESCALATE",
+      "ref" : null
+    }
+  ],
+  "candidatesVersion" : "sha256:9194b81be21a06655ccb8491bb72c0097ad9160c5e2caa3ff2b63d25f59137df",
+  "unknowns" : [ ],
+  "history" : [ ]
+}

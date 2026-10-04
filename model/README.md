@@ -21,6 +21,8 @@ with the env var.
 The `KOSHEI_OPCUA_POLICY` env var selects the command-policy JSON in the same way
 (default: `/model/command-policy.json` on the classpath).
 
+`episode-policy/active.yaml` is the episode policy table, read by the episode worker (`KOSHEI_EPISODE_POLICY`); `:opcua` copies `model/` onto its classpath but does not read it.
+
 ## Activate DONE-clear (`doneClear`)
 
 The `activate` block's optional `doneClear` token (see `ot-site.yaml`) declares how the equipment's

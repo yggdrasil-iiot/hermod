@@ -1,0 +1,46 @@
+{
+  "contractVersion": "0.6",
+  "episodeId": "ep:fixture-02-no-grounds",
+  "attempt": 1,
+  "outcome": "NO_GROUNDS",
+  "candidateId": null,
+  "picked": null,
+  "sawCandidatesVersion": "sha256:4fd8fdfb9cf9be8ab199f8479cbe8780aad700155f8f7e3efed7539d416621a8",
+  "rationale": "탐색이 조치를 찾지 못했고 근거에 이 경우의 다음 걸음을 정한 절차가 없다.",
+  "card": [
+    {
+      "label": "절차",
+      "text": "근거 없음."
+    },
+    {
+      "label": "먼저",
+      "text": "근거 없음."
+    },
+    {
+      "label": "금지",
+      "text": "근거 없음."
+    },
+    {
+      "label": "갈림",
+      "text": "근거 없음."
+    },
+    {
+      "label": "근거 세기",
+      "text": "근거 없음."
+    }
+  ],
+  "cause": "관련이 있어 보이는 문서: SOP-03 자재 결품과 대체 슬롯 운용.",
+  "citations": [],
+  "unverifiedClaims": [],
+  "uncitedSentences": [
+    "탐색이 조치를 찾지 못했고 근거에 이 경우의 다음 걸음을 정한 절차가 없다."
+  ],
+  "versions": {
+    "modelId": "claude-sonnet-5",
+    "promptVersion": "73536dc7c9c0",
+    "corpusVersion": "d462b22017d6",
+    "searchFingerprint": "b071397c854c",
+    "narratorCommit": "0000000"
+  },
+  "elapsedSeconds": 212.4
+}

@@ -25,6 +25,7 @@ export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
 export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
 export KOSHEI_MODEL_DIR="$(native_path "${KOSHEI_MODEL_DIR:-$(pwd)/model}")"   # native_path (cygpath -m): a native JVM rejects an MSYS /c/... path
 export KOSHEI_AUTOCORRECT_DISABLED=1                          # @Scheduled bean OFF — endpoint is the only sweep driver
+export KOSHEI_PICASSO=off                                     # drift dispatch gate: not episode mode (design §14)
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"

@@ -1,0 +1,32 @@
+# Episode policy table v1 (design §10.1). The runtime reads this file afresh at every decision (plan B; moving the
+# active table to git + a DB pointer + audit, §10.3, is out of scope, design §19). Repeated keys, anchors and a second document make the file
+# unreadable; unknown keys or bad values make the table rejected (POLICY_REJECTED). Either way the episode keeps the
+# last valid table and suspends auto-approval (§8.2); with no valid table yet it is POLICY_MISSING.
+version: "2026-10-03.2"
+expiresAt: null
+agentLayerEnabled: true                     # false: every episode hands over to a person (R5, §10.4)
+autoApprove:
+  # v1 keeps auto-approval OFF (design §18, 2026-10-01): a clean diagnosis is not a correct one. A person approves.
+  APPROVE_REMEDY: { allowed: false, requireClean: true, skills: [pick_place] }
+actionCatalog: []                           # SAGA_ACTION entries: out of scope (design §19, 2026-10-04)
+deadlines:
+  correlatingMs: 5000
+  approvalMs: 300000
+  approvalValidityMs: 600000
+  revalidateMs: 30000
+  recordMs: 10000
+  dispatchMs: 30000
+  childMaxMs: 600000
+  evidenceMs: 600000
+  unknownRecheckMs: 30000
+  unknownMs: 900000
+  escalatedRetentionMs: 86400000
+  episodeMs: 3600000
+# narrator contract 0.6: two attempts of 540 s plus queue slack; heartbeat 30 s (design §8.1).
+diagnosis: { scheduleToCloseMs: 1200000, startToCloseMs: 540000, heartbeatMs: 30000, maxAttempts: 2 }
+maxAttemptsPerEpisode: 3
+repeatedRemedyThreshold: 2
+snapshotMaxBytes: 262144
+# One robot, one order: its search line and its incident line are one episode (design §10.1, §18, 2026-10-03).
+correlation:
+  - { kinds: [SEARCH, INCIDENT], by: [robotId, jobOrderId] }
