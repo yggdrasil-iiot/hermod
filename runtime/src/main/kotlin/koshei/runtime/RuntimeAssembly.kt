@@ -37,8 +37,9 @@ object RuntimeAssembly {
 
     /**
      * Construct a [Registry] over the given index/store with the static builtins and a real
-     * PluginLoader-based handlerLoadCheck (a publish probe: the forwardHandler must classload as a
-     * koshei.sdk.Block from the candidate jar). Exposed for tests that supply a container-backed index.
+     * PluginLoader-based handlerLoadCheck — the publish probe [koshei.dispatch.PluginLoader.probe]: the
+     * forwardHandler must be a public concrete koshei.sdk.Block with a public no-arg ctor, checked without
+     * running plugin code. Exposed for tests that supply a container-backed index.
      */
     fun buildRegistry(index: BlockIndex, store: BlockStore): Registry =
         DispatchAssembly.buildRegistry(index, store, extraBuiltins)

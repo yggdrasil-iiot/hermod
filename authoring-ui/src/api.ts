@@ -1,5 +1,5 @@
 // Typed fetch wrappers for the five :authoring-api endpoints. All paths are relative ("/api/...")
-// so the Vite dev proxy (→ http://localhost:18090) handles them transparently.
+// so the Vite dev proxy (→ http://127.0.0.1:18090) handles them transparently.
 
 import type {
   AuthoredContract,
@@ -72,10 +72,11 @@ export async function publish(
   );
   form.append("jar", jar, jar.name);
   const res = await fetch("/api/publish", { method: "POST", body: form });
-  // PublishController returns 200 {ok:true} on success and 400 {ok:false, errors:[...]} on a gating
-  // rejection. Both carry a JSON PublishResponse body that the UI renders as a value, so parse the
-  // body for either status rather than throwing. Only genuine transport / 5xx / non-JSON errors throw.
-  if (res.status === 200 || res.status === 400) {
+  // PublishController returns 200 {ok:true} on success, 400 {ok:false, errors:[...]} on a gating
+  // rejection, and 403 {ok:false, errors:[...]} when publish is disabled (KOSHEI_PUBLISH_DISABLED).
+  // All three carry a JSON PublishResponse body that the UI renders as a value, so parse the body for
+  // any of them rather than throwing. Only genuine transport / 5xx / non-JSON errors throw.
+  if (res.status === 200 || res.status === 400 || res.status === 403) {
     const text = await res.text();
     try {
       const parsed = JSON.parse(text) as PublishResponse;

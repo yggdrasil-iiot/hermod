@@ -206,13 +206,22 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_DB_PASS` | DB password |
 | `KOSHEI_CONDUCTOR_URL` | Conductor API base URL (**override needed — see callout below**) |
 | `KOSHEI_PLUGIN_DIR` | Where published plugin jars are stored/loaded |
+| `KOSHEI_PUBLISH_DISABLED` | `true` (or `1`) closes `POST /api/publish` with 403 (no new plugin code accepted). Default: publish open |
+| `KOSHEI_BIND_ADDRESS` | Address the control plane listens on. Default `127.0.0.1` (loopback only) |
 | `KOSHEI_WORKFLOWS_DIR` | Where workflow definitions live |
 | `KOSHEI_WF_POLL_MS` | Workflow poll interval (ms) |
 | `KOSHEI_WORKER_NAME` | Worker identity/name |
 | `KOSHEI_FAULT_INJECT` | **Test-only** — fault injection for gate scripts |
 | `KOSHEI_TEST_BLOCKS` | **Test-only** — test block wiring |
 
-The `:app:run`, `:app:cli`, and `:app:starter` tasks forward these env keys from the live shell into the forked task JVM (see the `forwardKosheiEnv` block in `app/build.gradle.kts`), so the worker and the CLI agree on the plugin store and DB.
+> **Security note.** The control plane has no authentication (proof-of-concept). It therefore listens on loopback
+> by default, and publish-time checks never run uploaded plugin code: the handler class is resolved without
+> initialization and never instantiated until a block is executed. A published block *does* run, with that
+> process's privileges, wherever it is executed (the worker) when a workflow uses it — close the surface with
+> `KOSHEI_PUBLISH_DISABLED=true` on deployments that must not accept new plugin code. This closes the HTTP
+> publish endpoint only; the local CLI (`:app:cli publish`) is unaffected.
+
+The `:app:run`, `:app:cli`, and `:app:starter` tasks forward these env keys from the live shell into the forked task JVM (see the `forwardKosheiEnv` block in `app/build.gradle.kts`), so the worker and the CLI agree on the plugin store and DB. `:authoring-api:run` now forwards every `KOSHEI_*` variable from the live shell the same way, so switches like `KOSHEI_PUBLISH_DISABLED` and `KOSHEI_BIND_ADDRESS` reach the control plane. To confirm a switch took effect, check the startup log line `[publish] POST /api/publish is DISABLED (koshei.publish.disabled)` (or `... is open`).
 
 ### Ports (bundled Docker Compose stack)
 
