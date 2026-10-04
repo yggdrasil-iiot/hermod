@@ -102,7 +102,8 @@ class PicassoWindowEndToEndTest {
         assertEquals("UNCERTAIN", result["judgement"].textValue())
         val detail = result["detail"].textValue()
         assertTrue("PicassoRequestRefused" in detail && "400" in detail, detail)
-        Thread.sleep(2_000)   // a retry, were there one, would have come by now
+        // DISPATCH_RESULT is recorded only once the dispatch activity has failed for good, so every attempt it made — a
+        // retry included — reached the server before it: the count is final here, with nothing to wait for.
         assertEquals(1, received.size, "the refused request is not retried: $received")
     }
 }

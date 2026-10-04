@@ -3,6 +3,8 @@ package koshei.episode.runtime
 import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
+import io.temporal.failure.ActivityFailure
+import io.temporal.failure.TemporalFailure
 import koshei.episode.Approver
 import koshei.episode.DiagnosisVerdict
 import koshei.episode.DispatchIntent
@@ -90,6 +92,23 @@ internal fun TakeoverRequest.validate() = require(operatorId.isNotBlank()) { "op
 internal fun CloseRequest.validate() {
     require(operatorId.isNotBlank()) { "operatorId is required" }
     require(outcome.isNotBlank()) { "outcome is required" }
+}
+
+/**
+ * Why a dispatch failed, for the core's uncertain result (and so the record's `detail`). Not the activity wrapper's text,
+ * which names only the activity and the worker host: the Temporal failures under it, outermost and deepest. Directly
+ * under it is usually the application's own failure (its type and message, e.g. `PicassoRequestRefused` and the status);
+ * when ScheduleToClose ran out mid-retry it is a [TimeoutFailure][io.temporal.failure.TimeoutFailure] whose cause is the last
+ * attempt's failure, so both are given. Derived from the failure alone, so deterministic on replay; the cause chain is
+ * walked at most 16 deep, as elsewhere.
+ */
+internal fun dispatchFailureDetail(failure: Throwable): String {
+    val causes = generateSequence(failure) { it.cause }.take(16)
+        .filter { it is TemporalFailure && it !is ActivityFailure }
+        .toList()
+    val outer = causes.firstOrNull() ?: return failure.message ?: failure.javaClass.simpleName
+    val deepest = causes.last()
+    return if (deepest === outer) outer.message.orEmpty() else "${outer.message}: ${deepest.message}"
 }
 
 /** A dispatch outcome the core understands; anything else is "did it go out? unknown" (design §11). */

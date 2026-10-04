@@ -1,5 +1,15 @@
 package koshei.episode.runtime
 
+import io.temporal.api.enums.v1.RetryState
+import io.temporal.api.enums.v1.TimeoutType
+import io.temporal.api.failure.v1.ApplicationFailureInfo
+import io.temporal.api.failure.v1.Failure
+import io.temporal.api.failure.v1.TimeoutFailureInfo
+import io.temporal.common.converter.GlobalDataConverter
+import io.temporal.failure.ActivityFailure
+import io.temporal.failure.DefaultFailureConverter
+import io.temporal.failure.ApplicationFailure
+import io.temporal.failure.TimeoutFailure
 import koshei.episode.DispatchResult
 import koshei.episode.EpisodeEvent
 import koshei.episode.PolicyRead
@@ -13,6 +23,33 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ConversionsTest {
+    @Test fun `a failed dispatch is detailed by the application's cause, not the activity wrapper - through a timeout too`() {
+        val refused = ApplicationFailure.newNonRetryableFailure("picasso's window refused the request: 400 {}", "PicassoRequestRefused")
+        fun activity(cause: Throwable) = ActivityFailure(
+            "Activity task failed", 5, 6, "episodeDispatch", "7", RetryState.RETRY_STATE_NON_RETRYABLE_FAILURE, "worker@host", cause,
+        )
+        assertEquals(refused.message, dispatchFailureDetail(activity(refused)))
+        // ScheduleToClose ran out mid-retry: the timeout says when, its cause (the last attempt's failure) says why. Built as
+        // the workflow receives it — decoded from the server's Failure (TimeoutFailure's constructor with a cause is not public).
+        val timeout = DefaultFailureConverter().failureToException(
+            Failure.newBuilder()
+                .setMessage("activity ScheduleToClose timeout")
+                .setTimeoutFailureInfo(TimeoutFailureInfo.newBuilder().setTimeoutType(TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE))
+                .setCause(
+                    Failure.newBuilder()
+                        .setMessage("picasso's window refused the request: 400 {}")
+                        .setApplicationFailureInfo(ApplicationFailureInfo.newBuilder().setType("PicassoRequestRefused").setNonRetryable(true)),
+                )
+                .build(),
+            GlobalDataConverter.get(),
+        )
+        assertIs<TimeoutFailure>(timeout)
+        val timedOut = dispatchFailureDetail(activity(timeout))
+        assertTrue("TIMEOUT_TYPE_SCHEDULE_TO_CLOSE" in timedOut && "PicassoRequestRefused" in timedOut && "400" in timedOut, timedOut)
+        assertTrue("Activity task failed" !in timedOut && "worker@host" !in timedOut, timedOut)
+        assertEquals("boom", dispatchFailureDetail(IllegalStateException("boom")))
+    }
+
     @Test fun `a symptom signal becomes a symptom, and an unreadable one an empty line the core will refuse`() {
         val ok = SymptomSignal("search:search-1", "SEARCH", Picasso.search("search-1"), 1_000).toSymptom()
         assertEquals(SymptomKind.SEARCH, ok.kind)

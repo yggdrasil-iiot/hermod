@@ -272,8 +272,8 @@ class EpisodeWorkflowImpl : EpisodeWorkflow {
                 val id = instanceId()
                 report(
                     Async.function { activities(command.timeoutMs).dispatch(id, intentJson(command.intent), command.approverKind) },
-                    // The application's cause (its type and message: why picasso refused), not the activity wrapper's text.
-                    failed = { EpisodeEvent.DispatchReturned(DispatchResult.Uncertain(((it as? ActivityFailure)?.cause as? TemporalFailure)?.message ?: it.message), command.token) },
+                    // Why it failed (the application's cause, through a timeout too), not the activity wrapper's text.
+                    failed = { EpisodeEvent.DispatchReturned(DispatchResult.Uncertain(dispatchFailureDetail(it)), command.token) },
                 ) { outcome -> EpisodeEvent.DispatchReturned(checkNotNull(outcome) { "dispatch answered null" }.toResult(), command.token) }
             }
         }

@@ -5,8 +5,12 @@ import io.temporal.failure.ApplicationFailure
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.HttpTimeoutException
 import java.nio.charset.StandardCharsets
 import java.time.Duration
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * picasso's approval window over HTTP (design §8.4, plan C3): `POST /approvals` on a loopback URL, the request of picasso
@@ -34,18 +38,55 @@ class HttpApprovalWindow(private val config: PicassoWindowConfig) : ApprovalWind
 
     override fun approve(intent: JsonNode, approverKind: String?): String {
         val body = request(intent, approverKind)
-        val response = client.send(
+        val response = exchange(
             HttpRequest.newBuilder(config.url)
                 .timeout(Duration.ofMillis(config.timeoutMs))
                 .header("Content-Type", "application/json; charset=utf-8")
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build(),
-            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8),
         )
         if (response.statusCode() == 200) return response.body()
         throw ApplicationFailure.newNonRetryableFailure(
-            "picasso's window refused the request: ${response.statusCode()} ${response.body().take(500)}", "PicassoRequestRefused",
+            "picasso's window refused the request: ${response.statusCode()} ${excerpt(response.body())}", "PicassoRequestRefused",
         )
+    }
+
+    /**
+     * One exchange, bounded as a whole by [PicassoWindowConfig.timeoutMs]: the request's own timeout ends at the response
+     * headers, so a responder that sends them and then stalls the body would hold the call (and the activity) past it.
+     * A timeout cancels the exchange and is a plain, retryable failure, like a refused connection.
+     */
+    private fun exchange(request: HttpRequest): HttpResponse<String> {
+        val pending = client.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        try {
+            return pending.get(config.timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            pending.cancel(true)
+            throw HttpTimeoutException("picasso's window did not answer in full within ${config.timeoutMs} ms")
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        } catch (e: InterruptedException) {
+            pending.cancel(true)
+            Thread.currentThread().interrupt()
+            throw e
+        }
+    }
+
+    /**
+     * The refused body as the failure may carry it: it lands in the episode's records (jsonb), which hold neither NUL nor
+     * an unpaired surrogate, and a responder that is not picasso can send anything. By code points: control characters
+     * and lone surrogates are dropped, at most [EXCERPT_CODE_POINTS] are kept, so no cut splits a pair.
+     */
+    private fun excerpt(body: String): String {
+        val out = StringBuilder()
+        var kept = 0
+        for (cp in body.codePoints().iterator()) {
+            if (kept == EXCERPT_CODE_POINTS) break
+            if (Character.isISOControl(cp) || cp in Character.MIN_SURROGATE.code..Character.MAX_SURROGATE.code) continue
+            out.appendCodePoint(cp)
+            kept++
+        }
+        return out.toString()
     }
 
     /** picasso §7.1's five fields, from the intent the activity holds; anything missing is a bad intent, never invented. */
@@ -70,4 +111,8 @@ class HttpApprovalWindow(private val config: PicassoWindowConfig) : ApprovalWind
     }
 
     private fun bad(why: String): Nothing = throw ApplicationFailure.newNonRetryableFailure("intent for picasso: $why", "BadIntent")
+
+    private companion object {
+        const val EXCERPT_CODE_POINTS = 500
+    }
 }

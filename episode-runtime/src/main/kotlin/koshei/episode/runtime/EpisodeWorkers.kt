@@ -2,8 +2,11 @@ package koshei.episode.runtime
 
 import io.temporal.worker.WorkerFactory
 import io.temporal.worker.WorkerOptions
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.URI
 import java.net.URISyntaxException
+import java.net.UnknownHostException
 import java.nio.file.Path
 
 /** Who answers `diagnose` on narrator-tq: koshei's Mock (plan B, P0) or narrator's own worker. Never both. */
@@ -32,21 +35,36 @@ enum class PicassoMode {
 /**
  * The real window's settings (plan C3). [url] is the full `…/approvals` URL on a loopback host: the window does not
  * authenticate (picasso §15.3), so approver ids never leave the machine. [agentId] is the approver id a POLICY approval
- * sends as AGENT. [timeoutMs] bounds one request; keep it under the policy's `dispatchMs` so the activity's retries fit.
+ * sends as AGENT. [timeoutMs] bounds one request, the whole exchange; the activity's three attempts must fit in the policy's
+ * `dispatchMs` with the default backoff (1 s, 2 s), so keep `T ≤ (dispatchMs − 3000) / 3` (9000 for `dispatchMs` 30000).
  */
 data class PicassoWindowConfig(val url: URI, val agentId: String, val timeoutMs: Long) {
     companion object {
         /** IPv4 loopback only: picasso's reference host binds InetAddress.getLoopbackAddress() (127.0.0.1). */
         private val LOOPBACK = setOf("127.0.0.1", "localhost")
 
-        fun fromEnv(env: Map<String, String>): PicassoWindowConfig {
+        /**
+         * [resolve] looks `localhost` up (a test passes its own): every address must be loopback and the first IPv4, as
+         * the client connects to the first and the reference host listens on 127.0.0.1 only.
+         */
+        fun fromEnv(env: Map<String, String>, resolve: (String) -> Array<InetAddress> = InetAddress::getAllByName): PicassoWindowConfig {
             val raw = requireNotNull(env["KOSHEI_PICASSO_URL"]?.takeIf { it.isNotBlank() }) { "KOSHEI_PICASSO=picasso needs KOSHEI_PICASSO_URL (http://127.0.0.1:<port>)" }
-            val base = try { URI(raw.trimEnd('/')) } catch (e: URISyntaxException) { throw IllegalArgumentException("KOSHEI_PICASSO_URL is not a URL: $raw") }
-            require(base.scheme == "http") { "KOSHEI_PICASSO_URL must be http:// (the window is loopback only), was $raw" }
-            require(base.host in LOOPBACK) { "KOSHEI_PICASSO_URL must name a loopback host (the window does not authenticate, picasso §15.3), was ${base.host}" }
-            require(base.port > 0) { "KOSHEI_PICASSO_URL must name the port the window printed, was $raw" }
-            require(base.path.isNullOrEmpty()) { "KOSHEI_PICASSO_URL is the window's origin; the client adds /approvals, was $raw" }
-            require(base.rawQuery == null && base.rawFragment == null && base.rawUserInfo == null) { "KOSHEI_PICASSO_URL carries a query, fragment or user info, which would be dropped: $raw" }
+            // The raw value may carry user info (user:password@): no message below repeats it, only scheme, host and port.
+            val base = try { URI(raw.trimEnd('/')) } catch (e: URISyntaxException) {
+                throw IllegalArgumentException("KOSHEI_PICASSO_URL is not a URL (${e.reason} at index ${e.index}); use http://127.0.0.1:<port>")
+            }
+            val shown = "${base.scheme}://${base.host ?: "<no host>"}${if (base.port >= 0) ":${base.port}" else ""}"
+            require(base.scheme == "http") { "KOSHEI_PICASSO_URL must be http:// (the window is loopback only), was $shown" }
+            require(base.host in LOOPBACK) { "KOSHEI_PICASSO_URL must name a loopback host (the window does not authenticate, picasso §15.3), was $shown" }
+            require(base.port in 1..65535) { "KOSHEI_PICASSO_URL must name the port the window printed (1-65535), was $shown" }
+            require(base.path.isNullOrEmpty()) { "KOSHEI_PICASSO_URL is the window's origin; the client adds /approvals, was $shown with a path" }
+            require(base.rawQuery == null && base.rawFragment == null && base.rawUserInfo == null) { "KOSHEI_PICASSO_URL carries a query, fragment or user info, which would be dropped: $shown" }
+            if (base.host == "localhost") {
+                val addresses = try { resolve("localhost").toList() } catch (e: UnknownHostException) { emptyList() }
+                require(addresses.isNotEmpty() && addresses.all { it.isLoopbackAddress } && addresses.first() is Inet4Address) {
+                    "KOSHEI_PICASSO_URL: localhost resolves to $addresses here, not IPv4 loopback first (the window listens on 127.0.0.1 only); use http://127.0.0.1:${base.port}"
+                }
+            }
             val agent = requireNotNull(env["KOSHEI_PICASSO_AGENT_ID"]?.takeIf { it.isNotBlank() }) { "KOSHEI_PICASSO=picasso needs KOSHEI_PICASSO_AGENT_ID (the AGENT approver id picasso declares)" }
             val timeout = env["KOSHEI_PICASSO_TIMEOUT_MS"]?.let { t -> t.toLongOrNull()?.takeIf { it > 0 } ?: throw IllegalArgumentException("KOSHEI_PICASSO_TIMEOUT_MS must be a positive number of ms, was $t") } ?: 8_000
             return PicassoWindowConfig(URI("http://${base.host}:${base.port}/approvals"), agent, timeout)
