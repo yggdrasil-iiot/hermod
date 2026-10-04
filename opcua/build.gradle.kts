@@ -8,7 +8,11 @@ dependencies {
     implementation(project(":sdk"))
     implementation(libs.milo.sdk.client)
     implementation(libs.milo.sdk.server)
-    implementation(libs.tahu.core)
+    implementation(libs.tahu.core) {
+        // tahu-core drags in logback-classic as a second SLF4J provider next to slf4j-simple below;
+        // its classes only use the SLF4J API, so drop Logback (and the TRACE-root logback.xml it would pick up).
+        exclude(group = "ch.qos.logback")
+    }
     implementation(libs.jackson.kotlin)
     implementation(libs.jackson.yaml)
     implementation(libs.postgresql)
