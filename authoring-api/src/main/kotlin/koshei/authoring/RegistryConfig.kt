@@ -13,6 +13,8 @@ import org.springframework.context.annotation.Configuration
 
 @Configuration
 class RegistryConfig {
+    private val log = org.slf4j.LoggerFactory.getLogger(RegistryConfig::class.java)
+
     @Bean(destroyMethod = "close")   // explicit: shut the pool down on context close
     fun dataSource(): HikariDataSource = HikariDataSource().apply {
         jdbcUrl = Db.url
@@ -51,8 +53,17 @@ class RegistryConfig {
 
     @Bean fun canonicalConfig(): CanonicalConfig = CanonicalConfig.fromEnv()
 
-    @Bean fun canonicalSetpoints(cc: CanonicalConfig): koshei.opcua.CanonicalSetpoints =
-        koshei.opcua.CanonicalSetpoints.parse(cc.yamlText(), koshei.opcua.SiteModel.default(), koshei.opcua.CommandPolicy.default())
+    // Null when no canonical bytes are published (KOSHEI_RECIPE_SETPOINTS unset or unreadable): the API still
+    // boots and ReconciliationController fail-closes 409 canonical-unresolvable. Bytes that ARE present but
+    // invalid still fail boot (CanonicalSetpoints.parse is fail-closed). Parsed from the SAME bytes as bootDigest.
+    @Bean fun canonicalSetpoints(cc: CanonicalConfig): koshei.opcua.CanonicalSetpoints? {
+        if (cc.rawBytes == null) {
+            log.warn("no published canonical (KOSHEI_RECIPE_SETPOINTS={}) — reconciliations will be rejected 409 canonical-unresolvable",
+                cc.file?.path ?: "unset")
+            return null
+        }
+        return koshei.opcua.CanonicalSetpoints.parse(cc.yamlText(), koshei.opcua.SiteModel.default(), koshei.opcua.CommandPolicy.default())
+    }
 
     @Bean fun provenanceService(cc: CanonicalConfig): ProvenanceService = ProvenanceService(cc)
 }

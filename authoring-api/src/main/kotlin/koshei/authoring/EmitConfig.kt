@@ -23,7 +23,7 @@ class EmitConfig {
 
     @Bean fun emittedEventStore(ds: HikariDataSource): EmittedEventStore = EmittedEventStore { ds.connection }
 
-    @Bean fun edgeSession(cs: CanonicalSetpoints): SparkplugEdgeSession? {
+    @Bean fun edgeSession(cs: CanonicalSetpoints?): SparkplugEdgeSession? {
         if (!on()) return null
         val group = System.getenv("KOSHEI_EMIT_GROUP") ?: "Koshei"
         val edge  = System.getenv("KOSHEI_EMIT_EDGE") ?: "Governance"
@@ -33,14 +33,15 @@ class EmitConfig {
     }
 
     @Bean fun governanceEmitter(
-        session: SparkplugEdgeSession?, emittedLog: EmittedEventStore, cs: CanonicalSetpoints,
+        session: SparkplugEdgeSession?, emittedLog: EmittedEventStore, cs: CanonicalSetpoints?,
     ): GovernanceEventEmitter? =
         if (session == null) null
         else GovernanceEventEmitter(session, emittedLog, { stagedNodes(cs) })
 
     // desired canonical value → GovernedNode; outcome differs by context (RECONCILING vs NBIRTH last-known).
-    private fun stagedNodes(cs: CanonicalSetpoints): List<GovernedNode> =
-        cs.keys().mapNotNull { cs.byKey(it) }.map { GovernedNode(it.key, it.desired, "STAGED", it.nodeId) }
-    private fun birthNodes(cs: CanonicalSetpoints): List<GovernedNode> =
-        cs.keys().mapNotNull { cs.byKey(it) }.map { GovernedNode(it.key, it.desired, "UNKNOWN", it.nodeId) }
+    // No published canonical (cs == null) → no governed nodes to announce.
+    private fun stagedNodes(cs: CanonicalSetpoints?): List<GovernedNode> =
+        cs?.let { c -> c.keys().mapNotNull { c.byKey(it) }.map { GovernedNode(it.key, it.desired, "STAGED", it.nodeId) } }.orEmpty()
+    private fun birthNodes(cs: CanonicalSetpoints?): List<GovernedNode> =
+        cs?.let { c -> c.keys().mapNotNull { c.byKey(it) }.map { GovernedNode(it.key, it.desired, "UNKNOWN", it.nodeId) } }.orEmpty()
 }

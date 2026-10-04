@@ -25,7 +25,7 @@ class ReconciliationController(
     private val runStore: RunStore,
     private val workflowStore: WorkflowStore,
     private val seeder: SourceRowSeeder,
-    private val canonical: CanonicalSetpoints,
+    private val canonical: CanonicalSetpoints?,   // null ⇔ no published canonical (see RegistryConfig)
     private val provenance: ProvenanceService,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(ReconciliationController::class.java)
@@ -36,6 +36,10 @@ class ReconciliationController(
     @PostMapping("/reconciliations")
     fun reconcile(@RequestBody req: ReconciliationRequest): ResponseEntity<Any> {
         if (req.nodes.isEmpty()) return ResponseEntity.badRequest().body(mapOf("error" to "no nodes signalled"))
+
+        // No published canonical → nothing to resolve desired values against: fail closed before any side effect.
+        val canonical = canonical
+            ?: return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to "canonical-unresolvable"))
 
         val desired = LinkedHashMap<String, String>()
         for (key in req.nodes) {
