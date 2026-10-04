@@ -83,7 +83,8 @@ fun main() {
             System.err.println("[$workerName] WARNING episode worker on $EPISODE_TASK_QUEUE with the TEST Mock picasso: remedies reach no robot (design §8.3, §11)")
         }
         if (episodeConfig.picasso == PicassoMode.PICASSO) {
-            println("[$workerName] episode approvals go to ${episodeConfig.window!!.url} as PERSON, or AGENT '${episodeConfig.window!!.agentId}' (revalidation is UNKNOWN: a person confirms each precondition)")
+            // The URL only: approver ids stay out of logs (EpisodeActivitiesImpl), the configured agent id included.
+            println("[$workerName] episode approvals go to ${episodeConfig.window!!.url} as PERSON, or AGENT under the configured agent id; revalidation is UNKNOWN, so a person confirms each precondition")
         }
         // The default path is relative to the working directory. A missing file is read as MISSING on every decision, so
         // every episode escalates POLICY_MISSING (design §8.2): say so once here rather than leave it to the first episode.

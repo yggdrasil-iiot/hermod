@@ -37,8 +37,12 @@ enum class PicassoMode {
  * authenticate (picasso §15.3), so approver ids never leave the machine. [agentId] is the approver id a POLICY approval
  * sends as AGENT. [timeoutMs] bounds one request, the whole exchange; the activity's three attempts must fit in the policy's
  * `dispatchMs` with the default backoff (1 s, 2 s), so keep `T ≤ (dispatchMs − 3000) / 3` (9000 for `dispatchMs` 30000).
+ *
+ * Made only by [fromEnv], which checks every value: the constructor (and `copy`) is internal, so no caller outside the
+ * module can name a non-loopback URL.
  */
-data class PicassoWindowConfig(val url: URI, val agentId: String, val timeoutMs: Long) {
+@ConsistentCopyVisibility
+data class PicassoWindowConfig internal constructor(val url: URI, val agentId: String, val timeoutMs: Long) {
     companion object {
         /** IPv4 loopback only: picasso's reference host binds InetAddress.getLoopbackAddress() (127.0.0.1). */
         private val LOOPBACK = setOf("127.0.0.1", "localhost")
@@ -67,7 +71,9 @@ data class PicassoWindowConfig(val url: URI, val agentId: String, val timeoutMs:
             }
             val agent = requireNotNull(env["KOSHEI_PICASSO_AGENT_ID"]?.takeIf { it.isNotBlank() }) { "KOSHEI_PICASSO=picasso needs KOSHEI_PICASSO_AGENT_ID (the AGENT approver id picasso declares)" }
             val timeout = env["KOSHEI_PICASSO_TIMEOUT_MS"]?.let { t -> t.toLongOrNull()?.takeIf { it > 0 } ?: throw IllegalArgumentException("KOSHEI_PICASSO_TIMEOUT_MS must be a positive number of ms, was $t") } ?: 8_000
-            return PicassoWindowConfig(URI("http://${base.host}:${base.port}/approvals"), agent, timeout)
+            // The verified loopback, pinned: `localhost` was checked above to mean 127.0.0.1 here, so the client never looks
+            // it up again at runtime (where the answer could differ). The reference host does not check Host.
+            return PicassoWindowConfig(URI("http://127.0.0.1:${base.port}/approvals"), agent, timeout)
         }
     }
 }

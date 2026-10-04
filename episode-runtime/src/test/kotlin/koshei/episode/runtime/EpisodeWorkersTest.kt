@@ -60,10 +60,13 @@ class EpisodeWorkersTest {
         ))
         assertEquals(PicassoMode.PICASSO, c.picasso)
         assertEquals(PicassoWindowConfig(java.net.URI("http://127.0.0.1:8770/approvals"), "narrator-1", 8_000), c.window)
-        assertEquals(15_000, EpisodeRuntimeConfig.fromEnv(mapOf(
+        val viaLocalhost = EpisodeRuntimeConfig.fromEnv(mapOf(
             "KOSHEI_PICASSO" to "picasso", "KOSHEI_PICASSO_URL" to "http://localhost:8770/", "KOSHEI_PICASSO_AGENT_ID" to "a",
             "KOSHEI_PICASSO_TIMEOUT_MS" to "15000",
-        )).window!!.timeoutMs)
+        )).window!!
+        assertEquals(15_000, viaLocalhost.timeoutMs)
+        // localhost is checked once at start and then pinned: the client never looks it up again.
+        assertEquals(java.net.URI("http://127.0.0.1:8770/approvals"), viaLocalhost.url)
     }
 
     @Test fun `the window's settings are refused unless exact`() {
@@ -111,7 +114,7 @@ class EpisodeWorkersTest {
         fun addr(vararg b: Int) = java.net.InetAddress.getByAddress("localhost", ByteArray(b.size) { b[it].toByte() })
         val v4 = addr(127, 0, 0, 1)
         val v6 = addr(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
-        assertEquals(8770, PicassoWindowConfig.fromEnv(env) { arrayOf(v4, v6) }.url.port)
+        assertEquals(java.net.URI("http://127.0.0.1:8770/approvals"), PicassoWindowConfig.fromEnv(env) { arrayOf(v4, v6) }.url)
         for (resolved in listOf(arrayOf(v6, v4), arrayOf(v4, addr(10, 0, 0, 5)), emptyArray())) {
             val e = assertThrows<IllegalArgumentException>(resolved.toList().toString()) { PicassoWindowConfig.fromEnv(env) { resolved } }
             kotlin.test.assertTrue("127.0.0.1" in e.message!!, e.message)

@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory
 
 /**
  * The koshei-side activities of plan B (design §8.2–§8.5): the policy file, the episode tables, and picasso's
- * approval window (Mock picasso for now). They read, write and carry; every judgement stays in the pure core.
+ * approval window (the configured approval window). They read, write and carry; every judgement stays in the pure core.
  *
  * A failure no retry can mend — a different record on a taken seq ([RecordConflict]) or a value the database cannot
  * hold ([RecordUnstorable]) — leaves as a non-retryable [ApplicationFailure] typed with the exception's name.
