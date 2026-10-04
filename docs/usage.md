@@ -206,6 +206,10 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_DB_PASS` | DB password |
 | `KOSHEI_EPISODE_DB_USER` | DB user for the episode tables only (`EpisodeStore`, `WatchStore`) in the worker and the watcher — in production the runtime role `koshei_episode_rt`. Unset or blank: the `KOSHEI_DB_*` login. Same URL as `KOSHEI_DB_URL` |
 | `KOSHEI_EPISODE_DB_PASS` | Its password. Set both or neither: one without the other is refused at start |
+| `KOSHEI_PICASSO` | `off` (default) \| `mock` (the test Mock) \| `picasso` (the real window) |
+| `KOSHEI_PICASSO_URL` | The window's origin, `http://127.0.0.1:<port>` or `http://localhost:<port>` only; the client adds `/approvals` |
+| `KOSHEI_PICASSO_AGENT_ID` | The approver id a POLICY approval sends as AGENT |
+| `KOSHEI_PICASSO_TIMEOUT_MS` | One request's limit, default 8000; keep it at most `(dispatchMs − 3000) / 3` |
 | `KOSHEI_CONDUCTOR_URL` | Conductor API base URL (**override needed — see callout below**) |
 | `KOSHEI_PLUGIN_DIR` | Where published plugin jars are stored/loaded |
 | `KOSHEI_PUBLISH_DISABLED` | `true` (or `1`) closes `POST /api/publish` with 403 (no new plugin code accepted). Default: publish open |
@@ -215,6 +219,10 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_WORKER_NAME` | Worker identity/name |
 | `KOSHEI_FAULT_INJECT` | **Test-only** — fault injection for gate scripts |
 | `KOSHEI_TEST_BLOCKS` | **Test-only** — test block wiring |
+
+With the real window, revalidation is UNKNOWN, so a person confirms each precondition before a dispatch.
+
+picasso looks up a declaration for every approver id, PERSON or AGENT; an undeclared one is refused `NOT_DECLARED`.
 
 The runtime role is made by `scripts/episode-db-roles.sql`: `SELECT` and `INSERT` only on the five episode tables. The owner account runs it once the worker (or `episode-schema.sql`) has created them, with `psql -v ON_ERROR_STOP=1 -v rt_password='…' -U koshei -d koshei -f scripts/episode-db-roles.sql`, then sets the real password with `\password koshei_episode_rt`. The script refuses a role that may `CREATE` in the schema. With `KOSHEI_EPISODE_DB_USER` set, the worker and the watcher only check that the tables exist, so create them first as the owner: apply `episode-schema.sql`, or start the worker once without the variable.
 

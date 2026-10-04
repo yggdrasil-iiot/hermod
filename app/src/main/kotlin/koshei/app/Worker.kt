@@ -69,7 +69,7 @@ fun main() {
     worker.registerActivitiesImplementations(BlockActivitiesImpl(registry))
 
     // The episode outer loop (design §4.1): its own queue, its own tables (created if absent, never dropped).
-    // Off unless KOSHEI_PICASSO names an approval window; today only the test Mock exists (design §19 C).
+    // Off unless KOSHEI_PICASSO names an approval window: mock (the test's) or picasso (the real window, plan C3).
     val episodeConfig = EpisodeRuntimeConfig.fromEnv(System.getenv())
     if (episodeConfig.picasso == PicassoMode.OFF) {
         println("[$workerName] episode worker off (KOSHEI_PICASSO unset or off)")
@@ -81,6 +81,9 @@ fun main() {
         EpisodeWorkers.register(factory, episodeConfig, episodeStore)
         if (episodeConfig.picasso == PicassoMode.MOCK) {
             System.err.println("[$workerName] WARNING episode worker on $EPISODE_TASK_QUEUE with the TEST Mock picasso: remedies reach no robot (design §8.3, §11)")
+        }
+        if (episodeConfig.picasso == PicassoMode.PICASSO) {
+            println("[$workerName] episode approvals go to ${episodeConfig.window!!.url} as PERSON, or AGENT '${episodeConfig.window!!.agentId}' (revalidation is UNKNOWN: a person confirms each precondition)")
         }
         // The default path is relative to the working directory. A missing file is read as MISSING on every decision, so
         // every episode escalates POLICY_MISSING (design §8.2): say so once here rather than leave it to the first episode.
