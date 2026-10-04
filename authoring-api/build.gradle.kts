@@ -7,6 +7,7 @@ kotlin { jvmToolchain(21) }
 tasks.test {
     useJUnitPlatform()
     systemProperty("koshei.repoRoot", rootProject.projectDir.absolutePath)
+    environment.remove("KOSHEI_RECIPE_SETPOINTS")  // hermetic: CanonicalAbsentTest asserts the no-canonical boot path
 }
 dependencies {
     implementation(project(":core"))

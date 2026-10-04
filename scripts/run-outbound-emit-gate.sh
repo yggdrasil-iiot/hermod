@@ -166,7 +166,7 @@ PROBE_PID=$!
 echo "[GATE] step 5: start twin control (drift + koshei governance subscribe enabled)"
 : > "$TWIN_LOG"
 ( cd "$TWIN_DIR" && mvn -q -f control/pom.xml spring-boot:run \
-    -Dspring-boot.run.jvmArguments="-Dpbs.drift.recipe.enabled=true -Dpbs.drift.recipe.canonical-path=$CANON -Dpbs.drift.recipe.opcua.endpoint=opc.tcp://localhost:48400 -Dkoshei.subscribe.enabled=true -Dkoshei.subscribe.mqtt-url=$MQTT_TCP -Dkoshei.subscribe.group=$KOSHEI_EMIT_GROUP -Dkoshei.subscribe.edge=$KOSHEI_EMIT_EDGE" \
+    -Dspring-boot.run.jvmArguments="-Dpbs.drift.recipe.enabled=true -Dpbs.drift.recipe.canonical-path='$CANON' -Dpbs.drift.recipe.opcua.endpoint=opc.tcp://localhost:48400 -Dkoshei.subscribe.enabled=true -Dkoshei.subscribe.mqtt-url=$MQTT_TCP -Dkoshei.subscribe.group=$KOSHEI_EMIT_GROUP -Dkoshei.subscribe.edge=$KOSHEI_EMIT_EDGE" \
   ) >"$TWIN_LOG" 2>&1 &
 wait_http_ok "$DRIFT" 120 || { tail -40 "$TWIN_LOG" 2>/dev/null || true; fail "twin /api/drift not up"; }
 echo "[GATE] twin up on 8081 (drift + koshei subscribe)"

@@ -16,7 +16,7 @@ FAIL=0
 run_conf() {
   set +e
   OUT="$(./gradlew -q --console=plain :app:cli \
-        --args="conformance --model-dir $(native_path "$1") --workflow-dir $(native_path "$2")" 2>&1)"
+        --args="conformance --model-dir '$(native_path "$1")' --workflow-dir '$(native_path "$2")'" 2>&1)"
   RC=$?
   set -e
 }
