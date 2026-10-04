@@ -46,13 +46,19 @@ Then open **http://localhost:5173**, use the **Compose** tab to assemble (or loa
 
 > **⚠ `./gradlew :app:run` launches the WORKER, not the CLI.** The `application { mainClass }` in `app/build.gradle.kts` is `koshei.app.WorkerKt`. The block-authoring CLI is a separate Gradle task — see [§2](#2--author-your-own-block). Don't confuse the two.
 
-**To use the Conductor engine** with the bundled stack, set `KOSHEI_CONDUCTOR_URL` before starting the control plane, the only process that reads it:
+**To use the Conductor engine** with the bundled stack, set `KOSHEI_CONDUCTOR_URL` before starting the control plane, the only process that reads it. To run a workflow on the Conductor engine you need a separate Conductor task-worker process, started with `./gradlew :conductor-runtime:run`:
 
 ```bash
+# In the control plane's terminal, before ./gradlew :authoring-api:run:
 export KOSHEI_CONDUCTOR_URL=http://localhost:18088/api
+
+# In its own terminal: the Conductor task worker.
+./gradlew :conductor-runtime:run
 ```
 
-This override matters: the code default is `http://localhost:8088/api`, but `docker-compose.yml` publishes Conductor on host port **18088**. Without the override, Conductor runs won't reach the bundled container. See [§4](#4-configure).
+This override matters: the code default is `http://localhost:8088/api`, but `docker-compose.yml` publishes Conductor on host port **18088**. Without the override, Conductor runs won't reach the bundled container. The Conductor worker reads a different variable, `CONDUCTOR_SERVER_URL` (default `http://localhost:18088/api`, which already matches the bundled Compose stack, so no override is needed for it)—two different variables with two different defaults. See [§4](#4-configure).
+
+The Temporal worker (`./gradlew :app:run`) does not serve Conductor. Without the Conductor worker, Conductor runs have no one polling their tasks. The Conductor worker polls only the six builtin blocks (`db.read`, `transform.map`, `db.upsert`, `notify.email`, `actuate`, `merge`) plus the compensation task. Published plugin blocks are not served on Conductor.
 
 ---
 
@@ -229,7 +235,8 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 | `KOSHEI_BIND_ADDRESS` | The address the control plane listens on. Default `127.0.0.1` (loopback only). Read by the control plane. |
 | `KOSHEI_WORKFLOWS_DIR` | Optional directory of workflow YAML files loaded at start, next to the bundled `workflows/*.yaml`; a file with the same name replaces the bundled one. Workflows saved from the Compose tab are stored in Postgres (table `workflow_def`), not here. Read by the worker. |
 | `KOSHEI_WF_POLL_MS` | How often, in ms, the worker polls Postgres for newly deployed workflow definitions. Default 3000. Read by the worker. |
-| `KOSHEI_WORKER_NAME` | The name the worker prints in its log lines. Default `worker-1`. Read by the worker. |
+| `KOSHEI_WORKER_NAME` | The name the worker prints in its log lines. Default `worker-1` (`conductor-worker-1` for the Conductor worker). Read by the worker and the Conductor worker. |
+| `CONDUCTOR_SERVER_URL` | The Conductor server URL. Default `http://localhost:18088/api`, which already matches the bundled Compose stack, so no override is needed for it. Read by the Conductor worker. |
 | `KOSHEI_FAULT_INJECT` | **Test-only**. When set to any value, it arms the fault-injection toggle the gate scripts use. |
 | `KOSHEI_TEST_BLOCKS` | **Test-only**. Setting `1` adds a test block for the gate scripts. |
 
@@ -240,7 +247,7 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 > `KOSHEI_PUBLISH_DISABLED=true` on deployments that must not accept new plugin code. This closes the HTTP
 > publish endpoint only; the local CLI (`:app:cli publish`) is unaffected.
 
-The Gradle daemon keeps the environment it started with, so a variable exported after the daemon started would not reach a forked task JVM on its own. So `:app:run`, `:app:watcher`, `:app:cli` and `:app:starter` copy a fixed list of `KOSHEI_*` keys from the live shell into the forked JVM (`kosheiEnvKeys` and `forwardKosheiEnv` in `app/build.gradle.kts`). This list covers every key in the table that the worker, the watcher or the CLI reads, except the test-only `KOSHEI_TEST_BLOCKS`, so the worker and the CLI agree on the plugin store and the DB. Separately, `:authoring-api:run` forwards every `KOSHEI_*` variable from the live shell, so switches like `KOSHEI_PUBLISH_DISABLED` and `KOSHEI_BIND_ADDRESS` reach the control plane. To confirm the publish switch took effect, check the control plane's startup log line `[publish] POST /api/publish is DISABLED (koshei.publish.disabled)` (or `... is open`).
+The Gradle daemon keeps the environment it started with, so a variable exported after the daemon started would not reach a forked task JVM on its own. So `:app:run`, `:app:watcher`, `:app:cli` and `:app:starter` copy a fixed list of `KOSHEI_*` keys from the live shell into the forked JVM (`kosheiEnvKeys` and `forwardKosheiEnv` in `app/build.gradle.kts`). This list covers every key in the table that the worker, the watcher or the CLI reads, so the worker and the CLI agree on the plugin store and the DB. `:conductor-runtime:run` copies exactly five variables from the live shell into the forked JVM: `CONDUCTOR_SERVER_URL`, `KOSHEI_DB_URL`, `KOSHEI_DB_USER`, `KOSHEI_DB_PASS` and `KOSHEI_WORKER_NAME`. Separately, `:authoring-api:run` forwards every `KOSHEI_*` variable from the live shell, so switches like `KOSHEI_PUBLISH_DISABLED` and `KOSHEI_BIND_ADDRESS` reach the control plane. To confirm the publish switch took effect, check the control plane's startup log line `[publish] POST /api/publish is DISABLED (koshei.publish.disabled)` (or `... is open`).
 
 ### Ports (bundled Docker Compose stack)
 
