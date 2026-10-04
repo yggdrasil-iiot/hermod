@@ -140,4 +140,28 @@ class GovernanceEventEmitterTest {
         val e = GovernanceEventEmitter(ThrowingSession(), log, { staged }, ::audit, { 1L })
         assertDoesNotThrow { e.observe("wf-1", row(), FakePort("COMPLETED")) }
     }
+
+    // defRef is optional enrichment (nullable on GovernanceEvent and on the wire), and it is looked up after the
+    // write-once claim: a failed lookup must drop the defRef, not the event, or later observes dedup it forever.
+    private fun provenanceDown(runId: String): String? =
+        throw java.sql.SQLException("relation \"reconciliation_provenance\" does not exist")
+
+    @Test fun `provenance lookup failure still publishes RECONCILING without defRef`() {
+        val s = CapturingSession(); val log = FakeEmittedLog()
+        val e = GovernanceEventEmitter(s, log, { staged }, ::audit, { 1000L }, ::provenanceDown)
+        e.observe("wf-1", row(), FakePort("RUNNING", mapOf("stage" to "DONE", "activate" to "RUNNING")))
+        val ev = s.events.single()
+        assertEquals("RECONCILING", ev.type)
+        assertNull(ev.defRef)
+    }
+
+    @Test fun `provenance lookup failure still publishes the terminal event without defRef`() {
+        val s = CapturingSession(); val log = FakeEmittedLog()
+        val e = GovernanceEventEmitter(s, log, { staged }, ::audit, { 1000L }, ::provenanceDown)
+        e.observe("wf-1", row(), FakePort("COMPLETED"))
+        val ev = s.events.single()
+        assertEquals("CONFIRMED", ev.type)
+        assertEquals(1450.0, ev.nodes.first().value)   // audit enrichment unaffected
+        assertNull(ev.defRef)
+    }
 }

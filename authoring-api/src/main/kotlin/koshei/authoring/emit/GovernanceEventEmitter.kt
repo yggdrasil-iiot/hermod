@@ -60,7 +60,7 @@ open class GovernanceEventEmitter(
         // RECONCILING after CONFIRMED/RECON_FAILED went out on the wire.
         if (terminalClaimed(runId)) return
         session.publishNdata(GovernanceEvent("RECONCILING", runId, wf(row), row.engine,
-            "IN_FLIGHT", "NONE", now(), stagedSetpoints(), defRef = defRefFor(runId)))
+            "IN_FLIGHT", "NONE", now(), stagedSetpoints(), defRef = defRefOrNull(runId)))
     }
 
     private fun emitTerminal(runId: String, row: RunStore.Row, status: String, port: EnginePort) {
@@ -74,8 +74,13 @@ open class GovernanceEventEmitter(
         // consumer needs to correlate.
         val nodeOutcome = if (type == "CONFIRMED") "CONFIRMED" else "RESTORED"
         val nodes = summarize(runId).ifEmpty { stagedSetpoints().map { it.copy(outcome = nodeOutcome) } }
-        session.publishNdata(GovernanceEvent(type, runId, wf(row), row.engine, status, comp, now(), nodes, defRef = defRefFor(runId)))
+        session.publishNdata(GovernanceEvent(type, runId, wf(row), row.engine, status, comp, now(), nodes, defRef = defRefOrNull(runId)))
     }
+
+    // defRef is optional enrichment looked up AFTER the write-once claim: a failed lookup (DB unreachable, or
+    // reconciliation_provenance missing because app/schema.sql was not applied) must drop the defRef, not the event.
+    private fun defRefOrNull(runId: String): String? =
+        try { defRefFor(runId) } catch (e: Exception) { log.warn("emit defRef {} unavailable, publishing without it: {}", runId, e.toString()); null }
 
     private fun wf(row: RunStore.Row) = "${row.workflowName}:${row.workflowVersion}"
 }
