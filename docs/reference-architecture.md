@@ -191,10 +191,15 @@ The **R1** capability makes the reverse path concrete: a *governed* OPC-UA write
 be trusted to drive a real field endpoint.
 
 koshei now also hosts an **episode outer loop** over two projects outside this portfolio: picasso
-(robot execution middleware) and narrator (LLM diagnosis). One fault is one Temporal workflow around
-a pure state machine; a person approves each remedy, and koshei only points picasso's approval window
-at a remedy picasso already computed. It is off by default and a one-machine PoC; see
-[`docs/architecture.md` §12](architecture.md#12-episode-outer-loop-as-built).
+(robot execution middleware) and narrator (LLM diagnosis), where one fault is one episode governed
+by a Temporal workflow around a pure state machine. Although koshei is the only pillar permitted to
+originate a governed command toward the field, it does not originate robot commands here — picasso
+stays the only command source, and koshei only points picasso's approval window at a remedy picasso
+already computed. The LLM diagnosis is a side-effect-free step in which narrator may only point at one
+of the candidate remedies koshei computed; a person approves each remedy, and koshei records the
+**dispatch intent** before anything is dispatched. picasso's result reports return through a watcher
+process to close the episode. It is **Temporal-only**, off by default, and a one-machine proof of
+concept; see [`docs/architecture.md` §12](architecture.md#12-episode-outer-loop-as-built).
 
 For the role in the larger picture, the as-built internals, and the full module map (rather than
 a module count restated here), see:
@@ -568,7 +573,7 @@ is called out as such. Nothing below claims more than its artifact proves.
 |---|---|---|
 | **① `sparkplug-governance-lab`** | Fail-closed pre-deploy schema-compatibility gate (`SchemaGate`); OPC-UA→UDT mapping with explicit loss ledger; stateful UNS→Kafka bridge; deny-by-default NCMD authorization projected into edge authorizer + broker ACL + CI lint; runtime schema-drift detection (detect-only); ISA-95 namespace standard; bilingual ADRs. | 142 pure-logic tests in-repo; `SchemaGate` + the per-module suites (see the repo in [§8](#8-repository-map--where-to-go-next)). |
 | **② `koshei`** (this repo) | Durable saga with reverse-order compensation, idempotency, and crash recovery on Temporal; engine-neutral (one IR → Temporal + Conductor) observed in a single F5 console; operator interventions (retry / abort / approve); **R1** governed OPC-UA write/call (two-phase stage→activate, deny-by-default + EURange, confirm-by-read, persisted audit); v0.7 run-state durable persistence. | `./gradlew build` + the objective `scripts/run-*-gate.sh` gate scripts + E2E / crash-recovery harnesses. Capability-to-proof table and module map in [`README.md`](../README.md) and [`docs/architecture.md`](architecture.md). |
-| **② `koshei`**, episode outer loop | Off by default: one fault per Temporal workflow over picasso (robot middleware) and narrator (diagnosis), person-approved remedies, result reports back through a watcher. One-machine PoC; no real picasso host yet. | `:episode` / `:episode-runtime` tests; one live run through narrator and one against picasso's reference host ([`docs/architecture.md` §12](architecture.md#12-episode-outer-loop-as-built)). |
+| **② `koshei`**, episode outer loop | Temporal-only and off by default, over picasso (robot middleware) and narrator (LLM diagnosis); one fault per episode around a pure state machine; side-effect-free LLM diagnosis that may only point at koshei-computed candidate remedies; **person-approved remedies** with a recorded dispatch intent; picasso stays the sole command source; result reports back through a watcher. One-machine PoC; no real picasso host yet. | `:episode` module tests (with a 1,000-seed property test) + `:episode-runtime` E2E suite; two live runs: one through narrator (2026-10-03) and one against picasso's reference host (2026-10-04) ([`docs/architecture.md` §12](architecture.md#12-episode-outer-loop-as-built)). |
 | **③ `resequence-twin-lab`** | Synthetic-data PBS resequencing PoC; multi-objective policy vs static baseline with relative-delta KPIs (multi-seed hard invariants + fix-toggle causality); offline CP-SAT optimality-gap oracle (measurement only); SimPy→Kafka→Eclipse Ditto twin; read-only advisory REST + MCP/RAG agent; `DriftMonitor` (detect→propose→human-approve, **no** write-back); read-only OPC-UA. | The benchmark + invariant suite and the advisory surfaces in-repo (see the repo in [§8](#8-repository-map--where-to-go-next)). |
 | **Integration PoV** (② × ③) | The built two-pillar loop: drift → signal-only reconcile → human-gated govern → governed OPC-UA apply → drift cleared, on a shared Eclipse Milo sim + live Temporal (detailed in [§4.2](#42-the-built-proof-honest)). | [`scripts/run-integration-pov-gate.sh`](../scripts/run-integration-pov-gate.sh) — T1 loop-closure, T2 human-veto, T3 trust-boundary. |
 
