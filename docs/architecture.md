@@ -535,7 +535,7 @@ Live runs:
 - **Through narrator, 2026-10-03 (UTC).** A koshei episode opened from the export line `search-1`
   called narrator's Python worker on `narrator-tq`, which called khala. The answer came back in
   255.5 s with 13 of 13 citations verified and recommended ESCALATE, so the episode went to a person
-  (ESCALATED). The run is recorded in narrator's repo (its correspondence log), not in this one.
+  (ESCALATED) (design §16, "실물 진단 끝까지 한 번").
 - **Against picasso's reference host, 2026-10-04** (design §16 "C3 끝"). With
   `KOSHEI_PICASSO=picasso` and the Mock narrator, a person approved a remedy for hum-02, confirmed
   the precondition, and picasso answered APPROVED. The linked JobResponse completed the approved unit

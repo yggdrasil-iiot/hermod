@@ -1471,6 +1471,18 @@ drift 경보만(§14, §18). 커밋은 `f885319..83f2408`(계획 문서 뒤 열�
 계획 C 에 남은 것: 실물 승인 창구 클라이언트와 실물 담는 쪽(§19 C). 위 C1 목록의 drift 입력, 503 사유, 감시 기록 화면도 그대로 남는다.
 (C3: 실물 승인 창구 클라이언트는 섰다. 남은 것은 아래 C3 끝.)
 
+**실물 진단 끝까지 한 번(2026-10-03 UTC, 사용자 승인).** narrator 의 제안(그쪽 `correspondence/TO-KOSHEI-2026-10-03-끝까지-한-번.md`)으로
+koshei 워크플로부터 khala 까지 진단을 한 번 돌렸다.
+- 구성: 공용 Temporal 에 koshei 워커(`feat/episode-core` `ae64ac9`, `KOSHEI_NARRATOR=remote`, `KOSHEI_PICASSO=mock`, 정책 v1). narrator 의
+  Python 워커(`python -m diagnose.worker`, 판 `93b0dd0`, 동시 수 1)가 `narrator-tq` 의 유일한 폴러였다.
+- 연 줄: picasso `handoff/narrator/run-1` 의 탐색 줄 `search-1`(hum-02, PATROL-1, FOUND). 개발 CLI `episode open` 으로 열었다.
+- 시각: 열기 15:04:08Z → 진단 요청 15:04:13Z(병합 창 5초) → 결과 15:08:28Z. 진단 한 시도가 255.5초(첫 시도)였다.
+- 답: 응답 8,099 바이트, 인용 13 모두 verified, `uncitedSentences` · `unverifiedClaims` 비었음. 판 칸 다섯: `modelId` claude-sonnet-5 ·
+  `promptVersion` 73536dc7c9c0 · `corpusVersion` 2c4e54dbf5f6 · `searchFingerprint` b071397c854c · `narratorCommit` 93b0dd0. khala
+  `search_log` 에 새 행 하나(id 2654).
+- 판정: narrator 가 ESCALATE 를 권했다(hum-02 의 지금 파지와 제안이 서 있는지가 사실에 없다는 이유). 설계대로 승인 단계 없이
+  ESCALATED(`ESCALATE_RECOMMENDED`)로 갔고 알림 한 건이 섰다(§5.2). narrator 쪽 기록과 인스턴스 · 후보 판 · 응답 크기 · 판 칸이 모두 맞았다.
+
 **D-lite 끝(2026-10-04).** 계획 D 를 셋으로 줄였다(사용자 결정, 2026-10-04): 에이전트 층 끄기 방송(§10.4), 커밋된 재생 이력(§7.5),
 기록 표의 런타임 역할(§13). 계획 문서는 `7136fa6` 과 그 덧붙임 `0b60876`(재생 이력을 묶음으로)이다.
 - `:episode-runtime`: `AgentOffBroadcast`(`646e342`), 원인을 `failed` 에 싣고 시험이 `AGENT_LAYER_OFF` 와 종류 거르개를 붙듦(`63293e5`),

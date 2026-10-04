@@ -110,7 +110,7 @@ flowchart LR
 
 Evidence, beyond the tests above:
 
-- One live diagnosis on 2026-10-03 (UTC): an episode opened from a picasso export line went through narrator and khala on `narrator-tq` in 255.5 s and came back with 13 of 13 citations verified. narrator recommended ESCALATE, so the episode went to a person. The run is recorded on narrator's side (its correspondence log), not in this repo.
+- One live diagnosis on 2026-10-03 (UTC): an episode opened from a picasso export line went through narrator and khala on `narrator-tq` in 255.5 s and came back with 13 of 13 citations verified. narrator recommended ESCALATE, so the episode went to a person ([design §16](docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md#16-구현-계획-나누기), "실물 진단 끝까지 한 번").
 - One live run against picasso's reference host on 2026-10-04: a person approved a remedy, picasso answered APPROVED, and the linked JobResponse moved the episode to UNKNOWN_OUTCOME because it carried `operatorRequired` ([design §16, "C3 끝"](docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md#16-구현-계획-나누기)).
 
 The design (in Korean) is [`docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md`](docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md); the as-built summary is [`docs/architecture.md` §12](docs/architecture.md#12-episode-outer-loop-as-built).
@@ -175,7 +175,7 @@ This project keeps an explicit ledger of what is grounded vs. hypothesis:
   - Several plan-D items are out of scope: policy management (git + DB pointer + CLI), koshei's own `SAGA_ACTION` remedies and child sagas, the full record fields and quality-history links, a screen for the watcher log, and a read-only role for the control plane.
   - The Episodes UI e2e runs against a mocked `/api/episodes…`; there is no e2e against a running backend.
 
-**Done (v0.1 → v0.6 + engine-neutral demo):** contract-driven Temporal saga · compiler/IR · Conductor execution · DAG/concurrency · authoring + compose canvas · F5 console with interventions, per-node lighting, and compensation timeline on **both** engines · scenario value-demo + hero GIFs. **Episode outer loop (PR #5):** pure state machine, Temporal shell, watcher, narrator and picasso connections, control plane, "07 Episodes" tab, agent-off broadcast, committed replay histories, the runtime DB role.
+**Done (v0.1 → v0.6 + engine-neutral demo):** contract-driven Temporal saga · compiler/IR · Conductor execution · DAG/concurrency · authoring + compose canvas · F5 console with interventions, per-node lighting, and compensation timeline on **both** engines · scenario value-demo + hero GIFs. **Episode outer loop:** pure state machine, Temporal shell, watcher, narrator and picasso connections, control plane, "07 Episodes" tab, agent-off broadcast, committed replay histories, the runtime DB role.
 
 **Remaining candidates:** real OT connectors (PLC/OPC/MQTT) · run-state persistence beyond the compensation ledger · continuous CI for the gate scripts · usability validation with real operators · for the episode loop: a real picasso host (separate deployment repo), a live ledger read for revalidation, the meaning of DONE, drift as a second watcher input, and the plan-D items above.
 
