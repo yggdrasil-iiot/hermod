@@ -131,7 +131,7 @@ The project keeps an explicit record of what is grounded and what is still a hyp
 
 **Done.** The saga platform went from v0.1 to v0.6 plus the engine-neutral demo; its capabilities are those in the [table above](#whats-proven--evidence).
 
-**Remaining candidates.** Real OT connectors (PLC/OPC/MQTT), run-state persistence beyond the compensation ledger, continuous CI for the gate scripts, and usability validation with real operators.
+**Remaining candidates.** A PLC connector, certificate-based OPC UA security, typed (non-`Double`) writes, a first run against field equipment (today the OPC UA and Sparkplug B adapters' tests and gate scripts target only the Milo simulator and a broker), run-state persistence beyond the compensation ledger, continuous CI for the gate scripts, and usability validation with real operators.
 
 ## Docs
 

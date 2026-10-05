@@ -9,7 +9,7 @@ This guide is for a developer who wants to **run** Koshei on their own machine, 
 Two things to know before you start:
 
 - **License — noncommercial.** Koshei is *source-available* under the [PolyForm Noncommercial License 1.0.0](../LICENSE.md). Noncommercial use is freely permitted; **commercial use is reserved**. This is **not** an OSI-approved open-source license — "OSS" here means publicly available and contributable, not OSI Open Source.
-- **Maturity — demo-grade.** What you run from this repo is a **single-process local demo**: one worker, the Docker Compose stack on one host. There are **no real OT connectors** (no PLC/OPC/MQTT), **no Kubernetes / production deployment**, and the Conductor observation overlay is **eventually consistent**. It is an engineering artifact that proves the durable-saga core, not a shippable product. See [§5](#5-limits--license).
+- **Maturity — demo-grade.** What you run from this repo is a **single-process local demo**: one worker, the Docker Compose stack on one host. There is no PLC connector, and the OPC UA client and the Sparkplug B / MQTT adapter **target only simulators** (the Sparkplug gates add a broker) in this repository's tests and gate scripts, and none has run against field equipment. There is **no Kubernetes / production deployment**, and the Conductor observation overlay is **eventually consistent**. It is an engineering artifact that proves the durable-saga core, not a shippable product. See [§5](#5-limits--license).
 
 ---
 
@@ -197,7 +197,7 @@ Useful companion commands:
 
 Open **http://localhost:5173**. The SPA proxies `/api` to the `:authoring-api` control plane on 18090 (`authoring-ui/vite.config.ts`).
 
-**Compose tab.** The palette is projected from the block registry (your published blocks plus the 6 builtins: `db.read`, `transform.map`, `db.upsert`, `notify.email`, `actuate`, `merge`). Drag blocks onto the React Flow canvas, wire them, and **save** — saving deploys a **versioned workflow definition**. When you run, you pick the **engine** (Temporal or Conductor).
+**Compose tab.** The palette is projected from the block registry (your published blocks plus the 9 builtins: `db.read`, `transform.map`, `db.upsert`, `notify.email`, `actuate`, `merge`, `opcua.write`, `opcua.call`, `delegate.score`). Drag blocks onto the React Flow canvas, wire them, and **save** — saving deploys a **versioned workflow definition**. When you run, you pick the **engine** (Temporal or Conductor).
 
 ![Compose a workflow on the canvas](demo/01-compose.gif)
 
@@ -236,7 +236,71 @@ The canonical scenario to try is `ot-recipe-apply` (`sensorRead → recordPlan �
 > `KOSHEI_PUBLISH_DISABLED=true` on deployments that must not accept new plugin code. This closes the HTTP
 > publish endpoint only; the local CLI (`:app:cli publish`) is unaffected.
 
-The Gradle daemon keeps the environment it started with, so a variable exported after the daemon started would not reach a forked task JVM on its own. So `:app:run`, `:app:cli` and `:app:starter` copy a fixed list of `KOSHEI_*` keys from the live shell into the forked JVM (`kosheiEnvKeys` and `forwardKosheiEnv` in `app/build.gradle.kts`). This list covers every key in the table that the worker or the CLI reads, so the worker and the CLI agree on the plugin store and the DB. `:conductor-runtime:run` copies exactly six variables from the live shell into the forked JVM: `CONDUCTOR_SERVER_URL`, `KOSHEI_DB_URL`, `KOSHEI_DB_USER`, `KOSHEI_DB_PASS`, `KOSHEI_WORKER_NAME` and `KOSHEI_WF_POLL_MS`. Separately, `:authoring-api:run` forwards every `KOSHEI_*` variable from the live shell, so switches like `KOSHEI_PUBLISH_DISABLED` and `KOSHEI_BIND_ADDRESS` reach the control plane. To confirm the publish switch took effect, check the control plane's startup log line `[publish] POST /api/publish is DISABLED (koshei.publish.disabled)` (or `... is open`).
+#### Adapter, governance and other keys
+
+The keys below configure the OT adapters, governance features, delegation, and LLM assist. Each row names the process that reads it: the worker (`./gradlew :app:run`), the Conductor worker (`./gradlew :conductor-runtime:run`), the CLI (`./gradlew :app:cli`), or the control plane (`./gradlew :authoring-api:run`).
+
+**OPC UA and the apply path**
+
+| Key | Purpose |
+|---|---|
+| `KOSHEI_APPLY_MODE` | Apply path for `opcua.write` / `opcua.call`. Unset → direct OPC UA (R1). `ncmd` (case-insensitive) → Sparkplug B NCMD over MQTT (R2). Any other value silently falls back to direct. Read by the worker and the Conductor worker when an OPC UA block first runs. |
+| `KOSHEI_OPCUA_URL` | OPC UA endpoint. The default differs by process (see Known gaps): the worker and the Conductor worker (direct apply mode) use the site model's `endpoint` (`opc.tcp://localhost:48400` in the bundled `ot-site.yaml`, or the endpoint in the `KOSHEI_OPCUA_MODEL` file); the CLI (`fsm drift-check`, `fsm hold`, `fsm auto-correct-sweep`) and the control plane's drift auto-correct use the literal `opc.tcp://localhost:48400`. |
+| `KOSHEI_OPCUA_MODEL` | Site model file (endpoint, setpoint nodes, activate command). Unset → the bundled `/model/ot-site.yaml` on the classpath. A relative path resolves against the process's working directory; a missing file or invalid YAML throws. Read by the worker and the Conductor worker (when the builtin blocks load), by the CLI and the control plane for FSM state reads, by the control plane at boot when `KOSHEI_RECIPE_SETPOINTS` is loaded, and by `:opcua:runSim`. |
+| `KOSHEI_OPCUA_POLICY` | Command-authorization policy JSON. Unset → the bundled `/model/command-policy.json`. A missing file throws; a `default` other than `deny` / `allow` fails at load. Read by the worker and the Conductor worker (when the builtin blocks load) and by the control plane at boot when `KOSHEI_RECIPE_SETPOINTS` is loaded. Not in `kosheiEnvKeys` (see Known gaps). |
+| `KOSHEI_OPCUA_SECURITY` | Client security policy. Default `none`, the only value implemented (case-insensitive); any other value fails before connecting. Read wherever an OPC UA client connects. |
+| `KOSHEI_OPCUA_USER` | OPC UA username. A non-blank user with `KOSHEI_OPCUA_PASS` set → username authentication; a user without a password → a warning and anonymous; a password without a user → anonymous. Default: anonymous. Ignition denies anonymous writes. Read wherever an OPC UA client connects. |
+| `KOSHEI_OPCUA_PASS` | OPC UA password, used only together with `KOSHEI_OPCUA_USER`. Set-but-empty counts as a password. |
+
+**Sparkplug B / MQTT (NCMD apply path)**
+
+| Key | Purpose |
+|---|---|
+| `KOSHEI_MQTT_URL` | Broker for the R2 NCMD apply path. Default `tcp://localhost:1883`. Read by the worker and the Conductor worker only when `KOSHEI_APPLY_MODE=ncmd`. |
+| `KOSHEI_SPB_GROUP` | Sparkplug group id of the NCMD topics. Default `Koshei:Line1`. Same readers as `KOSHEI_MQTT_URL`. |
+| `KOSHEI_SPB_EDGE` | Sparkplug edge node id the NCMDs are sent to (the bridge). Default `recipe-edge`. Same readers as `KOSHEI_MQTT_URL`. |
+
+**Governance emit, reconciliation and drift auto-correct** (all read by the control plane)
+
+| Key | Purpose |
+|---|---|
+| `KOSHEI_EMIT_MODE` | Turns on the outbound governance-event emit (koshei's own Sparkplug edge node: NBIRTH / NDATA, answers a Rebirth NCMD). Presence check: any value, even empty or `0`, turns it on. Unset → off. |
+| `KOSHEI_EMIT_MQTT_URL` | Broker for the governance emit. No default; required when `KOSHEI_EMIT_MODE` is set, otherwise the control plane fails to boot. |
+| `KOSHEI_EMIT_GROUP` | Sparkplug group of the emit session. Default `Koshei`. |
+| `KOSHEI_EMIT_EDGE` | Edge node id of the emit session. Default `Governance`. The MQTT client id is `koshei-<group>-<edge>`. |
+| `KOSHEI_RECIPE_SETPOINTS` | Path to the published canonical `recipe-setpoints.yaml`. No default. Unset or not a file → the control plane boots with a warning and reconciliations return 409; present but invalid → boot fails. |
+| `KOSHEI_MODEL_DIR` | Model directory (must contain `fsm/`) for the drift auto-correct FSM specs. No default; without it the scheduled sweep does nothing and `POST /api/autocorrect/sweep` returns 503. The CLI ignores it and uses `<repo root>/model`. |
+| `KOSHEI_AUTOCORRECT_DISPATCH` | `1` lets the scheduled auto-correct sweep dispatch the corrective `ot-safe-hold` run, which parks at its approval gate. Otherwise the sweep only alarms. Read once at start. |
+| `KOSHEI_AUTOCORRECT_DISABLED` | `1` turns the scheduled auto-correct sweep off; it wins over `KOSHEI_AUTOCORRECT_DISPATCH`. `POST /api/autocorrect/sweep` is not affected and always dispatches. Read once at start. |
+| `KOSHEI_AUTOCORRECT_STALE_MS` | How long, in ms, a pending correction whose run status cannot be read stays pending before it is marked `FAILED`. Default 3600000 (1 h); an unparsable value silently falls back to the default. |
+
+**Delegation** (read by the worker and the Conductor worker)
+
+| Key | Purpose |
+|---|---|
+| `KOSHEI_DELEGATION_POLICY` | Delegation endpoint allow/deny policy JSON. Unset → the bundled `/model/delegation-policy.json`. A missing file throws; a `default` other than `deny` / `allow` fails at load. Read when the builtin blocks load. |
+| `KOSHEI_DELEGATION_URL` | Scorer URL for every delegation endpoint. Unset → each endpoint's `url` from the policy. Read when `delegate.score` first runs. |
+
+**LLM assist**
+
+| Key | Purpose |
+|---|---|
+| `KOSHEI_LLM_ASSIST` | LLM port behind `POST /api/fsm/assist`. Exactly `anthropic` → the Anthropic API client, which needs `ANTHROPIC_API_KEY`. Unset or any other value → a deterministic fake. Read by the control plane. |
+
+**Test / gate only**
+
+| Key | Purpose |
+|---|---|
+| `KOSHEI_DELEGATION_SIM_PORT` | Listen port of the standalone scoring simulator (`./gradlew :delegation:runSim`). Default 9099; an unparsable value falls back to the default. |
+| `KOSHEI_RECONCILER_DISABLED` | `1` turns off the control plane's scheduled run-reconcile sweep; a run is still reconciled when its status is read. Checked on every sweep. Production code, but only gate scripts set it. |
+| `KOSHEI_SOAK_DISABLED` | `1` turns off the control plane's periodic FSM soak sweep. Read once at start. Production code, but only gate scripts set it. |
+
+The Gradle daemon keeps the environment it started with, so a variable exported after the daemon started would not reach a forked task JVM on its own. So `:app:run`, `:app:cli` and `:app:starter` copy a fixed list of `KOSHEI_*` keys from the live shell into the forked JVM (`kosheiEnvKeys` and `forwardKosheiEnv` in `app/build.gradle.kts`). The `kosheiEnvKeys` list covers every key in the first table that the worker or the CLI reads, and every OPC UA, Sparkplug, and delegation key in the tables above except `KOSHEI_OPCUA_POLICY` (see "Known gaps"), so the worker and the CLI agree on the plugin store and the DB. `:conductor-runtime:run` copies exactly six variables from the live shell into the forked JVM: `CONDUCTOR_SERVER_URL`, `KOSHEI_DB_URL`, `KOSHEI_DB_USER`, `KOSHEI_DB_PASS`, `KOSHEI_WORKER_NAME` and `KOSHEI_WF_POLL_MS`, and none of the OPC UA, Sparkplug, or delegation keys. Separately, `:authoring-api:run` forwards every `KOSHEI_*` variable from the live shell, so switches like `KOSHEI_PUBLISH_DISABLED` and `KOSHEI_BIND_ADDRESS` reach the control plane. To confirm the publish switch took effect, check the control plane's startup log line `[publish] POST /api/publish is DISABLED (koshei.publish.disabled)` (or `... is open`).
+
+> **Known gaps (env forwarding and defaults).**
+> 1. `KOSHEI_OPCUA_POLICY` is read by the worker but is not in `kosheiEnvKeys`, so a value exported after the Gradle daemon started does not reach `:app:run`.
+> 2. The Conductor worker reads `KOSHEI_APPLY_MODE`, the `KOSHEI_OPCUA_*` keys, the `KOSHEI_DELEGATION_*` keys, `KOSHEI_MQTT_URL` and `KOSHEI_SPB_*`, but `:conductor-runtime:run` forwards none of them. The Conductor worker also reads `KOSHEI_FAULT_INJECT` and `KOSHEI_PLUGIN_DIR`, which `:conductor-runtime:run` does not forward either; the gate scripts start that task with `--no-daemon`, so they are unaffected.
+> 3. With `KOSHEI_OPCUA_URL` unset, the worker and Conductor worker use the site model's `endpoint`, while the CLI and the control plane's drift auto-correct use the literal `opc.tcp://localhost:48400`. With the Ignition site model (`opc.tcp://localhost:62541`) they talk to different servers, so set `KOSHEI_OPCUA_URL` explicitly.
 
 ### Ports (bundled Docker Compose stack)
 
@@ -272,7 +336,7 @@ Each run chooses its engine via `RunRequest.engine`, one of `"temporal"` or `"co
 **Demo-grade, honestly:**
 
 - **Single-process local stack.** One worker, the Compose stack on one host — not a scaled or production deployment, and there is no Kubernetes/production deploy path here.
-- **No real OT connectors.** There are no PLC / OPC / MQTT integrations; the `actuate` block models an irreversible actuation for the demo, it does not drive real hardware.
+- **Limited OT connectors.** There is no PLC connector, and the demo `actuate` block drives no hardware. The real OPC UA client is limited to security `None`, optional username authentication, `Double`-only writes, and `opcua.call` as a Boolean trigger plus rising-edge poll (not a Method call); it is tested in this repository only against the embedded Milo simulator. The Ignition gate (`run-ignition-interop-gate.sh`) has no recorded result in this repository, its NodeIds having been browsed from a live Ignition server (2026-07-02); the Sparkplug B / MQTT gate scripts exist but are cross-repo (`sparkplug-governance-lab`, `resequence-twin-lab`) and their far end is again the Milo simulator; nothing has run against field equipment.
 - **Conductor overlay is eventually consistent.** The Conductor observation/compensation overlay reflects state with a lag; Temporal is the load-bearing durable engine (crash-recovery/replay is proven on Temporal).
 
 For the full as-built limits and non-goals see [`docs/architecture.md` §10](architecture.md#10-honest-limits-and-non-goals-current).

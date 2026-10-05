@@ -24,6 +24,12 @@ compose a workflow on a canvas. That definition is sent to the `:authoring-api` 
 execute the block handlers; durable state lives in Postgres. The F5 operator console observes runs
 on both engines through one `EnginePort` seam.
 
+On Conductor, the `:conductor-runtime` workers (`ForwardWorker` and `CompensateWorker`) write and read
+the `comp_ledger` table in Postgres; the control plane's `ConductorEnginePort` reads that table for
+the compensation timeline and deletes the run's rows before a retry. On Temporal, the compensation
+timeline is in-workflow state that `TemporalEnginePort` reads with a workflow query, and Temporal
+never touches `comp_ledger`.
+
 ```mermaid
 flowchart LR
   subgraph UI["authoring-ui (React)"]
@@ -40,17 +46,20 @@ flowchart LR
     temporal["Temporal"]
     conductor["Conductor"]
   end
+  cw["Conductor workers<br/>(:conductor-runtime)"]
   pg[("Postgres<br/>comp_ledger")]
 
   canvas --> api
   api --> ir
   ir --> tb --> temporal
   ir --> cb --> conductor
-  temporal --> pg
-  conductor --> pg
+  temporal -->|"engine persistence<br/>(own DBs, not comp_ledger)"| pg
+  cw -->|poll tasks| conductor
+  cw -->|"write / read"| pg
   console -->|EnginePort| api
-  api -->|TemporalEnginePort| temporal
+  api -->|"TemporalEnginePort<br/>(timeline via workflow query)"| temporal
   api -->|ConductorEnginePort| conductor
+  api -->|"ConductorEnginePort<br/>read timeline, delete on retry"| pg
 ```
 
 ## 3. The keystone — block contract drives derived resilience
@@ -184,8 +193,9 @@ sequenceDiagram
   Wk-->>Eng: COMPENSATED (or COMP_FAILED, best-effort)
   Op->>UI: open run
   UI->>API: poll run state
-  API->>Eng: query node states + comp ledger
-  Eng-->>API: per-node states + compensation timeline
+  API->>Eng: query node states + compensation timeline
+  Eng-->>API: per-node states (+ Temporal timeline)
+  Note over API,Eng: Conductor timeline is read from comp_ledger (Postgres), not from the engine
   API-->>UI: render lighting + timeline
 ```
 
@@ -360,15 +370,13 @@ portal. It does so **by design**, subject to the as-built caveat at the end of t
   plane can run multi-replica behind a load balancer (its only per-process state is an idempotent
   deploy-dedupe cache, which is safe to lose). The durable engines themselves (Temporal and
   Conductor) are clustered, horizontally scalable systems.
+  Among the workers, only the Conductor workers write `comp_ledger`; the control plane reads it and
+  deletes a run's rows on retry; a Temporal worker keeps the compensation timeline in workflow
+  state, which the control plane reads with a workflow query.
 - **Frontend stays a single portal.** The React `authoring-ui` is a static SPA, one
   operator console; load does not scale the frontend. Operators control and observe
   workflows through one window regardless of how many workers run, so worker scale remains
   transparent to the operator. This is a stated design principle.
-- **Evidence.** The de-risking spike proved shared-task-queue scale-out and failover as proof P5:
-  `run-p5-scaleout.sh` killed worker 1, and a fresh workflow completed on the surviving worker 2
-  (failover), with activity distribution observed across both workers (`w1=18 w2=27` forward
-  markers). The spike's engine verdict (OQ1) records: "Shared task queue gives scale-out + failover
-  (P5)."
 
 ```mermaid
 flowchart TB
@@ -395,17 +403,16 @@ flowchart TB
   eng --> tq
   tq --> w1
   tq --> w2
-  w1 --> pg
-  w2 --> pg
+  w1 -->|"read registry / workflow_def<br/>write comp_ledger (Conductor only)"| pg
+  w2 -->|"read registry / workflow_def<br/>write comp_ledger (Conductor only)"| pg
 ```
 
-**As-built limit.** The repository implements a single-process local demo: one worker,
-one `:authoring-api`, and a docker-compose stack. Horizontal scale-out is designed for and not
-deployed. The architectural seams make it possible (poll-based workers on a shared queue, a
-stateless externalized-state control plane, and clustered engines) and engine task-queue scaling is
-spike-proven (P5 above), but a multi-replica Kubernetes / HPA / Helm deployment is not built. That
-deployment is on the roadmap (design-doc ADR-11), and the architecture is deliberately kept
-non-breaking toward it. See the broader inventory of limits in §10.
+**As-built limit.** The repository implements a single-process local demo: one worker, one
+`:authoring-api`, and a docker-compose stack. Scale-out is designed for, not deployed, and no
+multi-replica measurement is recorded in this repository. Architectural seams make it possible
+(poll-based workers on a shared queue, a stateless externalized-state control plane, and clustered
+engines), but a multi-replica Kubernetes / HPA / Helm deployment is not built, and the architecture
+is kept non-breaking toward it. See §10.
 
 ## 10. Honest limits and non-goals (current)
 
@@ -414,10 +421,15 @@ non-breaking toward it. See the broader inventory of limits in §10.
 - **Conductor node-state overlay is eventually consistent.** Because conductor-standalone indexes
   asynchronously, the COMPENSATED overlay surfaces after a short grace-poll window
   (`RunDetail.tsx` TERMINAL_GRACE).
-- **No real OT connectors.** The `actuate` block in `ot-recipe-apply` models an IRREVERSIBLE
+- **OT connector limits.** The `actuate` block in `ot-recipe-apply` models an IRREVERSIBLE
   side-effect and drives no hardware. The `:opcua` module's `opcua.write` and `opcua.call` blocks
   are exercised by `run-opcua-gate.sh` only against an embedded Milo OPC-UA simulator, on Temporal
-  only. No connector to real field equipment is part of the build.
+  only. There is no PLC protocol. The OPC UA client supports only security `None` and `Double`-only
+  writes, and `opcua.call` is a Boolean trigger plus rising-edge poll rather than a UA Method call.
+  The Ignition gate (`run-ignition-interop-gate.sh`) has no recorded result in this repository; its
+  NodeIds were browsed from a live Ignition server (2026-07-02). The Sparkplug B / MQTT gate scripts
+  exist and are cross-repo (`sparkplug-governance-lab` bridge, `resequence-twin-lab` host), and the
+  far end is again the Milo simulator. Nothing has run against field equipment.
 - **Single-version Conductor definitions.** A Conductor definition is keyed by bare `name`; a
   Temporal one by `name@version`; multi-version Conductor is future work
   (`ConductorEnginePort` limitation note).

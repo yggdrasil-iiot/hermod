@@ -28,7 +28,10 @@ For **this** track you download essentially one thing — Ignition. Everything e
 
 ## 1. Configure the OPC-UA server (None + anonymous + **Expose Tag Providers**)
 Gateway → **Config → OPC UA → Server Settings**:
-- Ensure the server is running (default endpoint `opc.tcp://localhost:62541`).
+- Ensure the server is running (default endpoint `opc.tcp://localhost:62541`). Port 62541 is
+  Ignition's default OPC UA port and the gate's default `KOSHEI_OPCUA_URL`, not koshei's code
+  default; with `KOSHEI_OPCUA_URL` unset, the worker uses the site model's endpoint, while the CLI
+  and the drift auto-correct use `opc.tcp://localhost:48400` (see "Known gaps" in `docs/usage.md`).
 - Under security, **allow the `None` policy and anonymous access** (dev only).
 - **CRITICAL — enable "Expose Tag Providers".** By default Ignition's OPC-UA server exposes only
   *device* connections, NOT tag-provider tags; with this OFF an external UA client (koshei) cannot see
@@ -41,7 +44,9 @@ Confirm the endpoint URL/port and put it in `KOSHEI_OPCUA_URL`.
 **Write authentication (important).** Ignition grants anonymous clients READ but **denies WRITE**
 (`Bad_UserAccessDenied`). The gate therefore authenticates as Ignition's **built-in OPC-UA user
 `opcuauser` / `password`** (write-permitted; it lives in the OPC-UA server's own user source, which is
-why there's no user to add under the main Gateway users). No action needed if that default exists;
+why there's no user to add under the main Gateway users). The gate script
+(`run-ignition-interop-gate.sh`) defaults to those values when `KOSHEI_OPCUA_USER` and
+`KOSHEI_OPCUA_PASS` are unset; koshei's own code default is anonymous. No action needed if that default exists;
 override with `KOSHEI_OPCUA_USER` / `KOSHEI_OPCUA_PASS` env vars to use a different write-permitted user.
 Transport stays `SecurityPolicy.None` (dev); cert transport is the deferred follow-up.
 
@@ -67,14 +72,21 @@ if not initialChange:
 (Adjust the tag path to your provider/folder.)
 
 ## 4. Record the real NodeIds
-Designer OPC Browser (or any OPC-UA client) → browse the server address space → copy the exact
-NodeIds for the four tags → paste them into `model/ot-site-ignition.yaml` (replace the placeholders),
-and set `endpoint:` to your confirmed server URL. Commit that edit.
+`model/ot-site-ignition.yaml` already holds NodeIds resolved from a live Ignition server on
+2026-07-02 (`ns=2;s=[default]/koshei/Line1/<tag>`); namespace indices are server-specific, so
+re-browse with the Designer OPC Browser (or any OPC UA client) and update them along with
+`endpoint:` if yours differ. `model/recipe-setpoints-ignition.yaml` carries the same NodeIds and must
+match, because the control plane cross-validates it against the site model at startup and fails
+closed on a mismatch. Commit that edit.
 
 ## 5. Run the gate
 ```bash
 KOSHEI_OPCUA_URL="opc.tcp://localhost:62541" bash scripts/run-ignition-interop-gate.sh
 ```
+The gate itself exports `KOSHEI_OPCUA_MODEL` and `KOSHEI_RECIPE_SETPOINTS` as absolute paths to
+`model/ot-site-ignition.yaml` and `model/recipe-setpoints-ignition.yaml`, overriding any value in
+your shell, and defaults `KOSHEI_OPCUA_URL` to `opc.tcp://localhost:62541`.
+
 Expect `[GATE] PASS run-ignition-interop-gate.sh` — T1 (staged+activated, confirm-by-read on Ignition,
 `command_audit` keyed to the run), T2b (reject → `opcua.write.compensate` RESTORE, activate never
 fired), T3 (rpm=9999 → EURANGE_REJECT), T4 (unlisted node → DENIED).
