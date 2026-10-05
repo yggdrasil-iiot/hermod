@@ -59,9 +59,9 @@ export KOSHEI_FAULT_INJECT=1
 export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
 # ---- Outbound-emit wire config. Read by EmitConfig via System.getenv INSIDE the :authoring-api JVM.
 # NOTE (env forwarding, grounded): the emitter lives in :authoring-api, NOT the worker. `:app`'s
-# kosheiEnvKeys list intentionally does NOT carry KOSHEI_EMIT_* (the worker does not emit). The
-# :authoring-api `run` task is the application-plugin default JavaExec (no env filter), so under
-# --no-daemon it inherits this exported shell env and EmitConfig.on()/System.getenv see KOSHEI_EMIT_*.
+# forwardKosheiEnv also forwards KOSHEI_EMIT_* to the worker, which ignores them (it does not emit). The
+# :authoring-api `run` task forwards every KOSHEI_* var from the live shell (authoring-api/build.gradle.kts),
+# so EmitConfig.on()/System.getenv see KOSHEI_EMIT_* in the control-plane JVM.
 export KOSHEI_EMIT_MODE="${KOSHEI_EMIT_MODE:-1}"
 export KOSHEI_EMIT_MQTT_URL="${KOSHEI_EMIT_MQTT_URL:-tcp://localhost:1883}"
 export KOSHEI_EMIT_GROUP="${KOSHEI_EMIT_GROUP:-Koshei}"

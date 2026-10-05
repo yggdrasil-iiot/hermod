@@ -22,8 +22,13 @@ dependencies {
     testImplementation(libs.testcontainers.junit)
 }
 application { mainClass.set("koshei.conductor.ConductorWorkerMainKt") }
-val envKeys = listOf("KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_WORKER_NAME", "KOSHEI_WF_POLL_MS", "CONDUCTOR_SERVER_URL")
-fun JavaExec.fwd() = envKeys.forEach { k -> System.getenv(k)?.let { environment(k, it) } }
+// The Gradle daemon keeps the env it started with; forward every KOSHEI_* var plus CONDUCTOR_SERVER_URL from
+// the live shell into the forked JVMs (same rule as `forwardKosheiEnv` in app/build.gradle.kts). The worker
+// polls every registry block (opcua.write / opcua.call / delegate.score ...), so it needs the same OT keys as
+// the Temporal worker. No-op for vars that are unset.
+fun JavaExec.fwd() = System.getenv()
+    .filterKeys { it.startsWith("KOSHEI_") || it == "CONDUCTOR_SERVER_URL" }
+    .forEach { (k, v) -> environment(k, v) }
 tasks.named<JavaExec>("run") { fwd() }
 tasks.register<JavaExec>("ctl") {
     group = "application"; mainClass.set("koshei.conductor.ConductorCtlKt")

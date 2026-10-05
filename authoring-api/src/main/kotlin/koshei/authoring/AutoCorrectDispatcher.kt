@@ -4,6 +4,7 @@ import koshei.opcua.AutoCorrectAction
 import koshei.opcua.AutoCorrectSupervisor
 import koshei.opcua.FsmSpec
 import koshei.opcua.FsmStateReader
+import koshei.opcua.OpcUaApplyPort
 import koshei.registry.DriftCorrectionStore
 import koshei.registry.DriftStore
 import koshei.registry.FsmDeploymentStore
@@ -38,7 +39,9 @@ class AutoCorrectDispatcher(
     private val router: EngineRouter,
 ) : OneShotSweep {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val endpoint = System.getenv("KOSHEI_OPCUA_URL") ?: "opc.tcp://localhost:48400"
+    // Same resolution as the worker (KOSHEI_OPCUA_URL, else the site model's endpoint). Lazy so a bad
+    // KOSHEI_OPCUA_MODEL surfaces on the first sweep instead of failing control-plane bean construction.
+    private val endpoint by lazy { OpcUaApplyPort.defaultEndpoint() }
     private val saga = "ot-safe-hold"; private val sagaVersion = "1.0.0"
     private val staleAfterMs = System.getenv("KOSHEI_AUTOCORRECT_STALE_MS")?.toLongOrNull() ?: 3_600_000L
 

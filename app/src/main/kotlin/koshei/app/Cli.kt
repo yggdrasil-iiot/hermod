@@ -12,6 +12,7 @@ import koshei.opcua.DriftDetector
 import koshei.opcua.FsmSpec
 import koshei.opcua.FsmStateReader
 import koshei.opcua.GovernDecision
+import koshei.opcua.OpcUaApplyPort
 import koshei.opcua.TransitionGovernor
 import koshei.registry.BlockStore
 import koshei.registry.DriftStore
@@ -336,7 +337,7 @@ private fun fsmDriftCheck(args: Array<String>, store: FsmDeploymentStore) {
     val file = resolveFsmFile(File(repoRoot(), "model"), unit, version)
         ?: run { System.err.println("ERROR: no FSM spec declares unit='$unit' version='$version'"); exitProcess(1) }
     val fsm = FsmSpec.fromFile(file)
-    val endpoint = System.getenv("KOSHEI_OPCUA_URL") ?: "opc.tcp://localhost:48400"
+    val endpoint = resolveOpcUaEndpoint()
     val observed = FsmStateReader.readStateCode(fsm, endpoint)
         ?: run { System.err.println("ERROR: could not read stateNode '${fsm.stateNode}' for unit '$unit'"); exitProcess(1) }
     val drift = DriftStore { Db.connect() }
@@ -365,7 +366,7 @@ private fun fsmHold(args: Array<String>, store: FsmDeploymentStore) {
     val file = resolveFsmFile(File(repoRoot(), "model"), unit, version)
         ?: run { System.err.println("ERROR: no FSM spec declares unit='$unit' version='$version'"); exitProcess(1) }
     val fsm = FsmSpec.fromFile(file)
-    val endpoint = System.getenv("KOSHEI_OPCUA_URL") ?: "opc.tcp://localhost:48400"
+    val endpoint = resolveOpcUaEndpoint()
     val code = FsmStateReader.readStateCode(fsm, endpoint)
         ?: run { System.err.println("ERROR: could not read stateNode '${fsm.stateNode}' for unit '$unit'"); exitProcess(1) }
     when (val d = TransitionGovernor.govern(fsm, code, "SafeHold")) {
@@ -396,7 +397,9 @@ private fun fsmHold(args: Array<String>, store: FsmDeploymentStore) {
 private fun fsmAutoCorrectSweep(store: FsmDeploymentStore) {
     val drift = DriftStore { Db.connect() }
     val modelDir = File(repoRoot(), "model")
-    val endpoint = System.getenv("KOSHEI_OPCUA_URL") ?: "opc.tcp://localhost:48400"
+    // Lazy, like AutoCorrectDispatcher: a bad KOSHEI_OPCUA_MODEL surfaces as a per-unit SKIPPED (the sweep's
+    // own catch), as it did when the state read failed, instead of aborting the whole sweep.
+    val endpoint by lazy { OpcUaApplyPort.defaultEndpoint() }
     val actions = AutoCorrectSupervisor.sweep(
         units = store.activeUnits(),
         readState = { fsm -> FsmStateReader.readStateCode(fsm, endpoint) },
@@ -416,6 +419,13 @@ private fun fsmAutoCorrectSweep(store: FsmDeploymentStore) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+/** [OpcUaApplyPort.defaultEndpoint], or a clean ERROR line + exit 1 when the site model fails to load. */
+private fun resolveOpcUaEndpoint(): String =
+    runCatching { OpcUaApplyPort.defaultEndpoint() }.getOrElse {
+        System.err.println("ERROR: cannot resolve OPC UA endpoint (KOSHEI_OPCUA_URL unset; site model failed to load): ${it.message}")
+        exitProcess(1)
+    }
+
 /** Repo root = nearest ancestor holding settings.gradle.kts (NOT the process working dir; :app:cli runs with workingDir=app/). */
 private fun repoRoot(): File {
     var d: File? = File(System.getProperty("user.dir")).absoluteFile

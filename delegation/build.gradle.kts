@@ -20,11 +20,10 @@ tasks.processResources {
 }
 // Standalone scoring simulator for the gate/demo: ./gradlew :delegation:runSim
 application { mainClass.set("koshei.delegation.SimMainKt") }
-val envKeys = listOf(
-    "KOSHEI_DELEGATION_URL", "KOSHEI_DELEGATION_POLICY", "KOSHEI_DELEGATION_SIM_PORT",
-    "KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS",
-)
-fun JavaExec.fwd() = envKeys.forEach { k -> System.getenv(k)?.let { environment(k, it) } }
+// Forward every KOSHEI_* var from the live shell into the forked JVM (same rule as `forwardKosheiEnv` in
+// app/build.gradle.kts): the Gradle daemon keeps the env it started with. No-op for vars that are unset.
+fun JavaExec.fwd() =
+    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
 tasks.register<JavaExec>("runSim") {
     group = "application"; mainClass.set("koshei.delegation.SimMainKt")
     classpath = sourceSets["main"].runtimeClasspath; fwd()
