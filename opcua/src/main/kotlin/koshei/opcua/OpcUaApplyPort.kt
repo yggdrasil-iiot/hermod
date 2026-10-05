@@ -174,10 +174,20 @@ class OpcUaApplyPort(private val endpoint: String) : ApplyPort, AutoCloseable {
             }
 
         /**
-         * Ambient factory (no-arg) for block use. Reads [KOSHEI_OPCUA_URL] env or falls back to
-         * the model's endpoint. Mirrors the `Db.connect()` pattern.
+         * The one OPC UA endpoint resolution shared by the worker ([default]), the CLI `fsm` commands and the
+         * control plane's drift auto-correct: `KOSHEI_OPCUA_URL` if set, else the site model's `endpoint`
+         * (`KOSHEI_OPCUA_MODEL` file, else the bundled `ot-site.yaml`). [model] is only invoked when the env
+         * var is unset, so a bad `KOSHEI_OPCUA_MODEL` cannot fail the endpoint resolution itself when the URL is set.
          */
-        fun default(): OpcUaApplyPort =
-            OpcUaApplyPort(System.getenv("KOSHEI_OPCUA_URL") ?: SiteModel.default().endpoint).connect()
+        fun defaultEndpoint(
+            env: Map<String, String> = System.getenv(),
+            model: () -> SiteModel = { SiteModel.default() },
+        ): String = env["KOSHEI_OPCUA_URL"] ?: model().endpoint
+
+        /**
+         * Ambient factory (no-arg) for block use. Endpoint from [defaultEndpoint]. Mirrors the
+         * `Db.connect()` pattern.
+         */
+        fun default(): OpcUaApplyPort = OpcUaApplyPort(defaultEndpoint()).connect()
     }
 }

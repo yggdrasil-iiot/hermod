@@ -21,10 +21,12 @@ application { mainClass.set("koshei.app.WorkerKt") }
 
 // The Gradle daemon captures its environment at startup, so env vars exported AFTER the daemon started
 // (e.g. KOSHEI_PLUGIN_DIR / KOSHEI_DB_* set by the gate script) would NOT reach forked task JVMs and the
-// CLI-publish and worker could disagree on the plugin store dir / DB. Forward these from the live shell
-// env into every entrypoint task so the gate's exported env is authoritative. No-op when unset.
-val kosheiEnvKeys = listOf("KOSHEI_PLUGIN_DIR", "KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_WORKER_NAME", "KOSHEI_WORKFLOWS_DIR", "KOSHEI_WF_POLL_MS", "KOSHEI_FAULT_INJECT", "KOSHEI_TEST_BLOCKS", "KOSHEI_OPCUA_URL", "KOSHEI_OPCUA_MODEL", "KOSHEI_OPCUA_SECURITY", "KOSHEI_OPCUA_USER", "KOSHEI_OPCUA_PASS", "KOSHEI_DELEGATION_POLICY", "KOSHEI_DELEGATION_URL", "KOSHEI_APPLY_MODE", "KOSHEI_MQTT_URL", "KOSHEI_SPB_GROUP", "KOSHEI_SPB_EDGE")
-fun JavaExec.forwardKosheiEnv() = kosheiEnvKeys.forEach { k -> System.getenv(k)?.let { environment(k, it) } }
+// CLI-publish and worker could disagree on the plugin store dir / DB. Forward every KOSHEI_* var from the
+// live shell env into every entrypoint task (same rule as :authoring-api and :conductor-runtime), so the
+// gate's exported env is authoritative and a newly read key cannot be missed by a hand-kept list.
+// No-op for vars that are unset.
+fun JavaExec.forwardKosheiEnv() =
+    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
 
 tasks.named<JavaExec>("run") {
     forwardKosheiEnv()

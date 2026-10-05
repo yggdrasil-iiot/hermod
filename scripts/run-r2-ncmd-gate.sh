@@ -39,7 +39,7 @@ export KOSHEI_FAULT_INJECT=1
 export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
 # ---- Approach B (NCMD) wire config: selects SparkplugNcmdApplyPort in the two :opcua blocks and
 #      points it at HiveMQ CE / the Sparkplug identity the bridge authorizes. Forwarded to the worker
-#      JVM via app/build.gradle.kts kosheiEnvKeys (Task 1.7).
+#      JVM via app/build.gradle.kts forwardKosheiEnv (every KOSHEI_* var).
 export KOSHEI_APPLY_MODE="${KOSHEI_APPLY_MODE:-ncmd}"
 export KOSHEI_MQTT_URL="${KOSHEI_MQTT_URL:-tcp://localhost:1883}"
 export KOSHEI_SPB_GROUP="${KOSHEI_SPB_GROUP:-Koshei:Line1}"

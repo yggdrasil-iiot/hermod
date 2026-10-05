@@ -30,8 +30,10 @@ tasks.processResources {
 
 // Standalone Milo simulator for the gate/demo (cf. :conductor-runtime run/ctl tasks).
 application { mainClass.set("koshei.opcua.SimMainKt") }
-val envKeys = listOf("KOSHEI_OPCUA_URL", "KOSHEI_OPCUA_MODEL", "KOSHEI_DB_URL", "KOSHEI_DB_USER", "KOSHEI_DB_PASS", "KOSHEI_APPLY_MODE", "KOSHEI_MQTT_URL", "KOSHEI_SPB_GROUP", "KOSHEI_SPB_EDGE")
-fun JavaExec.fwd() = envKeys.forEach { k -> System.getenv(k)?.let { environment(k, it) } }
+// Forward every KOSHEI_* var from the live shell into the forked JVMs (same rule as `forwardKosheiEnv` in
+// app/build.gradle.kts): the Gradle daemon keeps the env it started with. No-op for vars that are unset.
+fun JavaExec.fwd() =
+    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
 tasks.register<JavaExec>("runSim") {
     group = "application"; mainClass.set("koshei.opcua.SimMainKt")
     classpath = sourceSets["main"].runtimeClasspath; fwd()

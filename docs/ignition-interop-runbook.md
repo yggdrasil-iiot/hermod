@@ -30,8 +30,10 @@ For **this** track you download essentially one thing — Ignition. Everything e
 Gateway → **Config → OPC UA → Server Settings**:
 - Ensure the server is running (default endpoint `opc.tcp://localhost:62541`). Port 62541 is
   Ignition's default OPC UA port and the gate's default `KOSHEI_OPCUA_URL`, not koshei's code
-  default; with `KOSHEI_OPCUA_URL` unset, the worker uses the site model's endpoint, while the CLI
-  and the drift auto-correct use `opc.tcp://localhost:48400` (see "Known gaps" in `docs/usage.md`).
+  default; with `KOSHEI_OPCUA_URL` unset, the endpoint is the site model's `endpoint`:
+  `opc.tcp://localhost:48400` in the bundled `ot-site.yaml`, or the endpoint in the
+  `KOSHEI_OPCUA_MODEL` file when that is set, and the worker, the CLI and the drift auto-correct all
+  use it.
 - Under security, **allow the `None` policy and anonymous access** (dev only).
 - **CRITICAL — enable "Expose Tag Providers".** By default Ignition's OPC-UA server exposes only
   *device* connections, NOT tag-provider tags; with this OFF an external UA client (koshei) cannot see
