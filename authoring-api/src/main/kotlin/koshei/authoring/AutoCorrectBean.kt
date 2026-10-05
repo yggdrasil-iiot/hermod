@@ -10,16 +10,11 @@ import java.io.File
  *  whole bean (mirrors KOSHEI_SOAK_DISABLED). KOSHEI_AUTOCORRECT_DISPATCH=1 enables auto-dispatch => park-for-
  *  approval (design 2026-07-04); unset => alarm-only, byte-identical to the merged poller. FSM specs resolve
  *  from a checked-out repo model dir via KOSHEI_MODEL_DIR; unset/absent => no-op (authoring-api otherwise reads
- *  model from the classpath, not a fs dir). See designs 2026-07-03 (poller) + 2026-07-04 (dispatch).
- *  In episode mode (KOSHEI_PICASSO ≠ off) alarm only — never dispatch (AutoCorrectGate, design §14). */
+ *  model from the classpath, not a fs dir). See designs 2026-07-03 (poller) + 2026-07-04 (dispatch). */
 @Component
 class AutoCorrectBean(private val dispatcher: AutoCorrectDispatcher, private val gate: AutoCorrectGate) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val modelDir: File? = System.getenv("KOSHEI_MODEL_DIR")?.let(::File)
-
-    init {
-        if (gate.episodeMode) log.info("auto-correct: episode mode — alarm only")
-    }
 
     @Scheduled(fixedDelayString = "\${koshei.autocorrect.fixedDelayMs:20000}",
                initialDelayString = "\${koshei.autocorrect.initialDelayMs:20000}")

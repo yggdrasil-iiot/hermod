@@ -28,9 +28,6 @@ dependencies {
     }
     implementation(libs.tahu.core)         // outbound emit (spec 2026-07-01): SparkplugEdgeSession decodes rebirth NCMD directly (already in the catalog / :opcua)
     implementation(libs.anthropic.java)    // fsm-assist (R4): real AnthropicLlmAssistPort (structured outputs). Fake stays the default bean.
-    implementation(project(":episode-runtime")) {  // episode control plane (/api/episodes): Wire DTOs, the operator card, EpisodeReader
-        exclude(group = "org.slf4j", module = "slf4j-simple")  // Spring Boot owns logging (Logback) in the edge; slf4j-simple would collide
-    }
     implementation(libs.spring.boot.starter.web)
     implementation(libs.jackson.kotlin)
     implementation(libs.hikaricp)

@@ -4,7 +4,7 @@
 
 **Goal:** 업로드된 플러그인 jar 가 publish 검사 단계에서 코드를 실행하지 못하게 하고, publish 표면을 끌 수 있게 하고, 제어면을 루프백에만 열게 한다.
 
-**Architecture:** 설계 문서 `docs/superpowers/specs/2026-09-27-episode-outer-loop-design.md` §14 첫 행과 §16 계획 A 를 구현한다.
+**Architecture:** 설계 문서 [koshchei](https://github.com/LivingLikeKrillin/koshchei) `docs/design/2026-09-27-episode-outer-loop-design.md` §14 첫 행과 §16 계획 A 를 구현한다.
 지금 publish 검사(`handlerLoadCheck`)는 `PluginLoader.load` 를 부르는데, 이 함수는 `Class.forName(fqcn, true, …)` 로 static 초기화를
 돌리고 `newInstance()` 로 생성자까지 돌린다. 설계 문서는 `initialize=false` 만 적었지만 그것만으로는 생성자가 여전히 돈다.
 그래서 publish 검사 전용 `PluginLoader.probe` 를 새로 둔다 — 초기화 없이 클래스를 읽고, `Block` 타입과 인자 없는 생성자가 있는지만

@@ -31,14 +31,11 @@ import kotlin.system.exitProcess
  *   publish <jar>                       — publish a plugin jar to the registry
  *   list                                — list all registered blocks (builtins + plugins)
  *   compile <wf>|--file <path> [--target temporal|conductor]  — compile workflow to IR
- *   episode open --export <dir> (--search <searchId> | --incident <incidentId>) [--key <correlationKey>]
- *                                       — (dev) open an episode from one picasso export line (signalWithStart)
- *   episode agent-off (<workflowId> | --all)  — (dev) switch an episode's agent off, or every open episode's
  *
  * REF: app/.../Starter.kt for the entrypoint/arg idiom.
  */
 fun main(args: Array<String>) {
-    val cmd = args.getOrNull(0) ?: usageError("command required (scaffold|publish|list|compile|conformance|fsm|episode)")
+    val cmd = args.getOrNull(0) ?: usageError("command required (scaffold|publish|list|compile|conformance|fsm)")
     when (cmd) {
         "scaffold"    -> doScaffold(args)
         "publish"     -> doPublish(args)
@@ -46,53 +43,8 @@ fun main(args: Array<String>) {
         "compile"     -> doCompile(args)
         "conformance" -> doConformance(args)
         "fsm"         -> doFsm(args)
-        "episode"     -> doEpisode(args)
-        else          -> usageError("unknown command: $cmd (expected scaffold|publish|list|compile|conformance|fsm|episode)")
+        else          -> usageError("unknown command: $cmd (expected scaffold|publish|list|compile|conformance|fsm)")
     }
-}
-
-// ---------------------------------------------------------------------------
-// episode open --export <dir> (--search <searchId> | --incident <incidentId>) [--key <correlationKey>]
-// episode agent-off (<workflowId> | --all)
-// Development only (design §7.2): the watcher (plan C) is what carries symptoms in production.
-// Arguments are checked before Temporal is reached, so a bad argument is a usage error, never a half-sent signal.
-// A refusal (IllegalArgumentException) is a usage error; a failure to read the export or to reach Temporal is an ERROR.
-// ---------------------------------------------------------------------------
-private fun doEpisode(args: Array<String>) {
-    val sub = args.getOrNull(1) ?: usageError("episode requires subcommand: open|agent-off")
-    when (sub) {
-        "open" -> {
-            val s = try { EpisodeCli.symptom(EpisodeCli.parseOpen(args.drop(2).toTypedArray())) }
-                    catch (e: IllegalArgumentException) { usageError(e.message ?: "episode open: invalid arguments") }
-                    catch (e: Exception) { episodeFailed("open", e) }
-            try { EpisodeCli.open(s) } catch (e: Exception) { episodeFailed("open", e) }
-            println("opened ${s.workflowId} eventId=${s.signal.eventId}")
-        }
-        "agent-off" -> {
-            val target = try { EpisodeCli.agentOffTarget(args.drop(2)) }
-                         catch (e: IllegalArgumentException) { usageError(e.message ?: "episode agent-off: invalid arguments") }
-            when (target) {
-                is EpisodeCli.AgentOffTarget.One -> {
-                    try { EpisodeCli.agentOff(target.workflowId) } catch (e: Exception) { episodeFailed("agent-off", e) }
-                    println("agent-off sent to ${target.workflowId}")
-                }
-                EpisodeCli.AgentOffTarget.All -> {
-                    val report = try { EpisodeCli.agentOffAll() } catch (e: Exception) { episodeFailed("agent-off", e) }
-                    println("agent-off sent to ${report.sent.size} open episode(s)")
-                    report.sent.forEach { println("  $it") }
-                    report.ended.forEach { println("ended before the signal: $it") }
-                    report.failed.forEach { (id, why) -> System.err.println("failed: $id: $why") }
-                    if (report.failed.isNotEmpty()) exitProcess(1)
-                }
-            }
-        }
-        else -> usageError("episode subcommand must be open|agent-off")
-    }
-}
-
-private fun episodeFailed(sub: String, e: Exception): Nothing {
-    System.err.println("ERROR: episode $sub: ${e.message}")
-    exitProcess(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +459,5 @@ private fun usageError(msg: String): Nothing {
     System.err.println("  fsm drift-check <unit>                read the live state node for the active FSM version and record BASELINE/OK/DRIFT vs the last observed state")
     System.err.println("  fsm hold <unit>                       govern a corrective SafeHold from the live state; ALLOW records a HOLD audit row + prints the workflow to dispatch (human-gated), DENY = fail-closed alarm")
     System.err.println("  fsm auto-correct-sweep                sweep all deployed units: detect drift + evaluate the corrective SafeHold (BASELINE/OK/DRIFT-CORRECTABLE/DRIFT-BLOCKED/SKIPPED). Detect+alarm only — never dispatches.")
-    System.err.println("  episode open --export <dir> (--search <searchId> | --incident <incidentId>) [--key <correlationKey>]   (dev) signalWithStart ep:<key> with one picasso export line; key [A-Za-z0-9._:-]+, default <runId>:<id>")
-    System.err.println("  episode agent-off (<workflowId> | --all)   (dev) send agentOff to an episode (ep:<key>); --all: every open episode (design §10.4)")
     exitProcess(1)
 }

@@ -5,11 +5,6 @@ import io.temporal.serviceclient.WorkflowServiceStubs
 import io.temporal.worker.WorkerFactory
 import io.temporal.worker.WorkerOptions
 import koshei.blocks.Db
-import koshei.episode.runtime.EPISODE_TASK_QUEUE
-import koshei.episode.runtime.EpisodeRuntimeConfig
-import koshei.episode.runtime.EpisodeStore
-import koshei.episode.runtime.EpisodeWorkers
-import koshei.episode.runtime.PicassoMode
 import koshei.registry.BlockIndex
 import koshei.registry.BlockStore
 import koshei.registry.WorkflowStore
@@ -20,7 +15,6 @@ import koshei.runtime.RuntimeAssembly
 import koshei.runtime.SagaWorkflowImpl
 import koshei.runtime.WorkflowDefLoader
 import java.io.File
-import java.nio.file.Files
 
 const val TASK_QUEUE = "koshei-v0_1-tq"
 
@@ -67,32 +61,6 @@ fun main() {
     )
     worker.registerWorkflowImplementationTypes(SagaWorkflowImpl::class.java)
     worker.registerActivitiesImplementations(BlockActivitiesImpl(registry))
-
-    // The episode outer loop (design §4.1): its own queue, its own tables (created if absent, never dropped).
-    // Off unless KOSHEI_PICASSO names an approval window: mock (the test's) or picasso (the real window, plan C3).
-    val episodeConfig = EpisodeRuntimeConfig.fromEnv(System.getenv())
-    if (episodeConfig.picasso == PicassoMode.OFF) {
-        println("[$workerName] episode worker off (KOSHEI_PICASSO unset or off)")
-    } else {
-        val episodeLogin = EpisodeDbLogin.fromEnv(System.getenv())
-        println("[$workerName] episode tables as DB user '${episodeLogin.user}' (KOSHEI_EPISODE_DB_USER, else the worker's own)")
-        val episodeStore = EpisodeStore { episodeLogin.connect() }
-        episodeStore.ensureSchema()
-        EpisodeWorkers.register(factory, episodeConfig, episodeStore)
-        if (episodeConfig.picasso == PicassoMode.MOCK) {
-            System.err.println("[$workerName] WARNING episode worker on $EPISODE_TASK_QUEUE with the TEST Mock picasso: remedies reach no robot (design §8.3, §11)")
-        }
-        if (episodeConfig.picasso == PicassoMode.PICASSO) {
-            // The URL only: approver ids stay out of logs (EpisodeActivitiesImpl), the configured agent id included.
-            println("[$workerName] episode approvals go to ${episodeConfig.window!!.url} as PERSON, or AGENT under the configured agent id; revalidation is UNKNOWN, so a person confirms each precondition")
-        }
-        // The default path is relative to the working directory. A missing file is read as MISSING on every decision, so
-        // every episode escalates POLICY_MISSING (design §8.2): say so once here rather than leave it to the first episode.
-        if (!Files.exists(episodeConfig.policyPath)) {
-            System.err.println("[$workerName] WARNING episode policy ${episodeConfig.policyPath.toAbsolutePath()} does not exist: every episode will escalate POLICY_MISSING (set KOSHEI_EPISODE_POLICY)")
-        }
-        println("[$workerName] episode worker on $EPISODE_TASK_QUEUE (narrator ${episodeConfig.narrator}, policy ${episodeConfig.policyPath})")
-    }
 
     // v0.3e: bind operator-composed workflow_defs from Postgres — at startup AND via a background poll —
     // so runs started by the control plane (RunController → start(workflowName="$name@$version", …))
