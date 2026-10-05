@@ -11,7 +11,7 @@ A *runnable* site model (e.g. `ot-site.yaml`) describes the OPC-UA endpoint, set
 pair. It is selected at runtime via the `KOSHEI_OPCUA_MODEL` environment variable:
 
 ```
-KOSHEI_OPCUA_MODEL=/path/to/my-site.yaml   # absolute path to a runnable site model
+KOSHEI_OPCUA_MODEL=/path/to/my-site.yaml   # path to a runnable site model; relative paths resolve against the process's working directory
 ```
 
 If the variable is not set, the default classpath resource `/model/ot-site.yaml` is loaded.
