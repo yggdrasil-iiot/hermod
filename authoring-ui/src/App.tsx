@@ -7,9 +7,8 @@ import { Publish } from "./views/Publish";
 import { ComposeView } from "./views/compose/ComposeView";
 import { FsmView } from "./views/fsm/FsmView";
 import { ConsoleView } from "./views/console/ConsoleView";
-import { EpisodesView } from "./views/episodes/EpisodesView";
 
-type Tab = "browse" | "editor" | "publish" | "compose" | "fsm" | "console" | "episodes";
+type Tab = "browse" | "editor" | "publish" | "compose" | "fsm" | "console";
 
 const TABS: { id: Tab; idx: string; label: string }[] = [
   { id: "browse", idx: "01", label: "Block Browse" },
@@ -18,7 +17,6 @@ const TABS: { id: Tab; idx: string; label: string }[] = [
   { id: "compose", idx: "04", label: "Compose" },
   { id: "fsm", idx: "05", label: "FSM Editor" },
   { id: "console", idx: "06", label: "Console" },
-  { id: "episodes", idx: "07", label: "Episodes" },
 ];
 
 const HEADERS: Record<Tab, { crumb: string; title: string; blurb: string }> = {
@@ -57,12 +55,6 @@ const HEADERS: Record<Tab, { crumb: string; title: string; blurb: string }> = {
     title: "Console",
     blurb:
       "Browse run history; select a run to light the DAG with its node states. Parked runs can be approved or rejected.",
-  },
-  episodes: {
-    crumb: "Operator · episodes",
-    title: "Episodes",
-    blurb:
-      "Incidents the outer loop is handling: the operator card, decisions and notices. Identity is self-asserted (no authentication).",
   },
 };
 
@@ -141,7 +133,6 @@ export default function App() {
           {tab === "compose" && <ComposeView />}
           {tab === "fsm" && <FsmView />}
           {tab === "console" && <ConsoleView />}
-          {tab === "episodes" && <EpisodesView />}
         </section>
       </main>
     </div>

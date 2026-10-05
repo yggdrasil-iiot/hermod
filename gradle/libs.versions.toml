@@ -2,7 +2,6 @@
 kotlin = "2.2.0"
 temporal = "1.25.1"
 jackson = "2.17.2"
-snakeyaml = "2.2"                 # the version jackson-dataformat-yaml 2.17.2 resolves; StrictYaml reads its events
 postgresql = "42.7.4"
 slf4j = "2.0.13"
 junit = "5.10.3"
@@ -17,10 +16,8 @@ anthropicJava = "2.34.0"
 [libraries]
 temporal-sdk = { module = "io.temporal:temporal-sdk", version.ref = "temporal" }
 temporal-testing = { module = "io.temporal:temporal-testing", version.ref = "temporal" }
-jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 jackson-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
 jackson-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml", version.ref = "jackson" }
-snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
