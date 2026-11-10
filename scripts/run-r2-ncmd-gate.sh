@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# R2 SELF-BRIDGE + SPARKPLUG NCMD GATE (objective cross-repo proof): koshei's physical apply flows
-# koshei -> Sparkplug NCMD -> HiveMQ CE -> the self-bridge (Milo+Tahu, in sparkplug-governance-lab)
+# R2 HEIMDALL + SPARKPLUG NCMD GATE (objective cross-repo proof): koshei's physical apply flows
+# koshei -> Sparkplug NCMD -> HiveMQ CE -> Heimdall (Bifrost's command edge, bifrost `heimdall/`)
 # -> OPC-UA -> the shared Milo sim, authorized INDEPENDENTLY at the edge, compensation over the same
-# channel. Selects Approach B behind the ApplyPort seam via KOSHEI_APPLY_MODE=ncmd; R1 (direct) is
-# untouched (run-opcua-gate.sh).
+# channel. Answers come back on Heimdall's `bifrost/<group>/RESULT/<edge>` topic. Selects Approach B
+# behind the ApplyPort seam via KOSHEI_APPLY_MODE=ncmd; R1 (direct) is untouched (run-opcua-gate.sh).
 #
 # Asserts:
 #   T1 happy            : reconcile -> approve -> saga completes over NCMD; opcua.write WRITTEN>=1,
@@ -19,10 +19,12 @@
 #   T5 fail-closed      : bridge down -> koshei ncmd write times out -> run does NOT complete, no
 #                         partial (opcua.call CONFIRMED==0; worker logs an ncmd timeout / permanent fail).
 #
-# Run from the koshei repo root with the stack up + a sparkplug-governance-lab checkout:
+# Run from the koshei repo root with the stack up + a bifrost checkout (Maven builds the Heimdall jar):
 #   docker compose up -d
-#   LAB_DIR="/path/to/sparkplug-governance-lab" bash scripts/run-r2-ncmd-gate.sh
+#   BIFROST_DIR="/path/to/bifrost" bash scripts/run-r2-ncmd-gate.sh
 #   # expect: [GATE] PASS run-r2-ncmd-gate.sh ... exit 0
+# The worker binds every bundled workflow at start, including demo-with-greet, so the io.example.greet
+# plugin must already be published (run scripts/run-add-block-gate.sh once against the same DB first).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # Shared gate helpers (native_path, psql_q, kill_jvms_by, wait_for_log, wait_http_ok, wait_tcp).
@@ -38,17 +40,30 @@ export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
 export KOSHEI_FAULT_INJECT=1
 export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
 # ---- Approach B (NCMD) wire config: selects SparkplugNcmdApplyPort in the two :opcua blocks and
-#      points it at HiveMQ CE / the Sparkplug identity the bridge authorizes. Forwarded to the worker
-#      JVM via app/build.gradle.kts forwardKosheiEnv (every KOSHEI_* var).
+#      points it at HiveMQ CE / the Sparkplug identity Heimdall authorizes. Forwarded to the worker
+#      JVM via app/build.gradle.kts forwardKosheiEnv (every KOSHEI_* var). Group/edge are the target
+#      of the rules in bifrost's heimdall/registry/policy.json (Bifrost:Line1 / recipe-edge), which
+#      this gate runs Heimdall with; Heimdall's own default edge (recipe-edge-cmd) has no rules there.
 export KOSHEI_APPLY_MODE="${KOSHEI_APPLY_MODE:-ncmd}"
 export KOSHEI_MQTT_URL="${KOSHEI_MQTT_URL:-tcp://localhost:1883}"
-export KOSHEI_SPB_GROUP="${KOSHEI_SPB_GROUP:-Koshei:Line1}"
+export KOSHEI_SPB_GROUP="${KOSHEI_SPB_GROUP:-Bifrost:Line1}"
 export KOSHEI_SPB_EDGE="${KOSHEI_SPB_EDGE:-recipe-edge}"
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
 WORK="build/r2-ncmd-gate"
 mkdir -p "$WORK"
+# Canonical DESIRED values for POST /reconciliations. Without one, or without the sibling manifest.json
+# whose contentSha256 the API re-computes, it fails closed 409 canonical-unresolvable (since a01e5f9), so
+# no run could start. Unless the caller points at a published canonical, stage the bundled
+# model/recipe-setpoints.yaml with a local manifest (defRef = this checkout's HEAD).
+if [ -z "${KOSHEI_RECIPE_SETPOINTS:-}" ]; then
+  CANON_DIR="$WORK/canonical"; mkdir -p "$CANON_DIR"
+  cp model/recipe-setpoints.yaml "$CANON_DIR/recipe-setpoints.yaml"
+  printf '{"kind":"recipe","ref":"recipe-setpoints","version":"gate","defRef":"%s","contentSha256":"%s","sourcePath":"model/recipe-setpoints.yaml","publishedAt":0}\n' \
+    "$(git rev-parse HEAD)" "$(sha256sum "$CANON_DIR/recipe-setpoints.yaml" | cut -d' ' -f1)" > "$CANON_DIR/manifest.json"
+  export KOSHEI_RECIPE_SETPOINTS="$(native_path "$(pwd)/$CANON_DIR/recipe-setpoints.yaml")"
+fi
 WORKER_LOG="$WORK/worker.log"
 API_LOG="$WORK/api.log"
 SIM_LOG="$WORK/sim.log"
@@ -61,16 +76,16 @@ ROGUE_LOG="$WORK/rogue.log"
 BRIDGE_PID=""
 
 # psql_q, kill_jvms_by come from scripts/lib/gate-common.sh (sourced above).
-# The bridge runs as `mvn exec:java` (the main class runs INSIDE the Maven/classworlds JVM, so it is
-# NOT visible to `jps -l` as NcmdOpcUaBridgeMain). Kill the recorded process TREE (//T) — the bash
-# subshell -> mvn -> java children — and best-effort mop up any classworlds launcher left behind.
+# Heimdall runs as `java -jar bifrost-heimdall.jar`; `jps -lm` reports the JAR path for a -jar launch,
+# not the main class, so match on the jar filename. `$!` of an MSYS-backgrounded native java does not
+# reliably equal the Win32 PID, so the recorded-PID kill is best-effort only.
 kill_bridge() {
   if [ -n "$BRIDGE_PID" ]; then taskkill //F //T //PID "$BRIDGE_PID" >/dev/null 2>&1 || true; fi
-  { jps -lm 2>/dev/null | grep -i "NcmdOpcUaBridgeMain" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done
+  { jps -lm 2>/dev/null | grep -i "bifrost-heimdall.jar" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done
 }
 cleanup() {
   kill_jvms_by "koshei.authoring.AuthoringApplicationKt" || true; kill_jvms_by "koshei.app.WorkerKt" || true; kill_jvms_by "koshei.opcua.SimMainKt" || true; kill_bridge || true
-  [ -n "${LAB_COMPOSE:-}" ] && docker compose -f "$LAB_COMPOSE" stop hivemq-ce >/dev/null 2>&1 || true
+  [ -n "${BIFROST_COMPOSE:-}" ] && docker compose -f "$BIFROST_COMPOSE" stop hivemq-ce >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -83,18 +98,20 @@ fail() {
   exit 1
 }
 
-# Cross-repo dependency: the sparkplug-governance-lab checkout (the dir containing pom.xml + the
-# self-bridge). Fail-closed if unset — NO silent skip of the cross-repo assertions (integration-PoV lesson).
-LAB_DIR="${LAB_DIR:-}"
-[ -n "$LAB_DIR" ] || fail "LAB_DIR not set — point it at the sparkplug-governance-lab checkout (the dir containing pom.xml + the NCMD self-bridge). No silent skip of the NCMD assertions."
-[ -f "$LAB_DIR/pom.xml" ] || fail "no pom.xml under LAB_DIR='$LAB_DIR'"
-[ -f "$LAB_DIR/docker-compose.yml" ] || fail "no docker-compose.yml under LAB_DIR='$LAB_DIR' (needs the hivemq-ce service)"
+# Cross-repo dependency: the bifrost checkout (heimdall/ module + its policy/conformance fixtures + the
+# hivemq-ce compose service). Fail-closed if unset — NO silent skip of the cross-repo assertions.
+BIFROST_DIR="${BIFROST_DIR:-}"
+[ -n "$BIFROST_DIR" ] || fail "BIFROST_DIR not set — point it at the bifrost checkout (the dir containing pom.xml + heimdall/). No silent skip of the NCMD assertions."
+[ -f "$BIFROST_DIR/pom.xml" ] || fail "no pom.xml under BIFROST_DIR='$BIFROST_DIR'"
+[ -f "$BIFROST_DIR/heimdall/registry/policy.json" ] || fail "no heimdall/registry/policy.json under BIFROST_DIR='$BIFROST_DIR'"
+[ -f "$BIFROST_DIR/docker-compose.yml" ] || fail "no docker-compose.yml under BIFROST_DIR='$BIFROST_DIR' (needs the hivemq-ce service)"
 # docker compose is a NATIVE Windows binary: an MSYS /c/... path passed to `-f` becomes an invalid
 # C:\c\... path. cygpath -m yields a Windows path with forward slashes that docker accepts (the
-# integration-PoV lesson). `cd "$LAB_DIR" && mvn` calls below are unaffected (they cd, not -f).
-LAB_COMPOSE="$(native_path "$LAB_DIR/docker-compose.yml")"
+# integration-PoV lesson). The same holds for the native java that runs the Heimdall jar.
+BIFROST_COMPOSE="$(native_path "$BIFROST_DIR/docker-compose.yml")"
+HEIMDALL_JAR="$(native_path "$BIFROST_DIR/heimdall/target/bifrost-heimdall.jar")"
 
-echo "[GATE] db=$KOSHEI_DB_URL ; opcua=$KOSHEI_OPCUA_URL ; mqtt=$KOSHEI_MQTT_URL ; mode=$KOSHEI_APPLY_MODE ; lab=$LAB_DIR"
+echo "[GATE] db=$KOSHEI_DB_URL ; opcua=$KOSHEI_OPCUA_URL ; mqtt=$KOSHEI_MQTT_URL ; mode=$KOSHEI_APPLY_MODE ; bifrost=$BIFROST_DIR"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: schemas (registry + app) + fault_inject + reset"
@@ -102,12 +119,17 @@ docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/res
 docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE run_index, workflow_def, command_audit, fault_inject, source_rows, target_rows" >/dev/null
+# The runs below use fixed workflow ids; one left parked at the human gate by an aborted earlier run makes
+# POST /reconciliations fail with WorkflowExecutionAlreadyStarted. Terminate them (a missing id is fine).
+for wid in ncmd-happy ncmd-happy-2 ncmd-veto ncmd-failclosed; do
+  docker compose exec -T temporal temporal workflow terminate --address temporal:7233 --workflow-id "$wid" --reason r2-gate-reset >/dev/null 2>&1 || true
+done
 echo "[GATE] schemas ensured; state reset"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 1: start HiveMQ CE (broker) + wait for :1883"
-docker compose -f "$LAB_COMPOSE" up -d hivemq-ce >/dev/null 2>&1 || fail "failed to start hivemq-ce"
-wait_tcp localhost 1883 60 || { docker compose -f "$LAB_COMPOSE" logs --tail 40 hivemq-ce 2>/dev/null || true; fail "HiveMQ CE did not open :1883"; }
+docker compose -f "$BIFROST_COMPOSE" up -d hivemq-ce >/dev/null 2>&1 || fail "failed to start hivemq-ce"
+wait_tcp localhost 1883 60 || { docker compose -f "$BIFROST_COMPOSE" logs --tail 40 hivemq-ce 2>/dev/null || true; fail "HiveMQ CE did not open :1883"; }
 echo "[GATE] HiveMQ CE up on :1883"
 
 # ---------------------------------------------------------------------------
@@ -128,12 +150,23 @@ echo "[GATE] step 3: seed canonical baseline (Rpm=1500, Temp=200)"
 seed_canonical
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 4: start the self-bridge (lab: NcmdOpcUaBridgeMain) + wait for [BRIDGE] ready"
+echo "[GATE] step 4: build + start Heimdall (bifrost: bifrost-heimdall.jar) + wait for [BRIDGE] ready"
+# Always (re)package so the gate never runs a stale jar against the checked-out heimdall sources.
+( cd "$BIFROST_DIR" && mvn -q -pl heimdall -am -DskipTests package ) >"$WORK/heimdall-build.log" 2>&1 || { tail -40 "$WORK/heimdall-build.log"; fail "Heimdall build failed (see $WORK/heimdall-build.log)"; }
+[ -f "$BIFROST_DIR/heimdall/target/bifrost-heimdall.jar" ] || fail "heimdall/target/bifrost-heimdall.jar missing after build"
+kill_bridge   # mop up an orphan from a prior aborted run before claiming the same MQTT client id
+rm -rf "$WORK/command-ledger"   # Heimdall keeps its bdSeq and command ledger here (required)
 : > "$BRIDGE_LOG"
-( cd "$LAB_DIR" && mvn -q compile exec:java -Dexec.mainClass=dev.krillin.sparkplug.bridge.NcmdOpcUaBridgeMain ) >"$BRIDGE_LOG" 2>&1 &
+MQTT_URL="$KOSHEI_MQTT_URL" OPCUA_URL="$KOSHEI_OPCUA_URL" SPB_GROUP="$KOSHEI_SPB_GROUP" SPB_EDGE="$KOSHEI_SPB_EDGE" \
+  POLICY_PATH="$(native_path "$BIFROST_DIR/heimdall/registry/policy.json")" \
+  REGISTRY_PATH="$(native_path "$BIFROST_DIR/heimdall/registry")" \
+  CONFORMANCE_PATH="$(native_path "$BIFROST_DIR/heimdall/registry/conformance/Line1-Mixer/1.0.0.json")" \
+  COMMAND_LEDGER_PATH="$(native_path "$(pwd)/$WORK/command-ledger")" \
+  java -jar "$HEIMDALL_JAR" >"$BRIDGE_LOG" 2>&1 &
 BRIDGE_PID=$!
-wait_for_log "$BRIDGE_LOG" "\[BRIDGE\] ready" 90 || { cat "$BRIDGE_LOG" 2>/dev/null || true; fail "self-bridge did not reach '[BRIDGE] ready'"; }
-echo "[GATE] self-bridge ready (pid tree $BRIDGE_PID)"
+wait_for_log "$BRIDGE_LOG" "\[BRIDGE\] ready" 90 || { cat "$BRIDGE_LOG" 2>/dev/null || true; fail "Heimdall did not reach '[BRIDGE] ready'"; }
+grep -q "\[BRIDGE\] enforcement = enforcing" "$BRIDGE_LOG" || fail "Heimdall is not enforcing — the deny assertions below would prove nothing"
+echo "[GATE] Heimdall ready, enforcing (pid tree $BRIDGE_PID)"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 5: build + start worker (KOSHEI_APPLY_MODE=ncmd) then API"
@@ -170,9 +203,9 @@ reconcile() {  # $1=reconciliationId $2=proposalRef
     -d "{\"reconciliationId\":\"$1\",\"nodes\":[\"recipe.rpmSetpoint\"],\"source\":\"r2-ncmd-gate\",\"proposalRef\":\"$2\"}"
 }
 apply_count() { grep -c "\[BRIDGE\] APPLY cmd=$1" "$BRIDGE_LOG" 2>/dev/null || echo 0; }
-rogue() {  # $1=nodeId $2=value $3=dataType
-  ( cd "$LAB_DIR" && mvn -q compile exec:java -Dexec.mainClass=dev.krillin.sparkplug.bridge.RogueNcmd \
-      -Dexec.args="$1 $2 $3" ) >>"$ROGUE_LOG" 2>&1 || fail "rogue publish ($1 $2 $3) failed (see $ROGUE_LOG)"
+rogue() {  # $1=nodeId $2=value $3=dataType — Heimdall's own single-metric NCMD publisher, bypassing koshei
+  MQTT_URL="$KOSHEI_MQTT_URL" SPB_GROUP="$KOSHEI_SPB_GROUP" SPB_EDGE="$KOSHEI_SPB_EDGE" \
+    java -cp "$HEIMDALL_JAR" dev.krillin.bifrost.heimdall.RogueNcmd "$1" "$2" "$3" >>"$ROGUE_LOG" 2>&1 || fail "rogue publish ($1 $2 $3) failed (see $ROGUE_LOG)"
 }
 
 # ---------------------------------------------------------------------------
@@ -183,13 +216,13 @@ RID1="ncmd-happy"
 RESP=$(reconcile "$RID1" "t1") || fail "T1 POST /reconciliations failed"
 echo "[GATE] T1 reconcile => $RESP"
 echo "$RESP" | grep -q "\"runId\":\"$RID1\"" || fail "T1 expected runId=$RID1"
-wait_node "$RID1" activateRecipe RUNNING || fail "T1 never reached the activate gate over NCMD"
+wait_node "$RID1" activateRecipe AWAITING_APPROVAL || fail "T1 never reached the activate gate over NCMD"
 [ "$(aud opcua.write WRITTEN)" -ge 1 ] || fail "T1 expected opcua.write WRITTEN>=1 before the gate, got $(aud opcua.write WRITTEN)"
 curl -fsS -X POST "$API/api/runs/$RID1/approve" >/dev/null || fail "T1 approve failed"
 curl -fsS "$API/api/runs/$RID1?wait=true" | grep -q '"completed":true' || fail "T1 did not complete after approve"
 [ "$(aud opcua.write WRITTEN)"  -ge 1 ] || fail "T1 expected opcua.write WRITTEN>=1, got $(aud opcua.write WRITTEN)"
 [ "$(aud opcua.call CONFIRMED)" = "1" ] || fail "T1 expected opcua.call CONFIRMED=1, got $(aud opcua.call CONFIRMED)"
-echo "[GATE] T1 OK: write+activate confirmed THROUGH the self-bridge (NCMD -> OPC-UA)"
+echo "[GATE] T1 OK: write+activate confirmed THROUGH Heimdall (NCMD -> OPC-UA)"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] ===== T1b: repeated activate — second reconcile confirms WITHOUT a manual reset (rearm proof) ====="
@@ -201,7 +234,7 @@ seed_canonical
 RID1B="ncmd-happy-2"
 RESP=$(reconcile "$RID1B" "t1b") || fail "T1b POST /reconciliations failed"
 echo "$RESP" | grep -q "\"runId\":\"$RID1B\"" || fail "T1b expected runId=$RID1B"
-wait_node "$RID1B" activateRecipe RUNNING || fail "T1b never reached the activate gate over NCMD"
+wait_node "$RID1B" activateRecipe AWAITING_APPROVAL || fail "T1b never reached the activate gate over NCMD"
 curl -fsS -X POST "$API/api/runs/$RID1B/approve" >/dev/null || fail "T1b approve failed"
 curl -fsS "$API/api/runs/$RID1B?wait=true" | grep -q '"completed":true' || fail "T1b did not complete after approve"
 [ "$(aud opcua.call CONFIRMED)" = "1" ] || fail "T1b expected opcua.call CONFIRMED=1 (rearm without reset), got $(aud opcua.call CONFIRMED)"
@@ -213,7 +246,7 @@ psql_q "TRUNCATE command_audit, fault_inject, source_rows, target_rows" >/dev/nu
 seed_canonical
 RID2="ncmd-veto"
 reconcile "$RID2" "t2" >/dev/null || fail "T2 reconcile failed"
-wait_node "$RID2" activateRecipe RUNNING || fail "T2 never reached the activate gate"
+wait_node "$RID2" activateRecipe AWAITING_APPROVAL || fail "T2 never reached the activate gate"
 [ "$(aud opcua.write WRITTEN)" -ge 1 ] || fail "T2 stageRecipe should have written (WRITTEN>=1) before the gate, got $(aud opcua.write WRITTEN)"
 curl -fsS -X POST "$API/api/runs/$RID2/reject" >/dev/null || fail "T2 reject failed"
 curl -fsS "$API/api/runs/$RID2?wait=true" | grep -q '"completed":false' || fail "T2 rejected run should compensate (completed=false)"

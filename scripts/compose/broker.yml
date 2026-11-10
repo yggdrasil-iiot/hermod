@@ -1,7 +1,7 @@
 # koshei-local MQTT broker for the outbound governance-event gate (run-outbound-emit-gate.sh).
 #
 # WHY a koshei-local compose: the R2 NCMD gate reuses HiveMQ CE from the EXTERNAL
-# sparkplug-governance-lab repo (run-r2-ncmd-gate.sh -> $LAB_DIR/docker-compose.yml). The outbound-emit
+# bifrost repo (run-r2-ncmd-gate.sh -> $BIFROST_DIR/docker-compose.yml). The outbound-emit
 # gate's only external repo is the TWIN (resequence-twin-lab); pulling a *second* external repo just for a
 # broker is avoided by shipping this small, self-contained broker compose. Keep a 2-repo gate (koshei + twin).
 #
