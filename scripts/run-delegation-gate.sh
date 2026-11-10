@@ -92,6 +92,11 @@ docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/res
 # (+ source_rows/target_rows) exist for the OPC-UA + delegation audit assertions.
 docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, fault_inject, command_audit, delegation_audit" >/dev/null
+# The runs below use fixed workflow ids; one left parked at the human gate by an aborted earlier run makes
+# the run POST fail with WorkflowExecutionAlreadyStarted. Terminate them (a missing id is fine).
+for wid in dlg-pass-1 dlg-reject-1 dlg-deny-1 dlg-unreach-1; do
+  docker compose exec -T temporal temporal workflow terminate --address temporal:7233 --workflow-id "$wid" --reason delegation-gate-reset >/dev/null 2>&1 || true
+done
 echo "[GATE] schemas ensured; state reset"
 
 # ---------------------------------------------------------------------------
@@ -188,7 +193,7 @@ psql_q "TRUNCATE command_audit, delegation_audit, target_rows" >/dev/null
 seed_setpoints "recipe.rpmSetpoint=300"
 RUN_T1="dlg-pass-1"
 curl -fsS -X POST "$OK_URL" -H 'Content-Type: application/json' -d "{\"runId\":\"$RUN_T1\"}" >/dev/null || fail "T1 start failed"
-wait_node "$RUN_T1" activateRecipe RUNNING || fail "T1 never reached the activate gate (scoreQuality should PASS)"
+wait_node "$RUN_T1" activateRecipe AWAITING_APPROVAL || fail "T1 never reached the activate gate (scoreQuality should PASS)"
 [ "$(ddec quality-scorer)" = "PASSED" ] || fail "T1 expected delegation_audit PASSED, got '$(ddec quality-scorer)'"
 curl -fsS -X POST "$API/api/runs/$RUN_T1/approve" >/dev/null || fail "T1 approve failed"
 curl -fsS "$API/api/runs/$RUN_T1?wait=true" | grep -q '"completed":true' || fail "T1 did not complete after approve"
