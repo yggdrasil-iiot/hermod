@@ -17,29 +17,29 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
 }
-application { mainClass.set("koshei.app.WorkerKt") }
+application { mainClass.set("yggdrasil.hermod.app.WorkerKt") }
 
 // The Gradle daemon captures its environment at startup, so env vars exported AFTER the daemon started
-// (e.g. KOSHEI_PLUGIN_DIR / KOSHEI_DB_* set by the gate script) would NOT reach forked task JVMs and the
-// CLI-publish and worker could disagree on the plugin store dir / DB. Forward every KOSHEI_* var from the
+// (e.g. HERMOD_PLUGIN_DIR / HERMOD_DB_* set by the gate script) would NOT reach forked task JVMs and the
+// CLI-publish and worker could disagree on the plugin store dir / DB. Forward every HERMOD_* var from the
 // live shell env into every entrypoint task (same rule as :authoring-api and :conductor-runtime), so the
 // gate's exported env is authoritative and a newly read key cannot be missed by a hand-kept list.
 // No-op for vars that are unset.
-fun JavaExec.forwardKosheiEnv() =
-    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
+fun JavaExec.forwardHermodEnv() =
+    System.getenv().filterKeys { it.startsWith("HERMOD_") }.forEach { (k, v) -> environment(k, v) }
 
 tasks.named<JavaExec>("run") {
-    forwardKosheiEnv()
+    forwardHermodEnv()
 }
 tasks.register<JavaExec>("starter") {
     group = "application"
-    mainClass.set("koshei.app.StarterKt")
+    mainClass.set("yggdrasil.hermod.app.StarterKt")
     classpath = sourceSets["main"].runtimeClasspath
-    forwardKosheiEnv()
+    forwardHermodEnv()
 }
 tasks.register<JavaExec>("cli") {
     group = "application"
-    mainClass.set("koshei.app.CliKt")
+    mainClass.set("yggdrasil.hermod.app.CliKt")
     classpath = sourceSets["main"].runtimeClasspath
-    forwardKosheiEnv()
+    forwardHermodEnv()
 }

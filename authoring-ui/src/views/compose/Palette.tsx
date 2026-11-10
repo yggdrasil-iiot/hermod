@@ -14,7 +14,7 @@ interface Props {
 // Stable group order mirrors the authored-contract BlockCategory union (types.ts CATEGORIES).
 const CATEGORY_ORDER = ["source", "transform", "sink", "control", "external"];
 
-export const DRAG_MIME = "application/koshei-block";
+export const DRAG_MIME = "application/hermod-block";
 
 export function Palette({ onLoaded }: Props) {
   const [cards, setCards] = useState<PaletteCard[] | null>(null);

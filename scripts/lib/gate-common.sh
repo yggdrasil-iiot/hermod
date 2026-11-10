@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-common.sh — shared helpers for koshei's objective bash gates.
+# gate-common.sh — shared helpers for hermod's objective bash gates.
 #
 # SOURCE this from a gate script; it defines functions only. It deliberately does NOT set
 # `set -euo pipefail`, `cd`, traps, or any side-effecting top-level code — the CALLER owns its
@@ -10,8 +10,8 @@
 # helpers and are intentionally left untouched. run-r2-ncmd-gate.sh is the first adopter.
 
 # Include guard: safe to source more than once.
-if [ -n "${_KOSHEI_GATE_COMMON_SH:-}" ]; then return 0 2>/dev/null || true; fi
-_KOSHEI_GATE_COMMON_SH=1
+if [ -n "${_HERMOD_GATE_COMMON_SH:-}" ]; then return 0 2>/dev/null || true; fi
+_HERMOD_GATE_COMMON_SH=1
 
 # native_path <path> — echo a native-Windows path that NATIVE tools (docker, native JVMs) accept.
 # Use this for any path handed to a NATIVE binary via `-f`/`-D` etc.: an MSYS `/c/...` path passed
@@ -25,7 +25,7 @@ native_path() {
 # psql_q <sql> — run a single SQL statement in the compose `postgres` service and strip all
 # whitespace from the result (so it can be compared directly, e.g. `[ "$(psql_q ...)" = "1" ]`).
 psql_q() {
-  docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'
+  docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'
 }
 
 # kill_jvms_by <mainclass-substring> — best-effort kill every JVM whose `jps -l` main-class line

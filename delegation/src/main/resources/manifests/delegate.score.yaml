@@ -7,7 +7,7 @@ params:
   - { name: endpoint, type: String, label: "scoring endpoint id" }
 inputs:  [ { name: rows, type: "Record[]", label: "features" } ]
 outputs: [ { name: rows, type: "Record[]", label: "rows" } ]
-forward: { handler: "koshei.delegation.DelegateScoreBlock" }
+forward: { handler: "yggdrasil.hermod.delegation.DelegateScoreBlock" }
 idempotency: { strategy: NONE }
 compensation: { reversibility: REVERSIBLE, kind: NONE }   # read-only call -> nothing to undo (NOOP compensate)
 retry: { maxAttempts: 1, backoff: { initialMs: 100, maxMs: 100 } }

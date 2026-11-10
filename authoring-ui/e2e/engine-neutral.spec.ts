@@ -69,6 +69,6 @@ test("engine-neutral — the same contract runs safely on Conductor", async ({ p
   await card(page, [
     "<b>One contract, two engines</b> (Temporal · Conductor)",
     "Same safety · same console",
-    "Koshei — <b>not locked to one engine</b>",
+    "Hermod — <b>not locked to one engine</b>",
   ], 2600, true);
 });

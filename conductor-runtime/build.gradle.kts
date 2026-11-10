@@ -21,17 +21,17 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit)
 }
-application { mainClass.set("koshei.conductor.ConductorWorkerMainKt") }
-// The Gradle daemon keeps the env it started with; forward every KOSHEI_* var plus CONDUCTOR_SERVER_URL from
-// the live shell into the forked JVMs (same rule as `forwardKosheiEnv` in app/build.gradle.kts). The worker
+application { mainClass.set("yggdrasil.hermod.conductor.ConductorWorkerMainKt") }
+// The Gradle daemon keeps the env it started with; forward every HERMOD_* var plus CONDUCTOR_SERVER_URL from
+// the live shell into the forked JVMs (same rule as `forwardHermodEnv` in app/build.gradle.kts). The worker
 // polls every registry block (opcua.write / opcua.call / delegate.score ...), so it needs the same OT keys as
 // the Temporal worker. No-op for vars that are unset.
 fun JavaExec.fwd() = System.getenv()
-    .filterKeys { it.startsWith("KOSHEI_") || it == "CONDUCTOR_SERVER_URL" }
+    .filterKeys { it.startsWith("HERMOD_") || it == "CONDUCTOR_SERVER_URL" }
     .forEach { (k, v) -> environment(k, v) }
 tasks.named<JavaExec>("run") { fwd() }
 tasks.register<JavaExec>("ctl") {
-    group = "application"; mainClass.set("koshei.conductor.ConductorCtlKt")
+    group = "application"; mainClass.set("yggdrasil.hermod.conductor.ConductorCtlKt")
     classpath = sourceSets["main"].runtimeClasspath; fwd()
     // ConductorCtl resolves workflow YAML as `app/src/main/resources/workflows/<wf>.yaml`
     // relative to the working directory — must be the repo root, not the subproject root.

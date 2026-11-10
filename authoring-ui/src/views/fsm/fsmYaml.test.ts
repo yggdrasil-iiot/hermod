@@ -15,9 +15,9 @@ describe("parseFsmYaml", () => {
     expect(spec.stateNode).toBe("line1.stateCurrent");
     expect(spec.states).toContainEqual({ id: "Idle", code: 4 });
     expect(spec.states).toHaveLength(5);
-    // koshei transition carries an action
+    // hermod transition carries an action
     const load = spec.transitions.find((t) => t.id === "loadRecipe")!;
-    expect(load.driver).toBe("koshei");
+    expect(load.driver).toBe("hermod");
     expect(load.command).toBe("LoadRecipe");
     expect(load.action).toEqual({ workflow: "ot-recipe-stage-activate" });
     // reactive transition: command null, no action

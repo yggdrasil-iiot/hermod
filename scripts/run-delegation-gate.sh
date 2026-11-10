@@ -23,8 +23,8 @@
 #
 # Bring-up cloned from run-opcua-gate.sh (psql_q, kill/cleanup, worker+API, save+poll-bind, app schema.sql
 # for command_audit/delegation_audit/source_rows/target_rows, the standalone Milo sim via :opcua:runSim,
-# KOSHEI_OPCUA_URL into the worker JVM), PLUS: the standalone embedded scoring sim started via
-# :delegation:runSim and KOSHEI_DELEGATION_URL exported into the worker JVM. This gate needs NO fault_inject.
+# HERMOD_OPCUA_URL into the worker JVM), PLUS: the standalone embedded scoring sim started via
+# :delegation:runSim and HERMOD_DELEGATION_URL exported into the worker JVM. This gate needs NO fault_inject.
 #
 # Run from repo root with the stack up:
 #   docker compose up -d
@@ -32,13 +32,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort.default() reads this in the worker JVM
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort.default() reads this in the worker JVM
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -49,25 +49,25 @@ API_LOG="$WORK/api.log"
 SIM_LOG="$WORK/sim.log"
 SCORING_SIM_LOG="$WORK/scoring-sim.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 kill_worker_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
 kill_api_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
 kill_sim_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
 kill_scoring_sim_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.delegation.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.delegation.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -83,14 +83,14 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db = $KOSHEI_DB_URL ; opcua = $KOSHEI_OPCUA_URL ; delegation = ${KOSHEI_DELEGATION_URL:-http://localhost:9099/analytics/score} ; poll = ${KOSHEI_WF_POLL_MS}ms"
+echo "[GATE] db = $HERMOD_DB_URL ; opcua = $HERMOD_OPCUA_URL ; delegation = ${HERMOD_DELEGATION_URL:-http://localhost:9099/analytics/score} ; poll = ${HERMOD_WF_POLL_MS}ms"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: ensure schemas (registry + app schema.sql for command_audit/delegation_audit/source_rows/target_rows) + reset"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 # app schema.sql is NOT applied by run-scenario-gate.sh; we MUST apply it so command_audit + delegation_audit
 # (+ source_rows/target_rows) exist for the OPC-UA + delegation audit assertions.
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, fault_inject, command_audit, delegation_audit" >/dev/null
 # The runs below use fixed workflow ids; one left parked at the human gate by an aborted earlier run makes
 # the run POST fail with WorkflowExecutionAlreadyStarted. Terminate them (a missing id is fine).
@@ -109,13 +109,13 @@ for i in $(seq 1 90); do
   sleep 2
 done
 [ "$SIMUP" = "1" ] || { echo "--- sim log ---"; cat "$SIM_LOG" 2>/dev/null || true; fail "OPC-UA sim did not start (no 'OPC-UA sim listening' within ~180s)"; }
-echo "[GATE] OPC-UA sim listening on $KOSHEI_OPCUA_URL"
+echo "[GATE] OPC-UA sim listening on $HERMOD_OPCUA_URL"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0.6: start the embedded scoring sim (:delegation:runSim) and wait for it to listen"
-export KOSHEI_DELEGATION_URL="${KOSHEI_DELEGATION_URL:-http://localhost:9099/analytics/score}"  # OpcUa-style env into the worker
+export HERMOD_DELEGATION_URL="${HERMOD_DELEGATION_URL:-http://localhost:9099/analytics/score}"  # OpcUa-style env into the worker
 : > "$SCORING_SIM_LOG"
-KOSHEI_DELEGATION_SIM_PORT=9099 ./gradlew -q --no-daemon :delegation:runSim >"$SCORING_SIM_LOG" 2>&1 &
+HERMOD_DELEGATION_SIM_PORT=9099 ./gradlew -q --no-daemon :delegation:runSim >"$SCORING_SIM_LOG" 2>&1 &
 SSUP=0
 for i in $(seq 1 60); do grep -q "scoring sim listening" "$SCORING_SIM_LOG" 2>/dev/null && { SSUP=1; break; }; sleep 2; done
 [ "$SSUP" = "1" ] || { cat "$SCORING_SIM_LOG" 2>/dev/null || true; fail "scoring sim did not start (no 'scoring sim listening')"; }
@@ -125,9 +125,9 @@ echo "[GATE] scoring sim listening on :9099"
 echo "[GATE] step 1: build worker + API"
 ./gradlew -q --no-daemon :app:build -x test :authoring-api:build -x test >/dev/null
 
-echo "[GATE] step 2: start the worker (background, KOSHEI_OPCUA_URL + KOSHEI_DELEGATION_URL) BEFORE composing; then start API"
+echo "[GATE] step 2: start the worker (background, HERMOD_OPCUA_URL + HERMOD_DELEGATION_URL) BEFORE composing; then start API"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=delegation-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=delegation-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 WUP=0
 for i in $(seq 1 60); do
   if grep -q "starting; polling" "$WORKER_LOG" 2>/dev/null; then WUP=1; break; fi
@@ -171,7 +171,7 @@ ddec() { psql_q "SELECT decision FROM delegation_audit WHERE endpoint_id='$1' OR
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 3: save + poll-bind both workflows (ot-quality-gated-recipe + ...-denied) — no worker restart"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 save_bind() {  # $1 = fixture path, $2 = workflow name
   local code
   code=$(curl -s -o "$WORK/save_$2.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" \

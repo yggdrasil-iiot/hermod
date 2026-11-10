@@ -1,9 +1,9 @@
-# Koshei v0.5 — 운영자 내러티브: 라인 설비 레시피 적용 (OT Actuation Saga)
+# Hermod v0.5 — 운영자 내러티브: 라인 설비 레시피 적용 (OT Actuation Saga)
 
 > **이 문서 = 시나리오 심층 워크스루.** 가치 요약은 **[`README.md`](../README.md)**, 시스템 아키텍처는 **[`docs/architecture.md`](architecture.md)** 를 보라.
 
 > **목적:** 게이트(`scripts/run-scenario-gate.sh`)의 녹색 결과를 *가치 스토리*로 전환한다.
-> 포트폴리오 리뷰어·운영자가 "Koshei가 실제로 무엇을 해결하는가"를 이해하기 위한 클릭-스루 내러티브.
+> 포트폴리오 리뷰어·운영자가 "Hermod가 실제로 무엇을 해결하는가"를 이해하기 위한 클릭-스루 내러티브.
 >
 > **모든 주장은 실제 게이트 어서트(A1–A6) 또는 명명된 선행 게이트에 근거한다.** 입증되지 않은 능력은 없다.
 >
@@ -23,7 +23,7 @@
 - **선행 단계 중 실패 시 기록된 부분을 역순으로 정리**하는 보상(compensation) 로직
 - **운영자가 최종 승인 전에 모든 확인을 볼 수 있도록** 하는 대기/승인 게이트
 
-Koshei는 이 세 가지를 *블록 계약(Block Contract)* 수준에서 선언하게 하고, saga 런타임이 자동으로 집행한다.
+Hermod는 이 세 가지를 *블록 계약(Block Contract)* 수준에서 선언하게 하고, saga 런타임이 자동으로 집행한다.
 
 ### 두 페르소나: 한 번 선언, 영원히 안전
 
@@ -218,7 +218,7 @@ applyPLC     : RUNNING  ← 운영자 승인 대기
 
 ### 단계 7: 엔진 중립 — 동일 계약이 Conductor에서도, 같은 콘솔에서
 
-Koshei의 핵심 주장은 "하나의 계약(IR)이 두 엔진으로 컴파일·실행된다"는 것이다. 바꾼 건 실행 요청의 `engine: "conductor"` 한 줄뿐 — 워크플로 정의는 그대로다.
+Hermod의 핵심 주장은 "하나의 계약(IR)이 두 엔진으로 컴파일·실행된다"는 것이다. 바꾼 건 실행 요청의 `engine: "conductor"` 한 줄뿐 — 워크플로 정의는 그대로다.
 
 ![엔진 중립 — 같은 ot-recipe-apply를 Conductor로: 실패하면 같은 역순 보상, PLC는 미작동, 운영자는 전체 run 재시도로 복구](demo/05-engine-neutral.gif)
 
@@ -270,7 +270,7 @@ bash scripts/run-scenario-gate.sh
 
 ```bash
 # 1. Temporal worker 기동
-KOSHEI_FAULT_INJECT=1 ./gradlew :app:run &
+HERMOD_FAULT_INJECT=1 ./gradlew :app:run &
 
 # 2. authoring-api 기동 (포트 18090)
 ./gradlew :authoring-api:run &
@@ -306,7 +306,7 @@ v0.5b 이전의 UI 검증은 `npm run build` (tsc + vite) + `graph.ts` round-tri
 
 ### fault 훅은 test-only / env-gated
 
-`fault_inject` 테이블과 `KOSHEI_FAULT_INJECT=1` 환경 변수는 테스트 전용이다. 프로덕션 워커에서는 이 분기에 진입하지 않는다(`isFaultArmed` 체크가 `KOSHEI_FAULT_INJECT=1`일 때만 활성화).
+`fault_inject` 테이블과 `HERMOD_FAULT_INJECT=1` 환경 변수는 테스트 전용이다. 프로덕션 워커에서는 이 분기에 진입하지 않는다(`isFaultArmed` 체크가 `HERMOD_FAULT_INJECT=1`일 때만 활성화).
 
 ### IRREVERSIBLE 작동은 진짜로 되돌릴 수 없다
 
@@ -314,7 +314,7 @@ v0.5b 이전의 UI 검증은 `npm run build` (tsc + vite) + `graph.ts` round-tri
 
 ### axis-2(운영자 안전 구성 가설)는 설득력 있게 시연하나 코드로 닫을 수 없다
 
-Koshei 설계 §11의 axis-2는 "운영자가 실제로 안전하게 saga를 구성할 수 있는가"를 묻는다. 이 데모는 그 여정을 설득력 있게 **시연**하나, "실제 운영자가 이 UI를 사용했을 때 안전하다고 느끼는가"는 코드가 닫을 수 없는 가설이다. 최종 검증은 사용성 세션으로만 가능하다.
+Hermod 설계 §11의 axis-2는 "운영자가 실제로 안전하게 saga를 구성할 수 있는가"를 묻는다. 이 데모는 그 여정을 설득력 있게 **시연**하나, "실제 운영자가 이 UI를 사용했을 때 안전하다고 느끼는가"는 코드가 닫을 수 없는 가설이다. 최종 검증은 사용성 세션으로만 가능하다.
 
 ---
 

@@ -6,7 +6,7 @@ const spec: FsmSpec = {
   name: "packml-line1", unit: "line1", version: "v1", stateNode: "line1.stateCurrent",
   states: [{ id: "Idle", code: 4 }, { id: "Execute", code: 6 }, { id: "Aborted", code: 9 }],
   transitions: [
-    { id: "loadRecipe", from: "Idle", to: "Idle", command: "LoadRecipe", driver: "koshei", action: { workflow: "ot-recipe-stage-activate" } },
+    { id: "loadRecipe", from: "Idle", to: "Idle", command: "LoadRecipe", driver: "hermod", action: { workflow: "ot-recipe-stage-activate" } },
     { id: "start", from: "Idle", to: "Execute", command: "Start", driver: "field" },
     { id: "abort", from: "Execute", to: "Aborted", command: "Abort", driver: "field" },
   ],
@@ -28,7 +28,7 @@ describe("fsmGraph", () => {
     expect(back).toEqual(spec);
   });
 
-  it("carries koshei workflow onto the edge and drops action for field", () => {
+  it("carries hermod workflow onto the edge and drops action for field", () => {
     const { edges } = toGraph(spec);
     expect((edges.find((e) => e.id === "loadRecipe")!.data as FsmEdgeData).workflow).toBe("ot-recipe-stage-activate");
     expect((edges.find((e) => e.id === "start")!.data as FsmEdgeData).workflow).toBeUndefined();

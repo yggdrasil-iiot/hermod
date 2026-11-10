@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# R2 HEIMDALL + SPARKPLUG NCMD GATE (objective cross-repo proof): koshei's physical apply flows
-# koshei -> Sparkplug NCMD -> HiveMQ CE -> Heimdall (Bifrost's command edge, bifrost `heimdall/`)
+# R2 HEIMDALL + SPARKPLUG NCMD GATE (objective cross-repo proof): hermod's physical apply flows
+# hermod -> Sparkplug NCMD -> HiveMQ CE -> Heimdall (Bifrost's command edge, bifrost `heimdall/`)
 # -> OPC-UA -> the shared Milo sim, authorized INDEPENDENTLY at the edge, compensation over the same
 # channel. Answers come back on Heimdall's `bifrost/<group>/RESULT/<edge>` topic. Selects Approach B
-# behind the ApplyPort seam via KOSHEI_APPLY_MODE=ncmd; R1 (direct) is untouched (run-opcua-gate.sh).
+# behind the ApplyPort seam via HERMOD_APPLY_MODE=ncmd; R1 (direct) is untouched (run-opcua-gate.sh).
 #
 # Asserts:
 #   T1 happy            : reconcile -> approve -> saga completes over NCMD; opcua.write WRITTEN>=1,
@@ -12,14 +12,14 @@
 #                         CONFIRMED==1 again (bridge de-assert rearmed the equipment; NCMD handshake).
 #   T2 veto             : reconcile -> reach gate (write WRITTEN>=1) -> REJECT -> completed=false;
 #                         opcua.write RESTORED>=1 (reverse NCMD RESTORE), opcua.call CONFIRMED==0.
-#   T3 rogue            : publish an NCMD DIRECTLY to the broker (bypass koshei) for a deny-by-default
-#                         node -> bridge DENY, no APPLY (edge authz independent of koshei's D4).
+#   T3 rogue            : publish an NCMD DIRECTLY to the broker (bypass hermod) for a deny-by-default
+#                         node -> bridge DENY, no APPLY (edge authz independent of hermod's D4).
 #   T4 defense-in-depth : rogue write of an ALLOWED node (Rpm) but out-of-EURange (9999) -> bridge
 #                         DENY above-max, no new APPLY for that publish.
-#   T5 fail-closed      : bridge down -> koshei ncmd write times out -> run does NOT complete, no
+#   T5 fail-closed      : bridge down -> hermod ncmd write times out -> run does NOT complete, no
 #                         partial (opcua.call CONFIRMED==0; worker logs an ncmd timeout / permanent fail).
 #
-# Run from the koshei repo root with the stack up + a bifrost checkout (Maven builds the Heimdall jar):
+# Run from the hermod repo root with the stack up + a bifrost checkout (Maven builds the Heimdall jar):
 #   docker compose up -d
 #   BIFROST_DIR="/path/to/bifrost" bash scripts/run-r2-ncmd-gate.sh
 #   # expect: [GATE] PASS run-r2-ncmd-gate.sh ... exit 0
@@ -31,23 +31,23 @@ cd "$(dirname "$0")/.."
 # Resolve relative to this script so the source works regardless of CWD.
 source "$(dirname "$0")/lib/gate-common.sh"
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
-export KOSHEI_FAULT_INJECT=1
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
+export HERMOD_FAULT_INJECT=1
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
 # ---- Approach B (NCMD) wire config: selects SparkplugNcmdApplyPort in the two :opcua blocks and
 #      points it at HiveMQ CE / the Sparkplug identity Heimdall authorizes. Forwarded to the worker
-#      JVM via app/build.gradle.kts forwardKosheiEnv (every KOSHEI_* var). Group/edge are the target
+#      JVM via app/build.gradle.kts forwardHermodEnv (every HERMOD_* var). Group/edge are the target
 #      of the rules in bifrost's heimdall/registry/policy.json (Bifrost:Line1 / recipe-edge), which
 #      this gate runs Heimdall with; Heimdall's own default edge (recipe-edge-cmd) has no rules there.
-export KOSHEI_APPLY_MODE="${KOSHEI_APPLY_MODE:-ncmd}"
-export KOSHEI_MQTT_URL="${KOSHEI_MQTT_URL:-tcp://localhost:1883}"
-export KOSHEI_SPB_GROUP="${KOSHEI_SPB_GROUP:-Bifrost:Line1}"
-export KOSHEI_SPB_EDGE="${KOSHEI_SPB_EDGE:-recipe-edge}"
+export HERMOD_APPLY_MODE="${HERMOD_APPLY_MODE:-ncmd}"
+export HERMOD_MQTT_URL="${HERMOD_MQTT_URL:-tcp://localhost:1883}"
+export HERMOD_SPB_GROUP="${HERMOD_SPB_GROUP:-Bifrost:Line1}"
+export HERMOD_SPB_EDGE="${HERMOD_SPB_EDGE:-recipe-edge}"
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -57,12 +57,12 @@ mkdir -p "$WORK"
 # whose contentSha256 the API re-computes, it fails closed 409 canonical-unresolvable (since a01e5f9), so
 # no run could start. Unless the caller points at a published canonical, stage the bundled
 # model/recipe-setpoints.yaml with a local manifest (defRef = this checkout's HEAD).
-if [ -z "${KOSHEI_RECIPE_SETPOINTS:-}" ]; then
+if [ -z "${HERMOD_RECIPE_SETPOINTS:-}" ]; then
   CANON_DIR="$WORK/canonical"; mkdir -p "$CANON_DIR"
   cp model/recipe-setpoints.yaml "$CANON_DIR/recipe-setpoints.yaml"
   printf '{"kind":"recipe","ref":"recipe-setpoints","version":"gate","defRef":"%s","contentSha256":"%s","sourcePath":"model/recipe-setpoints.yaml","publishedAt":0}\n' \
     "$(git rev-parse HEAD)" "$(sha256sum "$CANON_DIR/recipe-setpoints.yaml" | cut -d' ' -f1)" > "$CANON_DIR/manifest.json"
-  export KOSHEI_RECIPE_SETPOINTS="$(native_path "$(pwd)/$CANON_DIR/recipe-setpoints.yaml")"
+  export HERMOD_RECIPE_SETPOINTS="$(native_path "$(pwd)/$CANON_DIR/recipe-setpoints.yaml")"
 fi
 WORKER_LOG="$WORK/worker.log"
 API_LOG="$WORK/api.log"
@@ -84,7 +84,7 @@ kill_bridge() {
   { jps -lm 2>/dev/null | grep -i "bifrost-heimdall.jar" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done
 }
 cleanup() {
-  kill_jvms_by "koshei.authoring.AuthoringApplicationKt" || true; kill_jvms_by "koshei.app.WorkerKt" || true; kill_jvms_by "koshei.opcua.SimMainKt" || true; kill_bridge || true
+  kill_jvms_by "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; kill_jvms_by "yggdrasil.hermod.app.WorkerKt" || true; kill_jvms_by "yggdrasil.hermod.opcua.SimMainKt" || true; kill_bridge || true
   [ -n "${BIFROST_COMPOSE:-}" ] && docker compose -f "$BIFROST_COMPOSE" stop hivemq-ce >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -111,12 +111,12 @@ BIFROST_DIR="${BIFROST_DIR:-}"
 BIFROST_COMPOSE="$(native_path "$BIFROST_DIR/docker-compose.yml")"
 HEIMDALL_JAR="$(native_path "$BIFROST_DIR/heimdall/target/bifrost-heimdall.jar")"
 
-echo "[GATE] db=$KOSHEI_DB_URL ; opcua=$KOSHEI_OPCUA_URL ; mqtt=$KOSHEI_MQTT_URL ; mode=$KOSHEI_APPLY_MODE ; bifrost=$BIFROST_DIR"
+echo "[GATE] db=$HERMOD_DB_URL ; opcua=$HERMOD_OPCUA_URL ; mqtt=$HERMOD_MQTT_URL ; mode=$HERMOD_APPLY_MODE ; bifrost=$BIFROST_DIR"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: schemas (registry + app) + fault_inject + reset"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE run_index, workflow_def, command_audit, fault_inject, source_rows, target_rows" >/dev/null
 # The runs below use fixed workflow ids; one left parked at the human gate by an aborted earlier run makes
@@ -133,11 +133,11 @@ wait_tcp localhost 1883 60 || { docker compose -f "$BIFROST_COMPOSE" logs --tail
 echo "[GATE] HiveMQ CE up on :1883"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 2: start the embedded Milo OPC-UA sim (shared by koshei write + the bridge)"
+echo "[GATE] step 2: start the embedded Milo OPC-UA sim (shared by hermod write + the bridge)"
 : > "$SIM_LOG"
 ./gradlew -q --no-daemon :opcua:runSim >"$SIM_LOG" 2>&1 &
 wait_for_log "$SIM_LOG" "OPC-UA sim listening" 90 || { cat "$SIM_LOG" 2>/dev/null || true; fail "OPC-UA sim did not start"; }
-echo "[GATE] OPC-UA sim listening on $KOSHEI_OPCUA_URL"
+echo "[GATE] OPC-UA sim listening on $HERMOD_OPCUA_URL"
 
 # Out-of-band raw writes to the sim to establish a clean canonical baseline before each saga.
 perturb() {  # $1=nodeId $2=value
@@ -157,7 +157,7 @@ echo "[GATE] step 4: build + start Heimdall (bifrost: bifrost-heimdall.jar) + wa
 kill_bridge   # mop up an orphan from a prior aborted run before claiming the same MQTT client id
 rm -rf "$WORK/command-ledger"   # Heimdall keeps its bdSeq and command ledger here (required)
 : > "$BRIDGE_LOG"
-MQTT_URL="$KOSHEI_MQTT_URL" OPCUA_URL="$KOSHEI_OPCUA_URL" SPB_GROUP="$KOSHEI_SPB_GROUP" SPB_EDGE="$KOSHEI_SPB_EDGE" \
+MQTT_URL="$HERMOD_MQTT_URL" OPCUA_URL="$HERMOD_OPCUA_URL" SPB_GROUP="$HERMOD_SPB_GROUP" SPB_EDGE="$HERMOD_SPB_EDGE" \
   POLICY_PATH="$(native_path "$BIFROST_DIR/heimdall/registry/policy.json")" \
   REGISTRY_PATH="$(native_path "$BIFROST_DIR/heimdall/registry")" \
   CONFORMANCE_PATH="$(native_path "$BIFROST_DIR/heimdall/registry/conformance/Line1-Mixer/1.0.0.json")" \
@@ -169,10 +169,10 @@ grep -q "\[BRIDGE\] enforcement = enforcing" "$BRIDGE_LOG" || fail "Heimdall is 
 echo "[GATE] Heimdall ready, enforcing (pid tree $BRIDGE_PID)"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 5: build + start worker (KOSHEI_APPLY_MODE=ncmd) then API"
+echo "[GATE] step 5: build + start worker (HERMOD_APPLY_MODE=ncmd) then API"
 ./gradlew -q --no-daemon :app:build -x test :authoring-api:build -x test >/dev/null
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=r2ncmd-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=r2ncmd-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 wait_for_log "$WORKER_LOG" "starting; polling" 60 || fail "worker did not reach 'starting; polling'"
 echo "[GATE] worker up (ncmd apply mode)"
 
@@ -185,7 +185,7 @@ echo "[GATE] API up on 18090"
 echo "[GATE] step 6: save ot-recipe-stage-activate@1.0.0 + wait for the LIVE worker to poll-bind it"
 SAVE_CODE=$(curl -s -o "$WORK/save_osa.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" -H 'Content-Type: application/json' --data-binary "@$FIX/ot-recipe-stage-activate.json")
 [ "$SAVE_CODE" = "200" ] || fail "save ot-recipe-stage-activate@1.0.0 expected 200, got $SAVE_CODE ($(cat "$WORK/save_osa.json"))"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 echo "[GATE] sleeping ${SLEEP_S}s for poll-bind..."
 sleep "$SLEEP_S"
 grep -q "\[worker\] bound workflow ot-recipe-stage-activate@1.0.0" "$WORKER_LOG" || fail "worker did not poll-bind the saga"
@@ -203,8 +203,8 @@ reconcile() {  # $1=reconciliationId $2=proposalRef
     -d "{\"reconciliationId\":\"$1\",\"nodes\":[\"recipe.rpmSetpoint\"],\"source\":\"r2-ncmd-gate\",\"proposalRef\":\"$2\"}"
 }
 apply_count() { grep -c "\[BRIDGE\] APPLY cmd=$1" "$BRIDGE_LOG" 2>/dev/null || echo 0; }
-rogue() {  # $1=nodeId $2=value $3=dataType — Heimdall's own single-metric NCMD publisher, bypassing koshei
-  MQTT_URL="$KOSHEI_MQTT_URL" SPB_GROUP="$KOSHEI_SPB_GROUP" SPB_EDGE="$KOSHEI_SPB_EDGE" \
+rogue() {  # $1=nodeId $2=value $3=dataType — Heimdall's own single-metric NCMD publisher, bypassing hermod
+  MQTT_URL="$HERMOD_MQTT_URL" SPB_GROUP="$HERMOD_SPB_GROUP" SPB_EDGE="$HERMOD_SPB_EDGE" \
     java -cp "$HEIMDALL_JAR" dev.krillin.bifrost.heimdall.RogueNcmd "$1" "$2" "$3" >>"$ROGUE_LOG" 2>&1 || fail "rogue publish ($1 $2 $3) failed (see $ROGUE_LOG)"
 }
 
@@ -276,7 +276,7 @@ APPLY_AFTER=$(apply_count "$RPM_NODE")
 echo "[GATE] T4 OK: out-of-EURange rogue denied at the edge (above-max), no new APPLY"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] ===== T5: fail-closed — bridge down -> koshei ncmd write times out -> no completion, no partial ====="
+echo "[GATE] ===== T5: fail-closed — bridge down -> hermod ncmd write times out -> no completion, no partial ====="
 psql_q "TRUNCATE command_audit, fault_inject, source_rows, target_rows" >/dev/null
 seed_canonical
 kill_bridge
@@ -284,7 +284,7 @@ BRIDGE_PID=""   # killed; nothing to reap in cleanup
 sleep 3
 RID5="ncmd-failclosed"
 reconcile "$RID5" "t5" >/dev/null || fail "T5 reconcile failed to start"
-# The ncmd write publishes with no bridge to answer -> koshei's ~15s deadline expires -> the write
+# The ncmd write publishes with no bridge to answer -> hermod's ~15s deadline expires -> the write
 # block fails permanently. Wait (bounded) for the deterministic timeout/permanent-failure signal.
 FC=0
 for i in $(seq 1 40); do

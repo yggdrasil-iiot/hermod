@@ -23,21 +23,21 @@ dependencies {
 }
 // Single source of truth: the repo-root model/ is the Git-canonical authority; the classpath copy
 // is generated at build time (no committed duplicate, no drift). Runtime reads the baked classpath
-// copy; KOSHEI_OPCUA_MODEL/POLICY env can override at deploy.
+// copy; HERMOD_OPCUA_MODEL/POLICY env can override at deploy.
 tasks.processResources {
     from(rootProject.file("model")) { into("model"); exclude("**/*.md") }   // model YAML/JSON only; docs (README) stay out of the jar
 }
 
 // Standalone Milo simulator for the gate/demo (cf. :conductor-runtime run/ctl tasks).
-application { mainClass.set("koshei.opcua.SimMainKt") }
-// Forward every KOSHEI_* var from the live shell into the forked JVMs (same rule as `forwardKosheiEnv` in
+application { mainClass.set("yggdrasil.hermod.opcua.SimMainKt") }
+// Forward every HERMOD_* var from the live shell into the forked JVMs (same rule as `forwardHermodEnv` in
 // app/build.gradle.kts): the Gradle daemon keeps the env it started with. No-op for vars that are unset.
 fun JavaExec.fwd() =
-    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
+    System.getenv().filterKeys { it.startsWith("HERMOD_") }.forEach { (k, v) -> environment(k, v) }
 tasks.register<JavaExec>("runSim") {
-    group = "application"; mainClass.set("koshei.opcua.SimMainKt")
+    group = "application"; mainClass.set("yggdrasil.hermod.opcua.SimMainKt")
     classpath = sourceSets["main"].runtimeClasspath; fwd()
-    workingDir = rootDir   // repo root so a relative KOSHEI_OPCUA_MODEL/POLICY override resolves; the default load is the classpath resource
+    workingDir = rootDir   // repo root so a relative HERMOD_OPCUA_MODEL/POLICY override resolves; the default load is the classpath resource
 }
 
 // Integration-PoV gate helper: write one Double value to the running sim out-of-band (drift injection).
@@ -47,7 +47,7 @@ tasks.register<JavaExec>("runSim") {
 tasks.register<JavaExec>("perturb") {
     group = "verification"
     description = "Write one Double value to the running OPC-UA sim out-of-band (gate drift injection)."
-    mainClass.set("koshei.opcua.PerturbMainKt")
+    mainClass.set("yggdrasil.hermod.opcua.PerturbMainKt")
     classpath = sourceSets["test"].runtimeClasspath
     fwd()
     doFirst {
@@ -63,7 +63,7 @@ tasks.register<JavaExec>("perturb") {
 tasks.register<JavaExec>("fsmGovern") {
     group = "verification"
     description = "Read the live equipment state, run TransitionGovernor, print ALLOW/DENY."
-    mainClass.set("koshei.opcua.FsmGovernMainKt")
+    mainClass.set("yggdrasil.hermod.opcua.FsmGovernMainKt")
     classpath = sourceSets["test"].runtimeClasspath
     workingDir = rootDir
     fwd()
@@ -79,19 +79,19 @@ tasks.register<JavaExec>("fsmGovern") {
 // CAPTURES the NBIRTH/NDATA order or PUBLISHES a rebirth NCMD — so the gate needs no external MQTT
 // client (the environment has no mosquitto). Test source set (EmitProbeMain) keeps :opcua/src/main
 // untouched (cf. perturb/PerturbMain); pure gate tooling, never referenced by any manifest/registry.
-//   capture: ./gradlew :opcua:emitProbe -Pmode=capture -PmqttUrl=... -Pgrp=Koshei -Pedg=Governance -Pout=<file> -Psecs=900
-//   rebirth: ./gradlew :opcua:emitProbe -Pmode=rebirth -PmqttUrl=... -Pgrp=Koshei -Pedg=Governance
+//   capture: ./gradlew :opcua:emitProbe -Pmode=capture -PmqttUrl=... -Pgrp=Hermod -Pedg=Governance -Pout=<file> -Psecs=900
+//   rebirth: ./gradlew :opcua:emitProbe -Pmode=rebirth -PmqttUrl=... -Pgrp=Hermod -Pedg=Governance
 tasks.register<JavaExec>("emitProbe") {
     group = "verification"
     description = "Sparkplug probe for the outbound-emit gate: -Pmode=capture|rebirth."
-    mainClass.set("koshei.opcua.emit.EmitProbeMainKt")
+    mainClass.set("yggdrasil.hermod.opcua.emit.EmitProbeMainKt")
     classpath = sourceSets["test"].runtimeClasspath
     workingDir = rootDir
     fwd()
     doFirst {
         val mode = project.findProperty("mode") as String? ?: error("-Pmode=capture|rebirth required")
         val url  = project.findProperty("mqttUrl") as String? ?: "tcp://localhost:1883"
-        val grp  = project.findProperty("grp") as String? ?: "Koshei"
+        val grp  = project.findProperty("grp") as String? ?: "Hermod"
         val edg  = project.findProperty("edg") as String? ?: "Governance"
         val a = mutableListOf(mode, url, grp, edg)
         if (mode == "capture") {

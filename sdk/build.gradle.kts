@@ -4,7 +4,7 @@ plugins {
 }
 kotlin { jvmToolchain(21) }
 tasks.test { useJUnitPlatform() }
-group = "io.koshei"
+group = "yggdrasil.hermod"
 version = "0.2.0"
 dependencies {
     api(project(":core"))          // re-expose contract types (BlockContract etc.) to plugins

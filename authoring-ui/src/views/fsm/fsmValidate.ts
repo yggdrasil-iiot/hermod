@@ -7,10 +7,10 @@ export interface FsmIssue {
   transitionId?: string;
 }
 
-const DRIVERS = new Set(["koshei", "field"]);
+const DRIVERS = new Set(["hermod", "field"]);
 
 /**
- * Structural validation — a client-side mirror of Kotlin koshei.opcua.FsmValidator.
+ * Structural validation — a client-side mirror of Kotlin yggdrasil.hermod.opcua.FsmValidator.
  * ADVISORY ONLY: cross-artifact checks (stateNode ∈ site, action.workflow ∈ ot-*) and the
  * final fail-closed authority live in the conformance gate. This never blocks; it guides.
  */
@@ -41,8 +41,8 @@ export function validateFsm(spec: FsmSpec): FsmIssue[] {
     if (!seenStateId.has(t.to)) issues.push({ message: `transition '${t.id}' to unknown state '${t.to}'`, transitionId: t.id });
 
     if (!DRIVERS.has(t.driver)) issues.push({ message: `transition '${t.id}' has invalid driver '${t.driver}'`, transitionId: t.id });
-    if (t.driver === "koshei" && !t.action?.workflow?.trim()) {
-      issues.push({ message: `koshei transition '${t.id}' must declare action.workflow`, transitionId: t.id });
+    if (t.driver === "hermod" && !t.action?.workflow?.trim()) {
+      issues.push({ message: `hermod transition '${t.id}' must declare action.workflow`, transitionId: t.id });
     }
     if (t.driver === "field" && t.action) {
       issues.push({ message: `field transition '${t.id}' must not declare an action`, transitionId: t.id });

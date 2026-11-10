@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # R4 Soak-Window + Auto-Rollback gate (objective proof): a canary deploy can enter a SOAKING window
 # instead of promoting immediately; failures reported during the window accumulate a fail_count, and
-# a periodic sweep (koshei.registry.SoakSupervisor.sweep, driven in prod by authoring-api's
+# a periodic sweep (yggdrasil.hermod.registry.SoakSupervisor.sweep, driven in prod by authoring-api's
 # SoakSupervisorBean @Scheduled) either AUTO_ROLLBACKs a soaking deployment that hit its fail
 # threshold, or PROMOTEs one that survived past soak_until untouched. This gate drives the SAME
 # supervisor via the Git-native :app fsm CLI subcommands (deploy --soak-seconds/--fail-threshold,
 # report-failure, soak-sweep, status) — no server needed; the CLI opens its own DB connection per
-# invocation (koshei.blocks.Db, KOSHEI_DB_URL/USER/PASS).
+# invocation (yggdrasil.hermod.blocks.Db, HERMOD_DB_URL/USER/PASS).
 #
 # SERVER-LESS: unlike run-fsm-canary-gate.sh (which boots sim+worker+authoring-api because it drives
 # a REAL governed OPC-UA run), this gate only needs Postgres + the :app fsm CLI. No sim, no worker,
@@ -29,7 +29,7 @@
 #                       regression is verified by running run-fsm-canary-gate.sh SEPARATELY (its own
 #                       [GATE] PASS). Set SOAK_GATE_RUN_CANARY=1 to chain it inline (~10+ extra min).
 #
-# KOSHEI_SOAK_DISABLED=1 is exported so that IF an authoring-api happened to be running against the
+# HERMOD_SOAK_DISABLED=1 is exported so that IF an authoring-api happened to be running against the
 # same DB it would not race this gate's manual sweeps (defense-in-depth; this gate does not start
 # authoring-api itself).
 #
@@ -41,10 +41,10 @@ cd "$(dirname "$0")/.."
 
 source scripts/lib/gate-common.sh   # psql_q, native_path (include-guarded)
 
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_SOAK_DISABLED=1   # defense-in-depth: no in-process supervisor should race our manual sweeps
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_SOAK_DISABLED=1   # defense-in-depth: no in-process supervisor should race our manual sweeps
 
 WORK="build/fsm-soak-gate"
 mkdir -p "$WORK"
@@ -54,7 +54,7 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db = $KOSHEI_DB_URL"
+echo "[GATE] db = $HERMOD_DB_URL"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: bring up postgres only (server-less gate; no sim/worker/api)"
@@ -62,14 +62,14 @@ docker compose up -d postgres >/dev/null
 
 PGUP=0
 for i in $(seq 1 30); do
-  if docker compose exec -T postgres pg_isready -U koshei >/dev/null 2>&1; then PGUP=1; break; fi
+  if docker compose exec -T postgres pg_isready -U hermod >/dev/null 2>&1; then PGUP=1; break; fi
   sleep 2
 done
 [ "$PGUP" = "1" ] || fail "postgres did not become ready within ~60s"
 echo "[GATE] postgres ready"
 
 echo "[GATE] step 0.5: apply registry schema (fsm_deployment + fsm_deployment_audit)"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 echo "[GATE] schema applied"
 
 reset() { psql_q "TRUNCATE fsm_deployment, fsm_deployment_audit" >/dev/null; }

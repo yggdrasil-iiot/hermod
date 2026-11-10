@@ -1,9 +1,9 @@
 {
-  "name": "koshei-authoring-ui",
+  "name": "hermod-authoring-ui",
   "private": true,
   "version": "0.3.0",
   "type": "module",
-  "description": "Koshei v0.3d block-engineer authoring console (React/TS SPA)",
+  "description": "Hermod v0.3d block-engineer authoring console (React/TS SPA)",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

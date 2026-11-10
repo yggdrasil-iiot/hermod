@@ -6,12 +6,12 @@ category: external
 params: []
 inputs:  [ { name: rows, type: "Record[]", label: "setpoints" } ]
 outputs: [ { name: rows, type: "Record[]", label: "rows" } ]
-forward: { handler: "koshei.opcua.OpcUaWriteBlock" }
+forward: { handler: "yggdrasil.hermod.opcua.OpcUaWriteBlock" }
 idempotency: { strategy: NONE }
 compensation:
   reversibility: REVERSIBLE
   kind: STATIC
-  handler: "koshei.opcua.OpcUaWriteBlock#compensate"
+  handler: "yggdrasil.hermod.opcua.OpcUaWriteBlock#compensate"
   requiresState: [priorSetpoints]
 stateBinding:
   - { key: priorSetpoints, description: "captured prior node values for RESTORE" }

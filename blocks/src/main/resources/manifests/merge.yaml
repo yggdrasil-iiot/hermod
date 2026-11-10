@@ -9,7 +9,7 @@ inputs:
   - { name: right, type: "Record[]", label: "오른쪽 입력" }
 outputs:
   - { name: out, type: "Record[]", label: "병합 결과" }
-forward: { handler: "koshei.blocks.MergeBlock" }
+forward: { handler: "yggdrasil.hermod.blocks.MergeBlock" }
 idempotency: { strategy: NONE }
 compensation: { reversibility: REVERSIBLE, kind: NONE }
 retry: { maxAttempts: 3, backoff: { initialMs: 100, maxMs: 1000 } }

@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS fsm_deployment_audit (
 );
 
 -- FSM field-transition drift-detect (design 2026-07-03). drift_observation = the last observed state code
--- per unit; drift_audit = the append-only observation/drift log. Detect-only (koshei observes, not drives).
+-- per unit; drift_audit = the append-only observation/drift log. Detect-only (hermod observes, not drives).
 CREATE TABLE IF NOT EXISTS drift_observation (
   unit            text        NOT NULL,
   last_state_code int         NOT NULL,

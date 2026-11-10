@@ -4,7 +4,7 @@
 # Two pillars, one closed loop on a SHARED Milo sim + SHARED Git canonical:
 #   - resequence-twin-lab (pillar 3) detects recipe-setpoint drift (read-only) and surfaces a
 #     RECONCILE_SETPOINT proposal at GET :8081/api/drift.
-#   - koshei (pillar 2) accepts a SIGNAL at POST /api/reconciliations, resolves the desired value from
+#   - hermod (pillar 2) accepts a SIGNAL at POST /api/reconciliations, resolves the desired value from
 #     its OWN Git canonical (model/recipe-setpoints.yaml), and drives the field back via the existing
 #     human-gated ot-recipe-stage-activate saga (R1 OPC-UA write/call).
 #
@@ -17,21 +17,21 @@
 #
 # R1 is untouched (run-opcua-gate.sh, ot-recipe-stage-activate, :opcua/src/main, Conductor[frozen]).
 #
-# Run from the koshei repo root with the stack up + a resequence checkout:
+# Run from the hermod repo root with the stack up + a resequence checkout:
 #   docker compose up -d
 #   RESEQUENCE_DIR="/c/Users/Eisen/Desktop/Labs/[iiot]/resequence-twin-lab" bash scripts/run-integration-pov-gate.sh
 #   # expect: [GATE] PASS ... exit 0
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
-export KOSHEI_FAULT_INJECT=1
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
+export HERMOD_FAULT_INJECT=1
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -45,11 +45,11 @@ RESEQ_LOG="$WORK/resequence.log"
 PERTURB_LOG="$WORK/perturb.log"
 : > "$PERTURB_LOG"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
-kill_worker_jvms() { { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
-kill_api_jvms()    { { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
-kill_sim_jvms()    { { jps -l 2>/dev/null | grep "koshei.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_worker_jvms() { { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_api_jvms()    { { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_sim_jvms()    { { jps -l 2>/dev/null | grep "yggdrasil.hermod.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 kill_reseq_jvms()  { { jps -l 2>/dev/null | grep "ResequenceTwinControlApplication" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 cleanup() { kill_api_jvms || true; kill_worker_jvms || true; kill_sim_jvms || true; kill_reseq_jvms || true; }
 trap cleanup EXIT
@@ -67,7 +67,7 @@ fail() {
 RESEQUENCE_DIR="${RESEQUENCE_DIR:-}"
 [ -n "$RESEQUENCE_DIR" ] || fail "RESEQUENCE_DIR not set — point it at the resequence-twin-lab checkout (the dir containing control/pom.xml). No silent skip of the integration assertions."
 [ -f "$RESEQUENCE_DIR/control/pom.xml" ] || fail "no control/pom.xml under RESEQUENCE_DIR='$RESEQUENCE_DIR'"
-# v3: koshei consumes a ①-PUBLISHED canonical (no working-tree classpath fallback) — its reconcile preflight
+# v3: hermod consumes a ①-PUBLISHED canonical (no working-tree classpath fallback) — its reconcile preflight
 # needs a sibling manifest.json to verify, so integration-pov must publish too (else T1 → 409 unresolvable).
 SPARKPLUG_LAB_DIR="${SPARKPLUG_LAB_DIR:-}"
 [ -n "$SPARKPLUG_LAB_DIR" ] || fail "SPARKPLUG_LAB_DIR not set — point it at the sparkplug-governance-lab checkout (RecipePublish CLI). No silent skip."
@@ -83,26 +83,26 @@ LAB_WIN="$(cygpath -m "$SPARKPLUG_LAB_DIR" 2>/dev/null || echo "$SPARKPLUG_LAB_D
 CANON_RAW="$REG/recipe/line1/1.0.0/recipe-setpoints.yaml"
 CANON="$(cygpath -m "$CANON_RAW" 2>/dev/null || echo "$CANON_RAW")"
 [ -f "$CANON" ] || fail "published canonical missing at $CANON"
-export KOSHEI_RECIPE_SETPOINTS="$CANON"   # koshei bean reads the PUBLISHED canonical + its sibling manifest.json
+export HERMOD_RECIPE_SETPOINTS="$CANON"   # hermod bean reads the PUBLISHED canonical + its sibling manifest.json
 
-echo "[GATE] db=$KOSHEI_DB_URL ; opcua=$KOSHEI_OPCUA_URL ; pub_canon=$CANON ; resequence=$RESEQUENCE_DIR"
+echo "[GATE] db=$HERMOD_DB_URL ; opcua=$HERMOD_OPCUA_URL ; pub_canon=$CANON ; resequence=$RESEQUENCE_DIR"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: schemas (registry + app: command_audit/source_rows/target_rows) + fault_inject + reset"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, fault_inject, command_audit, reconciliation_provenance" >/dev/null
 echo "[GATE] schemas ensured; state reset"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 0.5: start the embedded Milo OPC-UA sim (shared by koshei write + resequence read)"
+echo "[GATE] step 0.5: start the embedded Milo OPC-UA sim (shared by hermod write + resequence read)"
 : > "$SIM_LOG"
 ./gradlew -q --no-daemon :opcua:runSim >"$SIM_LOG" 2>&1 &
 SIMUP=0
 for i in $(seq 1 90); do grep -q "OPC-UA sim listening" "$SIM_LOG" 2>/dev/null && { SIMUP=1; break; }; sleep 2; done
 [ "$SIMUP" = "1" ] || { cat "$SIM_LOG" 2>/dev/null || true; fail "OPC-UA sim did not start"; }
-echo "[GATE] OPC-UA sim listening on $KOSHEI_OPCUA_URL"
+echo "[GATE] OPC-UA sim listening on $HERMOD_OPCUA_URL"
 
 # Out-of-band raw write to the sim (ungoverned field change / drift injection). Bypasses governance on
 # purpose: it stands in for a local operator/rogue write that the twin then detects.
@@ -118,9 +118,9 @@ seed_canonical() { perturb "$RPM_NODE" 1500; perturb "$TEMP_NODE" 200; }
 echo "[GATE] step 1: build worker + API"
 ./gradlew -q --no-daemon :app:build -x test :authoring-api:build -x test >/dev/null
 
-echo "[GATE] step 2: start worker (fault-inject armed + KOSHEI_OPCUA_URL) then API"
+echo "[GATE] step 2: start worker (fault-inject armed + HERMOD_OPCUA_URL) then API"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=ipov-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=ipov-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 WUP=0
 for i in $(seq 1 60); do grep -q "starting; polling" "$WORKER_LOG" 2>/dev/null && { WUP=1; break; }; sleep 2; done
 [ "$WUP" = "1" ] || fail "worker did not reach 'starting; polling'"
@@ -137,14 +137,14 @@ echo "[GATE] API up on 18090"
 echo "[GATE] step 3: save ot-recipe-stage-activate@1.0.0 + wait for the LIVE worker to poll-bind it"
 SAVE_CODE=$(curl -s -o "$WORK/save_osa.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" -H 'Content-Type: application/json' --data-binary "@$FIX/ot-recipe-stage-activate.json")
 [ "$SAVE_CODE" = "200" ] || fail "save ot-recipe-stage-activate@1.0.0 expected 200, got $SAVE_CODE ($(cat "$WORK/save_osa.json"))"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 echo "[GATE] sleeping ${SLEEP_S}s for poll-bind..."
 sleep "$SLEEP_S"
 grep -q "\[worker\] bound workflow ot-recipe-stage-activate@1.0.0" "$WORKER_LOG" || fail "worker did not poll-bind the saga"
 echo "[GATE] worker poll-bound ot-recipe-stage-activate@1.0.0"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 4: start resequence control with recipe drift enabled (reads the shared sim vs koshei canonical)"
+echo "[GATE] step 4: start resequence control with recipe drift enabled (reads the shared sim vs hermod canonical)"
 : > "$RESEQ_LOG"
 ( cd "$RESEQUENCE_DIR" && mvn -q -f control/pom.xml spring-boot:run \
     -Dspring-boot.run.jvmArguments="-Dpbs.drift.recipe.enabled=true -Dpbs.drift.recipe.canonical-path='$CANON' -Dpbs.drift.recipe.opcua.endpoint=opc.tcp://localhost:48400" \

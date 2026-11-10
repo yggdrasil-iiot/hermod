@@ -8,12 +8,12 @@ inputs:
   - { name: rows, type: "Record[]", label: "입력 행" }
 outputs:
   - { name: rows, type: "Record[]", label: "출력 행" }
-forward: { handler: "koshei.blocks.NotifyEmailBlock" }
+forward: { handler: "yggdrasil.hermod.blocks.NotifyEmailBlock" }
 idempotency: { strategy: KEY_DEDUP, keyExpression: "row:id" }
 compensation:
   reversibility: MITIGATABLE
   kind: CONTEXTUAL
-  handler: "koshei.blocks.NotifyEmailBlock#compensate"
+  handler: "yggdrasil.hermod.blocks.NotifyEmailBlock#compensate"
   requiresState: [sent]
 stateBinding:
   - { key: sent, description: "이메일 발송 여부" }

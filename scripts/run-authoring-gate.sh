@@ -28,17 +28,17 @@
 #   bash scripts/run-authoring-gate.sh   # expect: [GATE] PASS ... exit 0
 #
 # WINDOWS KILL NOTE (REF run-add-block-gate.sh): `./gradlew run` forks a separate JVM
-# (koshei.authoring.AuthoringApplicationKt); $! is the wrapper PID, not the JVM. We resolve the real JVM
+# (yggdrasil.hermod.authoring.AuthoringApplicationKt); $! is the wrapper PID, not the JVM. We resolve the real JVM
 # via `jps` and taskkill by PID.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # --- Shared env: pin the plugin store dir + DB so the forked API JVM agrees with this shell. ---
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 
 ID="io.example.canvasdemo"
 FIX="scripts/fixtures/authoring"
@@ -52,13 +52,13 @@ mkdir -p "$WORK"
 API_LOG="$WORK/api.log"
 API_PID=""
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 # Pull the real forked API JVM pid out of jps (the gradle wrapper PID is not the server).
-api_jvm_pid() { { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | head -1; }
+api_jvm_pid() { { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | head -1; }
 
 kill_api_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -68,13 +68,13 @@ trap cleanup EXIT
 
 fail() { echo "[GATE] FAIL: $*"; exit 1; }
 
-echo "[GATE] plugin dir = $KOSHEI_PLUGIN_DIR ; db = $KOSHEI_DB_URL"
+echo "[GATE] plugin dir = $HERMOD_PLUGIN_DIR ; db = $HERMOD_DB_URL"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 1: ensure registry schema (block_index incl. deprecated column) + reset state"
 # init-db.sh applies the v0.1 schema; the registry schema (block_index + the deprecated ALTER) is NOT in
 # init-db, so apply it here explicitly.
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 # Clean prior runs (publish rejects duplicate id#version; versions are immutable).
 psql_q "DELETE FROM block_index WHERE id='$ID';" >/dev/null
 rm -rf "$PLUGIN_DIR_SH/$ID"
@@ -85,7 +85,7 @@ rm -rf "$PLUGIN_DIR_SH/$ID"
 echo "[GATE] step 2: build + start the authoring API on 18090 (background); capture its PID; poll /api/palette"
 ./gradlew -q --no-daemon :authoring-api:build -x test >/dev/null
 : > "$API_LOG"
-# --no-daemon so the launcher (and thus the forked run JVM) inherits THIS shell's KOSHEI_* env.
+# --no-daemon so the launcher (and thus the forked run JVM) inherits THIS shell's HERMOD_* env.
 ./gradlew -q --no-daemon :authoring-api:run >"$API_LOG" 2>&1 &
 
 # Poll up to ~120s for the server to answer, then resolve the real JVM PID.

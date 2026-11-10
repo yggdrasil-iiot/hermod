@@ -7,7 +7,7 @@ params: []
 inputs: []
 outputs:
   - { name: rows, type: "Record[]", label: "출력 행" }
-forward: { handler: "koshei.blocks.DbReadBlock" }
+forward: { handler: "yggdrasil.hermod.blocks.DbReadBlock" }
 idempotency: { strategy: NATURAL }
 compensation:
   reversibility: REVERSIBLE

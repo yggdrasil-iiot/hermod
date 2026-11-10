@@ -15,7 +15,7 @@ monolithic tool. Each project was built on its own, yet they line up as three la
 coherent picture:
 
 - **① `sparkplug-governance-lab`** — *standardize the edge*: edge / namespace governance.
-- **② `koshei`** (this repository) — *govern the transaction*: durable transaction / saga
+- **② `hermod`** (this repository) — *govern the transaction*: durable transaction / saga
   governance and governed command origination.
 - **③ `resequence-twin-lab`** — *compose the value*: the application / digital-twin / analytics
   consumer.
@@ -85,7 +85,7 @@ flowchart LR
 
   BUS["UNS / contract bus<br/>(ISA-95 namespace · Kafka)"]
 
-  subgraph P2["② transaction governance — koshei"]
+  subgraph P2["② transaction governance — hermod"]
     TX["Durable saga governance<br/>(idempotency · compensation · human-gating)"]
   end
 
@@ -114,7 +114,7 @@ flowchart LR
 | Tier | Project (pillar) | Theme clause |
 |---|---|---|
 | Edge governance (field → UNS/contract bus) | ① `sparkplug-governance-lab` | **Standardize** the edge |
-| Transaction governance (the durable, human-gated saga; the reverse command path) | ② `koshei` | **Govern** the transaction |
+| Transaction governance (the durable, human-gated saga; the reverse command path) | ② `hermod` | **Govern** the transaction |
 | Apps / twin / analytics (the consumer that detects drift and proposes, never writes back) | ③ `resequence-twin-lab` | **Compose** the value |
 
 The solid arrows are the forward (telemetry) path; the dashed arrows are the reverse (command)
@@ -169,7 +169,7 @@ opens a governance loop that runtime drift detection (`drift`) closes.* On top o
 - Namespace standard (ISA-95 → topic):
   <https://github.com/LivingLikeKrillin/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md>
 
-### 3.2 Govern the transaction — ② `koshei`
+### 3.2 Govern the transaction — ② `hermod`
 
 **Role: own the *verbs* — the durable transaction.** This project (this repository) answers
 the second responsibility from [§1](#1-the-problem--the-whitespace): tying heterogeneous
@@ -182,23 +182,23 @@ compensation**, **retry**, and **human-gating** — and the defining choice is t
 are hand-coded per workflow. They are **derived from a per-block contract kept in Git**, so a
 non-developer composing blocks gets safe-by-construction execution. The core is **engine-neutral**:
 one intermediate representation compiles onto two execution engines (Temporal and Conductor),
-and both are observed in a single F5 console — the governance semantics are the koshei
+and both are observed in a single F5 console — the governance semantics are the hermod
 contract's, not any one engine's.
 
 The **R1** capability makes the reverse path concrete: a *governed* OPC-UA write/call with a
 **two-phase stage→activate** shape, **deny-by-default** command policy, **EURange** validation,
-**confirm-by-read** after the write, and a **persisted command audit**. That is what lets koshei
+**confirm-by-read** after the write, and a **persisted command audit**. That is what lets hermod
 be trusted to drive a real field endpoint.
 
 The episode outer loop, which works over picasso and narrator (two projects outside this
-portfolio), was split out of koshei into its own repository
+portfolio), was split out of hermod into its own repository
 [incident-recovery](https://github.com/picasso-robotics/incident-recovery) (formerly koshchei) on 2026-10-05.
-koshei no longer hosts it. koshei's role in this document is unchanged.
+hermod no longer hosts it. hermod's role in this document is unchanged.
 
 For the role in the larger picture, the as-built internals, and the full module map (rather than
 a module count restated here), see:
 
-- [`README.md`](../README.md) — what koshei is and the value-first overview
+- [`README.md`](../README.md) — what hermod is and the value-first overview
 - [`docs/architecture.md`](architecture.md) — the as-built architecture, incl. the
   [module map and dependency graph](architecture.md#7-module-map-and-dependency-graph)
 
@@ -245,7 +245,7 @@ End to end, the architecture is meant to run as a single closed cycle:
 3. **③ `resequence-twin-lab`** consumes it, maintains a twin, and **detects when reality has
    drifted from intent**. It emits a **read-only reconciliation proposal** — and *refuses to
    write back*.
-4. **② `koshei`** picks up that proposal and **executes it as a durable, human-gated,
+4. **② `hermod`** picks up that proposal and **executes it as a durable, human-gated,
    compensating saga**, driving the field back to the **Git canonical** — the very write-back
    that ③ declined to perform.
 5. The corrected command flows back toward the field through **① NCMD authorization** at the
@@ -264,13 +264,13 @@ Most of that loop is already built and proven, end to end, as a **merged two-pil
 PoV** between ② and ③ — drift-triggered governed reconciliation on a **shared Eclipse Milo
 OPC-UA sim** and live Temporal:
 
-- ③ resequence detects **recipe-setpoint drift** (observed setpoint vs koshei's Git canonical
+- ③ resequence detects **recipe-setpoint drift** (observed setpoint vs hermod's Git canonical
   `model/recipe-setpoints.yaml`) and surfaces it on the read-only `GET /api/drift`.
-- The proposal is relayed to ② koshei's inbound `POST /api/reconciliations` as a **signal only**
-  — it carries *which* logical nodes drifted, **never a value**. Koshei looks up and validates
+- The proposal is relayed to ② hermod's inbound `POST /api/reconciliations` as a **signal only**
+  — it carries *which* logical nodes drifted, **never a value**. Hermod looks up and validates
   the desired value from its **own** Git canonical and deny-by-default policy (EURange-checked),
   so an external system can *prompt* a reconciliation but can never *inject* a setpoint.
-- Koshei starts its **human-gated `ot-recipe-stage-activate` saga**; on approval the **R1
+- Hermod starts its **human-gated `ot-recipe-stage-activate` saga**; on approval the **R1
   OPC-UA write** (stage→activate, confirm-by-read) drives the field back to canonical, the twin
   re-reads, and **drift is cleared**.
 
@@ -293,7 +293,7 @@ Sources for this slice:
 One segment of the full loop is **roadmap, not built**: pillar-①/Sparkplug **NCMD edge
 authorization** is not yet wired into the running loop — the built PoV closes between ② and ③ on
 a shared OPC-UA sim, without ① in the command path. That gap does **not** leave the built loop
-unauthorized, however: koshei **R1 already enforces its own deny-by-default command policy +
+unauthorized, however: hermod **R1 already enforces its own deny-by-default command policy +
 EURange validation** on every governed write, so authorization is enforced *inside* the
 two-pillar loop today. The roadmap item is to additionally enforce authorization at the edge via
 ① NCMD, making the loop authorized in two independent places (mirroring ①'s own
@@ -310,8 +310,8 @@ flowchart LR
   FIELD["Field / OPC-UA endpoint<br/>(shared Eclipse Milo sim)"]:::built
   DRIFT["③ resequence: detect drift<br/>recipe-setpoint vs Git canonical"]:::built
   PROPOSE["③ propose: GET /api/drift<br/>read-only · refuses write-back"]:::built
-  GOVERN["② koshei: POST /api/reconciliations<br/>signal-only · human-gated saga<br/>(deny-by-default + EURange)"]:::built
-  APPLY["② koshei R1: governed OPC-UA write/call<br/>stage→activate · confirm-by-read"]:::built
+  GOVERN["② hermod: POST /api/reconciliations<br/>signal-only · human-gated saga<br/>(deny-by-default + EURange)"]:::built
+  APPLY["② hermod R1: governed OPC-UA write/call<br/>stage→activate · confirm-by-read"]:::built
   NCMD["① sparkplug NCMD<br/>edge authorization"]:::roadmap
 
   FIELD ==>|observe| DRIFT
@@ -330,7 +330,7 @@ integration PoV; the thick cycle
 exactly the loop closed by `run-integration-pov-gate.sh` (T1, with T2 human-veto and T3
 trust-boundary). The dashed (amber) segment through **① sparkplug NCMD edge authorization** is
 **roadmap**: not in the built loop today — though authorization is still enforced inside the
-built loop by koshei R1's own deny-by-default policy + EURange validation. The roadmap framing
+built loop by hermod R1's own deny-by-default policy + EURange validation. The roadmap framing
 (including the ①-NCMD segment) and the cross-project convergence evidence are developed in the
 sections that follow.
 
@@ -352,9 +352,9 @@ that pillar. The "—" cell is deliberate and load-bearing: a matrix that was �
 mean the rows were chosen to flatter, not to test. The honest gap is what makes the ✓'s
 trustworthy.
 
-| Shared primitive | ① `sparkplug-governance-lab` | ② `koshei` | ③ `resequence-twin-lab` |
+| Shared primitive | ① `sparkplug-governance-lab` | ② `hermod` | ③ `resequence-twin-lab` |
 |---|---|---|---|
-| **Git / declarative contract = single source of truth** | ✓ SemVer-versioned UDT data-contract registry + ISA-95 namespace standard | ✓ per-block contracts + canonical model (e.g. `model/recipe-setpoints.yaml`) in Git | ✓ decisions captured as ADRs + a captured baseline; reads koshei's Git canonical as the "desired" state |
+| **Git / declarative contract = single source of truth** | ✓ SemVer-versioned UDT data-contract registry + ISA-95 namespace standard | ✓ per-block contracts + canonical model (e.g. `model/recipe-setpoints.yaml`) in Git | ✓ decisions captured as ADRs + a captured baseline; reads hermod's Git canonical as the "desired" state |
 | **Deny-by-default policy-as-code** | ✓ NCMD authorization, one policy projected into edge authorizer + broker ACL + CI lint | ✓ `command-policy.json` (deny-by-default + EURange-bounded) | — read-only by construction (no command surface to authorize) |
 | **Detect → propose → human-approve (no autonomous write)** | ✓ runtime schema-drift detection (`drift`, detect-only) | ✓ human-gating before every irreversible step; inbound reconciliation is **signal-only** | ✓ `DriftMonitor` detects → emits a `ReconciliationProposal`, with **no write-back** |
 | **Fail-closed CI / pre-deploy gates** | ✓ `SchemaGate` compatibility check, fail-closed before deploy | ✓ objective gate scripts + `ModelValidator`, fail-closed | ✓ falsifiable benchmark + fix-toggle causality checks (the result has to survive being switched off) |
@@ -391,13 +391,13 @@ Sparkplug publish, store-and-forward), and **D4 upper judgment & orchestration**
 memory-isolated — the FSM, declarative deploy/rollback, the saga). These cross the ISA-95
 functional levels L0–L4 (field/IO → connectivity → SCADA/MES → enterprise apps) as a second,
 orthogonal axis. The portfolio places each pillar deliberately: **① `sparkplug-governance-lab`
-lives at D3** (edge normalization and Sparkplug publish at L2), **② `koshei` is D4 and only D4**
+lives at D3** (edge normalization and Sparkplug publish at L2), **② `hermod` is D4 and only D4**
 (L3 transaction governance — its OPC-UA write is a *supervisory D4→edge state/recipe injection*,
 never a real-time or safety action), and **③ `resequence-twin-lab` is a non-real-time L4
 consumer** sitting above the loop. The hard rule: **D1 and D2 (safety and motion) are never
 touched** by any pillar — they belong to the customer and to certification.
 
-![Two orthogonal axes — the flat UNS data plane crossed with the layered ISA-95 control plane, with koshei at D4 restoring the governance that the L2/L3 collapse dissolves](diagrams/two-axis-uns-isa95.svg)
+![Two orthogonal axes — the flat UNS data plane crossed with the layered ISA-95 control plane, with hermod at D4 restoring the governance that the L2/L3 collapse dissolves](diagrams/two-axis-uns-isa95.svg)
 
 *The two axes are **orthogonal, not competing**. On the **data axis** the UNS is deliberately
 flat — every level publishes into one namespace by report-by-exception, which is why new
@@ -405,10 +405,10 @@ consumers (a dashboard, an ML job, a historian) attach without touching L3. On t
 axis** ISA-95 stays strictly layered — commands flow to the adjacent level only, single-writer,
 and D1/D2 are never touched. Where the flat namespace crosses the layers it **collapses L2 and
 L3**: point-to-point wiring vanishes (the win), but system-of-record, authorization, and
-genealogy authority become a **vacuum** (the cost). **koshei sits at D4 and fills exactly that
+genealogy authority become a **vacuum** (the cost). **hermod sits at D4 and fills exactly that
 vacuum** — authority via the Git canonical model, authorization via deny-by-default policy,
 genealogy via lockpoint and human gate — observing the data plane while originating governed
-commands down the control axis. This is the precise reason koshei is D4 and only D4.*
+commands down the control axis. This is the precise reason hermod is D4 and only D4.*
 
 ### 6.2 Component role boundaries — don't monolith
 
@@ -416,9 +416,9 @@ The single most important design rule is **compose, don't cram**: each component
 responsibility behind clean interfaces, and gains missing capability by integration rather than by
 absorbing its neighbors. The two most consequential boundaries are (a) **two governance cores stay
 separate** — a *data*-governance core owns the **nouns** (canonical asset model, identity, contract
-schema), koshei owns the **verbs** (saga ordering, compensation, gating, command origination), and
+schema), hermod owns the **verbs** (saga ordering, compensation, gating, command origination), and
 they **join by reference (asset ID), never merge**; and (b) **the canonical model lives in exactly
-one place — Git** — koshei *references* identity/EURange/contract but never re-owns them, so it can
+one place — Git** — hermod *references* identity/EURange/contract but never re-owns them, so it can
 never become a new snowflake where the model gets trapped. A third rule, **single writer**, follows:
 exactly one component physically applies a command to a given node.
 
@@ -426,7 +426,7 @@ exactly one component physically applies a command to a given node.
 |---|---|---|---|
 | Edge bridge (Milo + Tahu, D3) | raw→canonical normalization, Sparkplug publish, physical apply | saga orchestration · compensation | Build |
 | Data-governance core | canonical model · identity · contract schema (Git); drift reconcile — *nouns* | transaction ordering · compensation | Build |
-| **koshei** (D4) | transaction/saga governance (idempotency · compensation · gate); command origination — *verbs* | edge normalization · Sparkplug publish · **owning the canonical model** | Build |
+| **hermod** (D4) | transaction/saga governance (idempotency · compensation · gate); command origination — *verbs* | edge normalization · Sparkplug publish · **owning the canonical model** | Build |
 | Connectivity (e.g. Kepware) | PLC drivers · OPC-UA server | canonical model · transactions | Buy |
 | Broker / consumers (HMI · historian · analytics) | transport; apps · analytics · history | being the contract owner | Buy / OSS |
 
@@ -448,15 +448,15 @@ component, joined by IDs**, so the audit system itself is not a monolith:
   by PR (review, approval, signed identity); live config is generated/CI-deployed from Git, and a
   deny-by-default command authorization (EURange-, type-checked, fail-closed) guards the apply
   boundary. *(Owners: Git control plane + CI; the apply-boundary gate — ①'s NCMD authorizer and
-  koshei's R1 `command-policy.json` are each a slice of this.)*
+  hermod's R1 `command-policy.json` are each a slice of this.)*
 - **Detect** — a reconciler exports live config/setpoints and diffs them against Git; any
   out-of-authority change is drift and raises an alarm. *(Owner: control plane; ③'s `DriftMonitor`
   is the built proof of this layer.)*
 - **Correct** — on drift, auto-revert or quarantine/Hold per policy; the change cannot silently
-  persist. *(Owner: control plane + koshei compensation/Hold — koshei is the built corrector in
+  persist. *(Owner: control plane + hermod compensation/Hold — hermod is the built corrector in
   the [§4](#4-the-organic-loop--composition-proven) loop.)*
 - **Audit** — tamper-evident, append-only records of every governed command + decision, every drift
-  event, and every spec change (Git history = signed commits). *(Owners: koshei command audit /
+  event, and every spec change (Git history = signed commits). *(Owners: hermod command audit /
   reconciler / Git, each a narrow slice.)*
 
 The honest residual: a physical bypass (a laptop wired straight to the PLC) cannot be 100%
@@ -465,7 +465,7 @@ surface reduced by IEC 62443 zones/conduits (an adjacent team's domain, consumed
 
 ### 6.4 Interoperability seams & protocols
 
-Because koshei does only D4 transaction governance and deliberately does **not** build analytics,
+Because hermod does only D4 transaction governance and deliberately does **not** build analytics,
 twins, rich HMI, or ERP connectors, it must **gain those by integration** — so its seams are
 first-class and its posture is **augment the incumbent stack, never rip-and-replace**. The strategy
 is **narrow & deep, therefore open**: do one thing rigorously, and meet everything else over open
@@ -487,10 +487,10 @@ load-bearing hops.
 | Hop | Protocol |
 |---|---|
 | edge/bridge → broker → consumers | MQTT + Sparkplug B (publish / subscribe) |
-| koshei ↔ edge — command (built, R1) | OPC-UA direct write/call |
-| koshei ↔ edge — command (roadmap, R2) | MQTT Sparkplug NCMD/DCMD → bridge applies OPC-UA |
-| koshei → consumers (outbound surface ①) | REST · MQTT/Sparkplug · Kafka · webhook |
-| external → koshei (inbound surface ②) | REST (e.g. `POST /api/reconciliations`) |
+| hermod ↔ edge — command (built, R1) | OPC-UA direct write/call |
+| hermod ↔ edge — command (roadmap, R2) | MQTT Sparkplug NCMD/DCMD → bridge applies OPC-UA |
+| hermod → consumers (outbound surface ①) | REST · MQTT/Sparkplug · Kafka · webhook |
+| external → hermod (inbound surface ②) | REST (e.g. `POST /api/reconciliations`) |
 | control plane | Git authority → CI generate/deploy → edge; reconciler: live export → Git diff |
 
 ### 6.5 UX — single pane of glass
@@ -530,7 +530,7 @@ as a versioned Git file → edited only by PR → enforced by a fail-closed CI g
 projector that pushes the one policy to every enforcement point) → recorded by an ADR. The
 load-bearing discipline is **schema / data separation** (ADR-0008): the registry file is the
 source of truth and the wire (`_types_/` in NBIRTH) is *wire truth only*. This is the exact
-mirror of koshei's **Git-desired vs field-actual** split in [§6.3](#63-enforcement--audit--prevent--detect--correct--audit) —
+mirror of hermod's **Git-desired vs field-actual** split in [§6.3](#63-enforcement--audit--prevent--detect--correct--audit) —
 the same "the field is not the authority" principle applied to the noun side.
 
 **Honest seam — what is not yet a service, and why it attaches later without a rebuild.** Four
@@ -541,7 +541,7 @@ placed on the roadmap with the seam it will attach through:
 |---|---|---|---|
 | Identifier **issuing** service | naming rule + review (ADR-0006) | **R3 / R5** control plane | the ID grammar is already specified; the service is a uniqueness-checking write-path over it |
 | Authoring **GUI / AAS** front-end | hand-edited JSON / MD + PR | **R5** ("Git-hiding floor UX"); FSM visual editor already a thin PoC | the schema is kept structured/typed **now**, so the `ModelValidator` the UI will reuse **already exists**; the UI is a *write path into Git*, not a new authority |
-| Topic-structure **conformance linter** | partly convention | **R3 / R5** enforcement harness | `SchemaGate` and koshei's `run-conformance-gate.sh` already prove "CI gate = enforcement"; a topic linter is one more gate of the same kind |
+| Topic-structure **conformance linter** | partly convention | **R3 / R5** enforcement harness | `SchemaGate` and hermod's `run-conformance-gate.sh` already prove "CI gate = enforcement"; a topic linter is one more gate of the same kind |
 | `namespace-standard.md` at **draft v0.1** | draft | hardens as ADRs accrue | maturity, not an architectural gap |
 
 Two guarantees keep "develop, then attach" honest. First, **direction is fixed** (the
@@ -566,7 +566,7 @@ is called out as such. Nothing below claims more than its artifact proves.
 | Pillar | Built capability | Proof artifact |
 |---|---|---|
 | **① `sparkplug-governance-lab`** | Fail-closed pre-deploy schema-compatibility gate (`SchemaGate`); OPC-UA→UDT mapping with explicit loss ledger; stateful UNS→Kafka bridge; deny-by-default NCMD authorization projected into edge authorizer + broker ACL + CI lint; runtime schema-drift detection (detect-only); ISA-95 namespace standard; bilingual ADRs. | 142 pure-logic tests in-repo; `SchemaGate` + the per-module suites (see the repo in [§8](#8-repository-map--where-to-go-next)). |
-| **② `koshei`** (this repo) | Durable saga with reverse-order compensation, idempotency, and crash recovery on Temporal; engine-neutral (one IR → Temporal + Conductor) observed in a single F5 console; operator interventions (retry / abort / approve); **R1** governed OPC-UA write/call (two-phase stage→activate, deny-by-default + EURange, confirm-by-read, persisted audit); v0.7 run-state durable persistence. | `./gradlew build` + the objective `scripts/run-*-gate.sh` gate scripts + E2E / crash-recovery harnesses. Capability-to-proof table and module map in [`README.md`](../README.md) and [`docs/architecture.md`](architecture.md). |
+| **② `hermod`** (this repo) | Durable saga with reverse-order compensation, idempotency, and crash recovery on Temporal; engine-neutral (one IR → Temporal + Conductor) observed in a single F5 console; operator interventions (retry / abort / approve); **R1** governed OPC-UA write/call (two-phase stage→activate, deny-by-default + EURange, confirm-by-read, persisted audit); v0.7 run-state durable persistence. | `./gradlew build` + the objective `scripts/run-*-gate.sh` gate scripts + E2E / crash-recovery harnesses. Capability-to-proof table and module map in [`README.md`](../README.md) and [`docs/architecture.md`](architecture.md). |
 | **③ `resequence-twin-lab`** | Synthetic-data PBS resequencing PoC; multi-objective policy vs static baseline with relative-delta KPIs (multi-seed hard invariants + fix-toggle causality); offline CP-SAT optimality-gap oracle (measurement only); SimPy→Kafka→Eclipse Ditto twin; read-only advisory REST + MCP/RAG agent; `DriftMonitor` (detect→propose→human-approve, **no** write-back); read-only OPC-UA. | The benchmark + invariant suite and the advisory surfaces in-repo (see the repo in [§8](#8-repository-map--where-to-go-next)). |
 | **Integration PoV** (② × ③) | The built two-pillar loop: drift → signal-only reconcile → human-gated govern → governed OPC-UA apply → drift cleared, on a shared Eclipse Milo sim + live Temporal (detailed in [§4.2](#42-the-built-proof-honest)). | [`scripts/run-integration-pov-gate.sh`](../scripts/run-integration-pov-gate.sh) — T1 loop-closure, T2 human-veto, T3 trust-boundary. |
 
@@ -582,7 +582,7 @@ proven; product/UX/demand deliberately unvalidated) lives in [`README.md`](../RE
 These are designed, not delivered. They are named here so the gap is impossible to miss:
 
 - **The full three-pillar loop** — wiring ①'s **Sparkplug NCMD edge authorization into the command
-  path**, so the loop is authorized at the edge as well as inside koshei R1 (the gap stated in
+  path**, so the loop is authorized at the edge as well as inside hermod R1 (the gap stated in
   [§4.3](#43-honest-gap-built-vs-designed)).
 - **A self-built edge bridge** — Eclipse Milo + Eclipse Tahu, including the Approach-B Sparkplug
   **NCMD** apply path (today's R1 write is OPC-UA-direct).
@@ -598,13 +598,13 @@ the artifact that proves it or is marked roadmap.
 
 ## 8. Repository map / where to go next
 
-Three repositories, one per pillar. ① and ③ are public; ② (`koshei`) is this repository, so its
+Three repositories, one per pillar. ① and ③ are public; ② (`hermod`) is this repository, so its
 links are relative paths within this repo.
 
 | Pillar | Repository | Key docs | Start here |
 |---|---|---|---|
-| **① edge governance** | [`sparkplug-governance-lab`](https://github.com/LivingLikeKrillin/sparkplug-governance-lab) (public) | [namespace standard (ISA-95→topic)](https://github.com/LivingLikeKrillin/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md); 11 bilingual ADRs | The repo README (incl. its **Portfolio integration** section — the NCMD edge bridge that receives koshei's governed command and re-authorizes it deny-by-default), then the `schema`/`SchemaGate` and `acl` modules |
-| **② transaction governance** | `koshei` (this repository) | [`docs/architecture.md`](architecture.md) (as-built, incl. [module map](architecture.md#7-module-map-and-dependency-graph)) | [`README.md`](../README.md) — value-first overview, then the capability/proof table |
+| **① edge governance** | [`sparkplug-governance-lab`](https://github.com/LivingLikeKrillin/sparkplug-governance-lab) (public) | [namespace standard (ISA-95→topic)](https://github.com/LivingLikeKrillin/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md); 11 bilingual ADRs | The repo README (incl. its **Portfolio integration** section — the NCMD edge bridge that receives hermod's governed command and re-authorizes it deny-by-default), then the `schema`/`SchemaGate` and `acl` modules |
+| **② transaction governance** | `hermod` (this repository) | [`docs/architecture.md`](architecture.md) (as-built, incl. [module map](architecture.md#7-module-map-and-dependency-graph)) | [`README.md`](../README.md) — value-first overview, then the capability/proof table |
 | **③ apps / twin** | [`resequence-twin-lab`](https://github.com/LivingLikeKrillin/resequence-twin-lab) (public) | the repo README + ADRs; the benchmark + `DriftMonitor` surfaces | The repo README (incl. its **Portfolio integration** section — recipe-setpoint drift vs the shared canonical + the Sparkplug governance subscriber), then `GET /api/drift` and the SimPy→Kafka→Ditto pipeline |
 
 ## Appendix A. Glossary
@@ -626,7 +626,7 @@ links are relative paths within this repo.
 - **ISA-95** — the international standard for enterprise–control integration; its functional levels
   L0–L4 (field → connectivity → SCADA/MES → enterprise) are one axis of the layer model.
 - **D1–D4 domains** — the four realtime/safety domains by strictness: D1 Safety, D2 hard-real-time
-  motion, D3 abstraction & survival (edge), D4 upper judgment & orchestration (where koshei lives).
+  motion, D3 abstraction & survival (edge), D4 upper judgment & orchestration (where hermod lives).
 - **Saga / compensation** — a distributed transaction run as a sequence of steps where failure is
   handled by **compensating** (undoing) already-completed steps in reverse order, not by ACID
   rollback.

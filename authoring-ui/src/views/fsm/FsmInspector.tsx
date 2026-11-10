@@ -53,10 +53,10 @@ export function FsmInspector({ selection, onStateChange, onTransitionChange, onD
                 <select id="fsm-tr-driver" data-testid="fsm-tr-driver" className="mono" value={selection.transition.driver}
                   onChange={(e) => onTransitionChange({ driver: e.target.value })}>
                   <option value="field">field</option>
-                  <option value="koshei">koshei</option>
+                  <option value="hermod">hermod</option>
                 </select>
               </div>
-              {selection.transition.driver === "koshei" && (
+              {selection.transition.driver === "hermod" && (
                 <div className="field">
                   <label htmlFor="fsm-tr-workflow">action.workflow</label>
                   <input id="fsm-tr-workflow" data-testid="fsm-tr-workflow" className="mono" value={selection.transition.action?.workflow ?? ""}

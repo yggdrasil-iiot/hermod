@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# R4 auto-correct poller live gate (objective proof): koshei periodically sweeps every deployed unit,
+# R4 auto-correct poller live gate (objective proof): hermod periodically sweeps every deployed unit,
 # detects field-transition drift (recording the observation exactly as `fsm drift-check` does), and on
 # DRIFT evaluates the corrective SafeHold via the pure TransitionGovernor — classifying each unit as
 # BASELINE / OK / DRIFT-CORRECTABLE (a governed ot-safe-hold is available, awaiting operator) /
-# DRIFT-BLOCKED (no declared safe path) / SKIPPED. Detect + evaluate + alarm ONLY — koshei NEVER
+# DRIFT-BLOCKED (no declared safe path) / SKIPPED. Detect + evaluate + alarm ONLY — hermod NEVER
 # dispatches or approves here (human-in-the-loop). Driven via the deterministic `fsm auto-correct-sweep`
 # CLI (the @Scheduled AutoCorrectBean wraps the SAME AutoCorrectSupervisor.sweep). See design 2026-07-03.
 #
@@ -30,21 +30,21 @@ cd "$(dirname "$0")/.."
 
 source scripts/lib/gate-common.sh   # for native_path; include-guarded, safe alongside inline psql_q
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort/FsmStateReader read this
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort/FsmStateReader read this
 
 WORK="build/fsm-autocorrect-gate"
 mkdir -p "$WORK"
 SIM_LOG="$WORK/sim.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 kill_sim_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -57,11 +57,11 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db = $KOSHEI_DB_URL ; opcua = $KOSHEI_OPCUA_URL"
+echo "[GATE] db = $HERMOD_DB_URL ; opcua = $HERMOD_OPCUA_URL"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: ensure registry schema (fsm_deployment*/drift_observation/drift_audit) + reset"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 psql_q "TRUNCATE drift_observation, drift_audit, fsm_deployment, fsm_deployment_audit" >/dev/null
 echo "[GATE] schema ensured; state reset"
 
@@ -75,7 +75,7 @@ for i in $(seq 1 90); do
   sleep 2
 done
 [ "$SIMUP" = "1" ] || { echo "--- sim log ---"; cat "$SIM_LOG" 2>/dev/null || true; fail "OPC-UA sim did not start (no 'OPC-UA sim listening' within ~180s)"; }
-echo "[GATE] OPC-UA sim listening on $KOSHEI_OPCUA_URL"
+echo "[GATE] OPC-UA sim listening on $HERMOD_OPCUA_URL"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 1: build :app"
