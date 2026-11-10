@@ -18,8 +18,8 @@ import kotlin.test.assertTrue
  * PropertyDataType String/String/Int64; response metrics named exactly `ok`/`detail`/`value`/`good`
  * with Boolean/String/String/Boolean types.
  *
- * The lab's `NcmdWireContractTest` (Java) pins the identical contract from the bridge side using the
- * same canonical cases (cmdId `vec-w1`/`vec-c1`/`vec-r1`, node `ns=2;s=Recipe/Rpm`, value 1500.0…).
+ * Heimdall's `NcmdWireContractTest` (Java, bifrost `heimdall/`) pins the identical contract from the
+ * bridge side using the same canonical cases (cmdId `vec-w1`/`vec-c1`/`vec-r1`, node `ns=2;s=Recipe/Rpm`, value 1500.0…).
  * If either repo renames a property key or a metric name/type, its own test goes RED at unit-test
  * time — instead of surfacing only as a T1 timeout at the live cross-repo gate.
  */
@@ -198,34 +198,34 @@ class WireContractTest {
 
     /**
      * Pin the topic wire-strings that production ([SparkplugNcmdApplyPort]) actually publishes on
-     * and subscribes to — the same three the lab bridge derives. Topics are private production vals,
+     * and subscribes to — the same three Heimdall derives (NCMD, `bifrost/` QUERY and RESULT). Topics are private production vals,
      * so we observe them through a [FakeMqttTransport]: a write must publish on the NCMD topic, a
      * read on the QUERY topic, and both only complete because the response was delivered on the
-     * NDATA topic the port subscribed to. If a topic format drifts on this side, this goes RED.
+     * RESULT topic the port subscribed to. If a topic format drifts on this side, this goes RED.
      */
     @Test fun `production publishes commands and awaits responses on the pinned topics`() {
-        val group = "Koshei:Line1"
-        val edge = "recipe-edge"
+        val group = "Bifrost:Line1"
+        val edge = "recipe-edge-cmd"
         val ncmd = "spBv1.0/$group/NCMD/$edge"
-        val query = "koshei/$group/QUERY/$edge"
-        val ndata = "spBv1.0/$group/NDATA/$edge"
+        val query = "bifrost/$group/QUERY/$edge"
+        val result = "bifrost/$group/RESULT/$edge"
 
         val fake = FakeMqttTransport()
-        // Echo a correlated response on the NDATA topic; the port only completes if it subscribed there.
+        // Echo a correlated response on the RESULT topic; the port only completes if it subscribed there.
         fake.onPublish { _, bytes ->
             val cmd = SpbCodec.decodeCommand(bytes)
             val resp = if (cmd.op == "read") NcmdResponse(cmd.cmdId, true, value = "200.0", good = true)
             else NcmdResponse(cmd.cmdId, true, detail = "ok")
-            fake.deliver(ndata, SpbCodec.encodeResponse(resp))
+            fake.deliver(result, SpbCodec.encodeResponse(resp))
         }
         val port = SparkplugNcmdApplyPort(fake, group, edge, deadlineMs = 2000, idgen = { "fixed-1" })
 
         val w = port.write("ns=2;s=Recipe/Rpm", "Double", "1500")
-        assertTrue(w.ok, "write must complete via the NDATA subscription (proves NDATA topic pinned)")
+        assertTrue(w.ok, "write must complete via the RESULT subscription (proves RESULT topic pinned)")
         assertNotNull(fake.lastPublished(ncmd), "write must publish on the NCMD topic")
 
         val r = port.read("ns=2;s=Recipe/Temp")
-        assertEquals("200.0", r.value, "read must complete via the NDATA subscription")
+        assertEquals("200.0", r.value, "read must complete via the RESULT subscription")
         assertNotNull(fake.lastPublished(query), "read must publish on the QUERY topic")
     }
 }
