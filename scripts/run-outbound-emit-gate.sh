@@ -75,6 +75,17 @@ API="http://localhost:18090"
 DRIFT="http://localhost:8081/api/drift"
 WORK="build/outbound-emit-gate"
 mkdir -p "$WORK"
+# Canonical DESIRED values for POST /reconciliations. Without one, or without the sibling manifest.json
+# whose contentSha256 the API re-computes, it fails closed 409 canonical-unresolvable (since a01e5f9), so
+# no run could start. Unless the caller points at a published canonical, stage the bundled
+# model/recipe-setpoints.yaml with a local manifest (defRef = this checkout's HEAD).
+if [ -z "${KOSHEI_RECIPE_SETPOINTS:-}" ]; then
+  CANON_DIR="$WORK/canonical"; mkdir -p "$CANON_DIR"
+  cp model/recipe-setpoints.yaml "$CANON_DIR/recipe-setpoints.yaml"
+  printf '{"kind":"recipe","ref":"recipe-setpoints","version":"gate","defRef":"%s","contentSha256":"%s","sourcePath":"model/recipe-setpoints.yaml","publishedAt":0}\n' \
+    "$(git rev-parse HEAD)" "$(sha256sum "$CANON_DIR/recipe-setpoints.yaml" | cut -d' ' -f1)" > "$CANON_DIR/manifest.json"
+  export KOSHEI_RECIPE_SETPOINTS="$(native_path "$(pwd)/$CANON_DIR/recipe-setpoints.yaml")"
+fi
 WORKER_LOG="$WORK/worker.log"
 API_LOG="$WORK/api.log"
 SIM_LOG="$WORK/sim.log"
@@ -245,7 +256,7 @@ RID1="emit-happy-$SFX"
 RESP=$(reconcile "$RID1" "t1") || fail "T1 POST /reconciliations failed"
 echo "[GATE] T1 reconcile => $RESP"
 echo "$RESP" | grep -q "\"runId\":\"$RID1\"" || fail "T1 expected runId=$RID1"
-wait_node "$RID1" activateRecipe RUNNING || fail "T1 never reached the activate gate"
+wait_node "$RID1" activateRecipe AWAITING_APPROVAL || fail "T1 never reached the activate gate"
 curl -fsS -X POST "$API/api/runs/$RID1/approve" >/dev/null || fail "T1 approve failed"
 curl -fsS "$API/api/runs/$RID1?wait=true" | grep -q '"completed":true' || fail "T1 did not complete after approve"
 [ "$(aud opcua.write WRITTEN)"  -ge 1 ] || fail "T1 expected opcua.write WRITTEN>=1, got $(aud opcua.write WRITTEN)"
@@ -263,7 +274,7 @@ perturb "$RPM_NODE" 1200
 wait_drift 20 || fail "T2 twin did not report recipe drift"
 RID2="emit-veto-$SFX"
 reconcile "$RID2" "t2" >/dev/null || fail "T2 reconcile failed"
-wait_node "$RID2" activateRecipe RUNNING || fail "T2 never reached the activate gate"
+wait_node "$RID2" activateRecipe AWAITING_APPROVAL || fail "T2 never reached the activate gate"
 [ "$(aud opcua.write WRITTEN)" -ge 1 ] || fail "T2 stageRecipe should have written before the gate, got $(aud opcua.write WRITTEN)"
 curl -fsS -X POST "$API/api/runs/$RID2/reject" >/dev/null || fail "T2 reject failed"
 curl -fsS "$API/api/runs/$RID2?wait=true" | grep -q '"completed":false' || fail "T2 rejected run should compensate"
@@ -302,7 +313,7 @@ docker compose -f "$BROKER_COMPOSE" stop >/dev/null 2>&1 || fail "T4 could not s
 sleep 3
 RID4="emit-failopen-$SFX"
 reconcile "$RID4" "t4" >/dev/null || fail "T4 reconcile failed to start (broker down must not block the API)"
-wait_node "$RID4" activateRecipe RUNNING 45 || fail "T4 never reached the activate gate with the broker down"
+wait_node "$RID4" activateRecipe AWAITING_APPROVAL 45 || fail "T4 never reached the activate gate with the broker down"
 curl -fsS -X POST "$API/api/runs/$RID4/approve" >/dev/null || fail "T4 approve failed"
 curl -fsS "$API/api/runs/$RID4?wait=true" | grep -q '"completed":true' || fail "T4 saga did NOT complete with the broker down — not fail-open"
 [ "$(aud opcua.call CONFIRMED)" = "1" ] || fail "T4 expected opcua.call CONFIRMED=1 (saga unaffected), got $(aud opcua.call CONFIRMED)"
@@ -319,7 +330,7 @@ psql_q "TRUNCATE fault_inject, target_rows, command_audit, source_rows, emitted_
 seed_canonical; perturb "$RPM_NODE" 1200; wait_drift 20 || fail "T4 resume: twin did not report drift"
 RID4B="emit-resume-$SFX"
 reconcile "$RID4B" "t4b" >/dev/null || fail "T4 resume reconcile failed"
-wait_node "$RID4B" activateRecipe RUNNING || fail "T4 resume never reached the gate"
+wait_node "$RID4B" activateRecipe AWAITING_APPROVAL || fail "T4 resume never reached the gate"
 curl -fsS -X POST "$API/api/runs/$RID4B/reject" >/dev/null || fail "T4 resume reject failed"
 curl -fsS "$API/api/runs/$RID4B?wait=true" | grep -q '"completed":false' || fail "T4 resume veto run should compensate"
 wait_emit "$RID4B" RECON_FAILED 15 || fail "T4 resume: hermod did not re-emit after broker restart"
