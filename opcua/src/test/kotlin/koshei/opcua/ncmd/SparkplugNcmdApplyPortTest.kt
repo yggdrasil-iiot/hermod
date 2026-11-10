@@ -3,13 +3,13 @@ import koshei.sdk.DoneClearMode
 import kotlin.test.*
 class SparkplugNcmdApplyPortTest {
     private fun portWith(fake: FakeMqttTransport) =
-        SparkplugNcmdApplyPort(fake, "Koshei:Line1", "recipe-edge", deadlineMs = 2000, idgen = { "fixed-1" })
+        SparkplugNcmdApplyPort(fake, "Bifrost:Line1", "recipe-edge-cmd", deadlineMs = 2000, idgen = { "fixed-1" })
 
     @Test fun `write completes on the matching cmdId response`() {
         val fake = FakeMqttTransport()
         fake.onPublish { topic, bytes ->                       // echo a success response for the same cmdId
             val cmd = SpbCodec.decodeCommand(bytes)
-            fake.deliver("spBv1.0/Koshei:Line1/NDATA/recipe-edge",
+            fake.deliver("bifrost/Bifrost:Line1/RESULT/recipe-edge-cmd",
                 SpbCodec.encodeResponse(NcmdResponse(cmd.cmdId, true, detail="ok")))
         }
         val out = portWith(fake).write("ns=2;s=Recipe/Rpm", "Double", "1500")
@@ -17,15 +17,15 @@ class SparkplugNcmdApplyPortTest {
     }
     @Test fun `write times out when no response arrives`() {
         val fake = FakeMqttTransport()                          // no auto-response
-        val out = SparkplugNcmdApplyPort(fake, "Koshei:Line1", "recipe-edge", deadlineMs = 300)
+        val out = SparkplugNcmdApplyPort(fake, "Bifrost:Line1", "recipe-edge-cmd", deadlineMs = 300)
             .write("ns=2;s=Recipe/Rpm", "Double", "1500")
         assertFalse(out.ok); assertTrue(out.detail.contains("timeout"))
     }
     @Test fun `a response for an unknown cmdId is dropped`() {
         val fake = FakeMqttTransport()
-        val port = SparkplugNcmdApplyPort(fake, "Koshei:Line1", "recipe-edge", deadlineMs = 300)
+        val port = SparkplugNcmdApplyPort(fake, "Bifrost:Line1", "recipe-edge-cmd", deadlineMs = 300)
         // deliver a stray response BEFORE any request — must not crash
-        fake.deliver("spBv1.0/Koshei:Line1/NDATA/recipe-edge",
+        fake.deliver("bifrost/Bifrost:Line1/RESULT/recipe-edge-cmd",
             SpbCodec.encodeResponse(NcmdResponse("nobody", true)))
         val out = port.write("ns=2;s=Recipe/Rpm","Double","1500")   // still times out
         assertFalse(out.ok)
@@ -34,7 +34,7 @@ class SparkplugNcmdApplyPortTest {
         val fake = FakeMqttTransport()
         fake.onPublish { _, bytes ->
             val cmd = SpbCodec.decodeCommand(bytes)
-            fake.deliver("spBv1.0/Koshei:Line1/NDATA/recipe-edge",
+            fake.deliver("bifrost/Bifrost:Line1/RESULT/recipe-edge-cmd",
                 SpbCodec.encodeResponse(NcmdResponse(cmd.cmdId, true, value="1500.0", good=true)))
         }
         val r = portWith(fake).read("ns=2;s=Recipe/Rpm")
@@ -55,7 +55,7 @@ class SparkplugNcmdApplyPortTest {
         fake.onPublish { topic, bytes ->                       // echo a success response for the same cmdId
             val cmd = SpbCodec.decodeCommand(bytes)
             assertEquals("call", cmd.op)                       // it is the activate command
-            fake.deliver("spBv1.0/Koshei:Line1/NDATA/recipe-edge",
+            fake.deliver("bifrost/Bifrost:Line1/RESULT/recipe-edge-cmd",
                 SpbCodec.encodeResponse(NcmdResponse(cmd.cmdId, true, detail = "rising-edge confirmed")))
         }
         val out = portWith(fake).call(

@@ -257,8 +257,8 @@ The keys below configure the OT adapters, governance features, delegation, and L
 | Key | Purpose |
 |---|---|
 | `KOSHEI_MQTT_URL` | Broker for the R2 NCMD apply path. Default `tcp://localhost:1883`. Read by the worker and the Conductor worker only when `KOSHEI_APPLY_MODE=ncmd`. |
-| `KOSHEI_SPB_GROUP` | Sparkplug group id of the NCMD topics. Default `Koshei:Line1`. Same readers as `KOSHEI_MQTT_URL`. |
-| `KOSHEI_SPB_EDGE` | Sparkplug edge node id the NCMDs are sent to (the bridge). Default `recipe-edge`. Same readers as `KOSHEI_MQTT_URL`. |
+| `KOSHEI_SPB_GROUP` | Sparkplug group id of the NCMD, QUERY and RESULT topics. Default `Bifrost:Line1`, Heimdall's own default. Same readers as `KOSHEI_MQTT_URL`. |
+| `KOSHEI_SPB_EDGE` | Sparkplug edge node id the NCMDs are sent to (Heimdall's command edge). Default `recipe-edge-cmd`, Heimdall's own default. Same readers as `KOSHEI_MQTT_URL`. |
 
 **Governance emit, reconciliation and drift auto-correct** (all read by the control plane)
 

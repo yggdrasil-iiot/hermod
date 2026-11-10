@@ -12,14 +12,20 @@ import java.util.concurrent.TimeoutException
 
 /**
  * "Approach B" [ApplyPort]: instead of writing OPC-UA directly (R1), koshei publishes a
- * Sparkplug B NCMD to a self-bridge over MQTT and awaits a correlated NDATA response.
+ * Sparkplug B NCMD to Bifrost's Heimdall (the command edge) over MQTT and awaits the correlated
+ * answer on Heimdall's RESULT topic.
+ *
+ * Topics follow Heimdall's wire contract (bifrost `docs/INTEGRATION.md`): commands on
+ * `spBv1.0/<group>/NCMD/<edge>`, reads on `bifrost/<group>/QUERY/<edge>`, and every answer
+ * (command outcome, read-back, overload refusal) on `bifrost/<group>/RESULT/<edge>`. QUERY and
+ * RESULT are not Sparkplug topics; the payloads are still Sparkplug B encoded ([SpbCodec]).
  *
  * Correlation: `cmdId` = the request payload uuid; the bridge echoes it in the response uuid.
  * Fail-closed: every method has a deadline; a missing/late/duplicate/unknown response yields a
  * NOT-confirmed outcome (never throws out of an ApplyPort method).
  *
  * @param transport MQTT seam (Paho in prod, a fake in tests).
- * @param group/edge Sparkplug identity (topics derived below).
+ * @param group/edge Sparkplug identity of Heimdall's command edge (topics derived below).
  * @param deadlineMs base await deadline for write/read (call adds the bridge's own poll budget).
  * @param idgen cmdId generator (overridable for deterministic tests).
  */
@@ -32,13 +38,13 @@ class SparkplugNcmdApplyPort(
 ) : ApplyPort, AutoCloseable {
 
     private val ncmdTopic  = "spBv1.0/$group/NCMD/$edge"
-    private val queryTopic = "koshei/$group/QUERY/$edge"
-    private val ndataTopic = "spBv1.0/$group/NDATA/$edge"
+    private val queryTopic  = "bifrost/$group/QUERY/$edge"
+    private val resultTopic = "bifrost/$group/RESULT/$edge"
 
     private val pending = ConcurrentHashMap<String, CompletableFuture<NcmdResponse>>()
 
     init {
-        transport.subscribe(ndataTopic) { onResponse(it) }
+        transport.subscribe(resultTopic) { onResponse(it) }
     }
 
     private fun onResponse(bytes: ByteArray) {
@@ -81,7 +87,7 @@ class SparkplugNcmdApplyPort(
     override fun call(commandNodeId: String, doneNodeId: String, timeoutMs: Long,
                       doneClear: DoneClearMode): ApplyOutcome {
         // Fail closed BEFORE publishing if we can't complete this equipment's handshake on the NCMD path.
-        // Only ON_RELEASE is supported (symmetric with OpcUaApplyPort direct); the lab bridge releases the
+        // Only ON_RELEASE is supported (symmetric with OpcUaApplyPort direct); Heimdall releases the
         // trigger after confirm so the equipment rearms. explicit-reset / master-clears are declared in the
         // enum but unimplemented on both apply paths → fail closed (no actuation, no NCMD published).
         if (doneClear != DoneClearMode.ON_RELEASE) {
@@ -104,8 +110,9 @@ class SparkplugNcmdApplyPort(
     companion object {
         fun default(): SparkplugNcmdApplyPort {
             val url   = System.getenv("KOSHEI_MQTT_URL") ?: "tcp://localhost:1883"
-            val group = System.getenv("KOSHEI_SPB_GROUP") ?: "Koshei:Line1"
-            val edge  = System.getenv("KOSHEI_SPB_EDGE") ?: "recipe-edge"
+            // Defaults = Heimdall's own (NcmdOpcUaBridgeMain: SPB_GROUP, SPB_EDGE).
+            val group = System.getenv("KOSHEI_SPB_GROUP") ?: "Bifrost:Line1"
+            val edge  = System.getenv("KOSHEI_SPB_EDGE") ?: "recipe-edge-cmd"
             val transport = PahoMqttTransport(url, "koshei-ncmd-${UUID.randomUUID()}")
             return SparkplugNcmdApplyPort(transport, group, edge)
         }
