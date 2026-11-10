@@ -1,6 +1,6 @@
 # Koshei
 
-[![License: PolyForm NC](https://img.shields.io/badge/license-PolyForm_Noncommercial_1.0.0-blue.svg)](LICENSE.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Kotlin](https://img.shields.io/badge/Kotlin-JDK_21-7F52FF?logo=kotlin&logoColor=white)
 ![Engines: Temporal | Conductor](https://img.shields.io/badge/engines-Temporal_%7C_Conductor-2088FF)
 ![Status: proof of concept](https://img.shields.io/badge/status-proof--of--concept-orange)
@@ -143,6 +143,6 @@ The project keeps an explicit record of what is grounded and what is still a hyp
 
 ## License
 
-**PolyForm Noncommercial License 1.0.0** — see [`LICENSE.md`](LICENSE.md). Noncommercial use is freely permitted; commercial use is reserved. This is a *source-available* license — it does **not** meet the OSI Open Source Definition; "OSS" here means publicly available and contributable.
+**Apache License, Version 2.0** — see [`LICENSE`](LICENSE). Commercial and noncommercial use are both permitted under Apache-2.0's terms. This is an OSI-approved open-source license (previously under the PolyForm Noncommercial License 1.0.0).
 
 Copyright © 2026 LivingLikeKrillin (livinglikekrillin@gmail.com).

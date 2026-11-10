@@ -8,7 +8,7 @@ This guide is for a developer who wants to **run** Koshei on their own machine, 
 
 Two things to know before you start:
 
-- **License — noncommercial.** Koshei is *source-available* under the [PolyForm Noncommercial License 1.0.0](../LICENSE.md). Noncommercial use is freely permitted; **commercial use is reserved**. This is **not** an OSI-approved open-source license — "OSS" here means publicly available and contributable, not OSI Open Source.
+- **License — Apache-2.0.** Koshei is licensed under the [Apache License, Version 2.0](../LICENSE), an OSI-approved open-source license. Commercial and noncommercial use are both permitted under Apache-2.0's terms.
 - **Maturity — demo-grade.** What you run from this repo is a **single-process local demo**: one worker, the Docker Compose stack on one host. There is no PLC connector, and the OPC UA client and the Sparkplug B / MQTT adapter **target only simulators** (the Sparkplug gates add a broker) in this repository's tests and gate scripts, and none has run against field equipment. There is **no Kubernetes / production deployment**, and the Conductor observation overlay is **eventually consistent**. It is an engineering artifact that proves the durable-saga core, not a shippable product. See [§5](#5-limits--license).
 
 ---
@@ -326,7 +326,7 @@ Each run chooses its engine via `RunRequest.engine`, one of `"temporal"` or `"co
 
 ## 5. Limits & license
 
-**License — PolyForm Noncommercial 1.0.0.** Source-available; **noncommercial use only — commercial use is reserved** ([`LICENSE.md`](../LICENSE.md)). Not OSI-approved open source.
+**License — Apache License, Version 2.0.** OSI-approved open-source license; commercial and noncommercial use are both permitted under Apache-2.0's terms ([`LICENSE`](../LICENSE)).
 
 **Demo-grade, honestly:**
 
