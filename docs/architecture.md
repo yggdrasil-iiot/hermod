@@ -351,6 +351,7 @@ gate scripts:
 | Console (both engines) | `run-console-gate.sh`, `run-conductor-console-gate.sh` |
 | Add-a-block / authoring / compose-run | `run-add-block-gate.sh`, `run-authoring-gate.sh`, `run-compose-run-gate.sh` |
 | Full OT scenario | `run-scenario-gate.sh` |
+| Governed OPC UA apply through Heimdall over NCMD | `scripts/run-r2-ncmd-gate.sh` (builds Heimdall from `BIFROST_DIR`; requires `scripts/run-add-block-gate.sh` to have published the example plugin against the same database first) |
 | Crash recovery (Temporal) | `run-crash-recovery.sh` |
 
 ## 9. Scale-out & deployment topology
@@ -427,9 +428,17 @@ is kept non-breaking toward it. See §10.
   only. There is no PLC protocol. The OPC UA client supports only security `None` and `Double`-only
   writes, and `opcua.call` is a Boolean trigger plus rising-edge poll rather than a UA Method call.
   The Ignition gate (`run-ignition-interop-gate.sh`) has no recorded result in this repository; its
-  NodeIds were browsed from a live Ignition server (2026-07-02). The Sparkplug B / MQTT gate scripts
-  exist and are cross-repo (`sparkplug-governance-lab` bridge, `resequence-twin-lab` host), and the
-  far end is again the Milo simulator. Nothing has run against field equipment.
+  NodeIds were browsed from a live Ignition server (2026-07-02).
+  The Sparkplug B NCMD gate (`scripts/run-r2-ncmd-gate.sh`) runs koshei's `opcua.write` / `opcua.call`
+  over Sparkplug B NCMD (`KOSHEI_APPLY_MODE=ncmd`) through Heimdall, Bifrost's command edge (built
+  from a bifrost checkout given as `BIFROST_DIR`), with the embedded Milo OPC UA simulator at the far
+  end. `scripts/run-add-block-gate.sh` must have published the example plugin against the same
+  database first, because the worker binds every bundled workflow at start. The NCMD gate passed on
+  2026-11-10: happy path, repeated activate, human veto with reverse NCMD restore, a rogue command for
+  an unlisted node denied by Heimdall, an out-of-range rogue value denied by Heimdall, and fail-closed
+  when Heimdall is down. The outbound governance-event gate (`run-outbound-emit-gate.sh`) is
+  cross-repo with `resequence-twin-lab` as the Sparkplug host; this document records no result for it.
+  Nothing has run against field equipment.
 - **Single-version Conductor definitions.** A Conductor definition is keyed by bare `name`; a
   Temporal one by `name@version`; multi-version Conductor is future work
   (`ConductorEnginePort` limitation note).
