@@ -10,10 +10,10 @@ canvas guarantees idempotent re-execution after a crash, ordered compensation of
 a later step fails, bounded retry, and a human approval gate before anything irreversible, all
 without the author writing orchestration code.
 
-The episode outer loop moved to [koshchei](https://github.com/LivingLikeKrillin/koshchei) (private
-repository) on 2026-10-05, and this document covers only the saga platform. Drift auto-correct no
+The episode outer loop moved to [incident-recovery](https://github.com/picasso-robotics/incident-recovery)
+(formerly koshchei) on 2026-10-05, and this document covers only the saga platform. Drift auto-correct no
 longer has an episode mode, and `KOSHEI_PICASSO` is not read. Drift auto-correct acts on OPC UA
-recipes, and koshchei acts on picasso's robots, so the two no longer act on the same things.
+recipes, and incident-recovery acts on picasso's robots, so the two no longer act on the same things.
 
 ## 2. System overview
 
