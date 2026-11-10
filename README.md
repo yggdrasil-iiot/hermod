@@ -15,7 +15,7 @@
 
 *The **same contract** on **Conductor**: same reverse-order compensation, same un-fired PLC, recovered by a whole-run retry. One console observes both engines.*
 
-The episode outer loop that used to be in this repository moved to [koshchei](https://github.com/LivingLikeKrillin/koshchei) (private repository) on 2026-10-05 (from commit `6e66dbe`), which hosts the deterministic state machine that follows one fault on a robot cell from its first symptom to its resolution. Koshei is now only the saga platform. The commit history from before the split stays here.
+The episode outer loop that used to be in this repository moved to [incident-recovery](https://github.com/picasso-robotics/incident-recovery) (formerly koshchei) on 2026-10-05 (from commit `6e66dbe`), which hosts the deterministic state machine that follows one fault on a robot cell from its first symptom to its resolution. Koshei is now only the saga platform. The commit history from before the split stays here.
 
 The project is a proof of concept: the saga demo is a single-process local demo (one worker, the Docker Compose stack on one host).
 
@@ -139,7 +139,7 @@ The project keeps an explicit record of what is grounded and what is still a hyp
 - [`docs/architecture.md`](docs/architecture.md) — the as-built engineering deep-dive (keystone mapping, IR pipeline, module graph, verification, honest limits).
 - [`docs/reference-architecture.md`](docs/reference-architecture.md) — the portfolio picture: how koshei composes with the edge-governance and twin/analytics projects into one governance loop.
 - [`docs/scenario-ot-actuation-demo.md`](docs/scenario-ot-actuation-demo.md) — deep walkthrough of the `ot-recipe-apply` scenario.
-- [koshchei](https://github.com/LivingLikeKrillin/koshchei) (private repository) — the episode outer loop (how to run it, its configuration), which moved there on 2026-10-05.
+- [incident-recovery](https://github.com/picasso-robotics/incident-recovery) (formerly koshchei) — the episode outer loop (how to run it, its configuration), which moved there on 2026-10-05.
 
 ## License
 

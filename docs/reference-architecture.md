@@ -192,7 +192,7 @@ be trusted to drive a real field endpoint.
 
 The episode outer loop, which works over picasso and narrator (two projects outside this
 portfolio), was split out of koshei into its own repository
-[koshchei](https://github.com/LivingLikeKrillin/koshchei) (private repository) on 2026-10-05.
+[incident-recovery](https://github.com/picasso-robotics/incident-recovery) (formerly koshchei) on 2026-10-05.
 koshei no longer hosts it. koshei's role in this document is unchanged.
 
 For the role in the larger picture, the as-built internals, and the full module map (rather than

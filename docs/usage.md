@@ -343,4 +343,4 @@ For the full as-built limits and non-goals see [`docs/architecture.md` §10](arc
 - [`docs/architecture.md`](architecture.md) — engineering deep-dive ([§3](architecture.md#3-the-keystone--block-contract-drives-derived-resilience) contract mapping, [§9](architecture.md#9-scale-out--deployment-topology) deployment topology).
 - [`docs/scenario-ot-actuation-demo.md`](scenario-ot-actuation-demo.md) — the `ot-recipe-apply` walkthrough.
 - [`README.md`](../README.md) — project overview and Quickstart.
-- [koshchei](https://github.com/LivingLikeKrillin/koshchei) (private repository) — the episode outer loop (how to run it, its configuration), which moved there on 2026-10-05.
+- [incident-recovery](https://github.com/picasso-robotics/incident-recovery) (formerly koshchei) — the episode outer loop (how to run it, its configuration), which moved there on 2026-10-05.
