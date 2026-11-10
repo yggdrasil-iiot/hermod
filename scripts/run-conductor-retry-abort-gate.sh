@@ -42,6 +42,7 @@ cd "$(dirname "$0")/.."
 PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
 export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
 export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_APPLY_MODE=direct   # this gate proves the direct OPC UA write path, which bypasses Heimdall; it must be named explicitly (default is ncmd)
 export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
 export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"

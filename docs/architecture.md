@@ -438,6 +438,12 @@ is kept non-breaking toward it. See §10.
   an unlisted node denied by Heimdall, an out-of-range rogue value denied by Heimdall, and fail-closed
   when Heimdall is down. The outbound governance-event gate (`run-outbound-emit-gate.sh`) is
   cross-repo with `resequence-twin-lab` as the Sparkplug host; this document records no result for it.
+  Sparkplug B NCMD over MQTT through Heimdall (R2) is now the default apply path for `opcua.write` /
+  `opcua.call` when `HERMOD_APPLY_MODE` is unset, blank, or `ncmd`. Direct OPC UA (R1), which
+  bypasses Heimdall's policy check, is used only when `HERMOD_APPLY_MODE=direct` is set explicitly
+  (as in direct-path gates such as `run-opcua-gate.sh`), with the worker printing a warning at start
+  and any other value causing the worker and the Conductor worker to stop with an error before
+  polling.
   Nothing has run against field equipment.
 - **Single-version Conductor definitions.** A Conductor definition is keyed by bare `name`; a
   Temporal one by `name@version`; multi-version Conductor is future work

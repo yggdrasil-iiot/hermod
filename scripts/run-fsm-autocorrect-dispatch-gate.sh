@@ -23,6 +23,7 @@ export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
 export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
+export HERMOD_APPLY_MODE=direct   # this gate proves the direct OPC UA write path, which bypasses Heimdall; it must be named explicitly (default is ncmd)
 export HERMOD_MODEL_DIR="$(native_path "${HERMOD_MODEL_DIR:-$(pwd)/model}")"   # native_path (cygpath -m): a native JVM rejects an MSYS /c/... path
 export HERMOD_AUTOCORRECT_DISABLED=1                          # @Scheduled bean OFF — endpoint is the only sweep driver
 

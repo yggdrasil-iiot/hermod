@@ -28,6 +28,7 @@ fun main() {
     val workerName = System.getenv("HERMOD_WORKER_NAME") ?: "conductor-worker-1"
     val serverUrl = System.getenv("CONDUCTOR_SERVER_URL") ?: DEFAULT_CONDUCTOR_URL
     val pollMs = System.getenv("HERMOD_WF_POLL_MS")?.toLongOrNull()?.takeIf { it > 0 } ?: 3000L
+    DispatchAssembly.announceApplyMode(workerName)   // an unknown HERMOD_APPLY_MODE stops the worker here
 
     val registry = DispatchAssembly.buildRegistry(BlockIndex { Db.connect() }, BlockStore())
     val ledger = CompLedger { Db.connect() }

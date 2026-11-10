@@ -20,6 +20,7 @@ const val TASK_QUEUE = "hermod-v0_1-tq"
 
 fun main() {
     val workerName = System.getenv("HERMOD_WORKER_NAME") ?: "worker-1"
+    yggdrasil.hermod.opcua.ApplyPortFactory.announce(workerName)   // an unknown HERMOD_APPLY_MODE stops the worker here
 
     // R2/§8: bind ONCE here, on the main thread, BEFORE polling starts. bind() both validates the def
     // against the loaded manifests (throws on a version/contract mismatch) AND warms the reflection/JIT
