@@ -205,7 +205,7 @@ reconcile() {  # $1=reconciliationId $2=proposalRef
 apply_count() { grep -c "\[BRIDGE\] APPLY cmd=$1" "$BRIDGE_LOG" 2>/dev/null || echo 0; }
 rogue() {  # $1=nodeId $2=value $3=dataType — Heimdall's own single-metric NCMD publisher, bypassing hermod
   MQTT_URL="$HERMOD_MQTT_URL" SPB_GROUP="$HERMOD_SPB_GROUP" SPB_EDGE="$HERMOD_SPB_EDGE" \
-    java -cp "$HEIMDALL_JAR" dev.krillin.bifrost.heimdall.RogueNcmd "$1" "$2" "$3" >>"$ROGUE_LOG" 2>&1 || fail "rogue publish ($1 $2 $3) failed (see $ROGUE_LOG)"
+    java -cp "$HEIMDALL_JAR" yggdrasil.bifrost.heimdall.RogueNcmd "$1" "$2" "$3" >>"$ROGUE_LOG" 2>&1 || fail "rogue publish ($1 $2 $3) failed (see $ROGUE_LOG)"
 }
 
 # ---------------------------------------------------------------------------
