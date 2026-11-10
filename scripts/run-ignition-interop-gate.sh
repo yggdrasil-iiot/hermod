@@ -88,6 +88,11 @@ docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/res
 docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, fault_inject, command_audit" >/dev/null
+# The runs below use fixed workflow ids; one left parked at the human gate by an aborted earlier run makes
+# the run POST fail with WorkflowExecutionAlreadyStarted. Terminate them (a missing id is fine).
+for wid in opcua-happy-1 opcua-restore-1 opcua-eurange-1 opcua-deny-1; do
+  docker compose exec -T temporal temporal workflow terminate --address temporal:7233 --workflow-id "$wid" --reason ignition-gate-reset >/dev/null 2>&1 || true
+done
 echo "[GATE] schemas ensured; state reset"
 
 # ---------------------------------------------------------------------------
@@ -161,7 +166,7 @@ psql_q "TRUNCATE fault_inject, target_rows, command_audit" >/dev/null
 seed_setpoints "recipe.rpmSetpoint=1500" "recipe.tempSetpoint=200"
 RUN_T1="opcua-happy-1"
 curl -fsS -X POST "$RUN_URL" -H 'Content-Type: application/json' -d "{\"runId\":\"$RUN_T1\"}" >/dev/null || fail "T1 start failed"
-wait_node "$RUN_T1" activateRecipe RUNNING || fail "T1 never reached the activate gate (activateRecipe RUNNING)"
+wait_node "$RUN_T1" activateRecipe AWAITING_APPROVAL || fail "T1 never reached the activate gate (activateRecipe AWAITING_APPROVAL)"
 curl -fsS -X POST "$API/api/runs/$RUN_T1/approve" >/dev/null || fail "T1 approve failed"
 curl -fsS "$API/api/runs/$RUN_T1?wait=true" | grep -q '"completed":true' || fail "T1 did not complete after approve"
 curl -fsS "$API/api/runs/$RUN_T1/nodes" | grep -q '"stageRecipe":"DONE"'    || fail "T1 stageRecipe not DONE"
@@ -178,7 +183,7 @@ psql_q "TRUNCATE fault_inject, target_rows, command_audit" >/dev/null
 seed_setpoints "recipe.rpmSetpoint=1500" "recipe.tempSetpoint=200"
 RUN_T2B="opcua-restore-1"
 curl -fsS -X POST "$RUN_URL" -H 'Content-Type: application/json' -d "{\"runId\":\"$RUN_T2B\"}" >/dev/null || fail "T2b start failed"
-wait_node "$RUN_T2B" activateRecipe RUNNING || fail "T2b never reached the activate gate"
+wait_node "$RUN_T2B" activateRecipe AWAITING_APPROVAL || fail "T2b never reached the activate gate"
 [ "$(aud opcua.write WRITTEN)" = "2" ] || fail "T2b stageRecipe should have written 2 setpoints before the gate, got $(aud opcua.write WRITTEN)"
 curl -fsS -X POST "$API/api/runs/$RUN_T2B/reject" >/dev/null || fail "T2b reject failed"
 curl -fsS "$API/api/runs/$RUN_T2B?wait=true" | grep -q '"completed":false' || fail "T2b rejected run should compensate"

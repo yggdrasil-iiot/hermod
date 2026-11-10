@@ -177,7 +177,7 @@ echo "$DEC" | grep -q "^ALLOW ot-recipe-stage-activate$" || fail "T1 expected AL
 # ALLOW -> dispatch the governed run using run-opcua-gate.sh's proven start->wait-gate->approve->wait flow
 RUN_T1="fsm-t1-$$"
 curl -fsS -X POST "$RUN_URL" -H 'Content-Type: application/json' -d "{\"runId\":\"$RUN_T1\"}" >/dev/null || fail "T1 start failed"
-wait_node "$RUN_T1" activateRecipe RUNNING || fail "T1 never reached the activate gate (activateRecipe RUNNING)"
+wait_node "$RUN_T1" activateRecipe AWAITING_APPROVAL || fail "T1 never reached the activate gate (activateRecipe AWAITING_APPROVAL)"
 curl -fsS -X POST "$API/api/runs/$RUN_T1/approve" >/dev/null || fail "T1 approve failed"
 curl -fsS "$API/api/runs/$RUN_T1?wait=true" | grep -q '"completed":true' || fail "T1 run did not complete"
 curl -fsS "$API/api/runs/$RUN_T1/nodes" | grep -q '"stageRecipe":"DONE"'    || fail "T1 stageRecipe not DONE"
