@@ -34,6 +34,7 @@ export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 export HERMOD_FAULT_INJECT=1
 export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
+export HERMOD_APPLY_MODE=direct   # this gate proves the direct OPC UA write path, which bypasses Heimdall; it must be named explicitly (default is ncmd)
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"

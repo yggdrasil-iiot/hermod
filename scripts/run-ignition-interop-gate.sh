@@ -42,6 +42,7 @@ export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 export HERMOD_FAULT_INJECT=1                                   # arm the worker's test-only fault_inject toggle
 export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:62541}"   # Ignition OPC-UA server
+export HERMOD_APPLY_MODE=direct   # this gate proves the direct OPC UA write path, which bypasses Heimdall; it must be named explicitly (default is ncmd)
 export HERMOD_OPCUA_MODEL="$(native_path "$(pwd)/model/ot-site-ignition.yaml")"
 export HERMOD_RECIPE_SETPOINTS="$(native_path "$(pwd)/model/recipe-setpoints-ignition.yaml")"   # canonical DESIRED values; nodeIds must match the site model (CanonicalSetpoints cross-validates at API startup)
 # Ignition grants anonymous READ but denies WRITE (Bad_UserAccessDenied); authenticate as Ignition's

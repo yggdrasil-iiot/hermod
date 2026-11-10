@@ -57,6 +57,7 @@ export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 export HERMOD_FAULT_INJECT=1
 export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
+export HERMOD_APPLY_MODE=direct   # this gate proves the direct OPC UA write path, which bypasses Heimdall; it must be named explicitly (default is ncmd)
 # ---- Outbound-emit wire config. Read by EmitConfig via System.getenv INSIDE the :authoring-api JVM.
 # NOTE (env forwarding, grounded): the emitter lives in :authoring-api, NOT the worker. `:app`'s
 # forwardHermodEnv also forwards HERMOD_EMIT_* to the worker, which ignores them (it does not emit). The
@@ -171,7 +172,7 @@ echo "[GATE] step 5: start twin control (drift + hermod governance subscribe ena
 wait_http_ok "$DRIFT" 120 || { tail -40 "$TWIN_LOG" 2>/dev/null || true; fail "twin /api/drift not up"; }
 echo "[GATE] twin up on 8081 (drift + hermod subscribe)"
 
-echo "[GATE] step 6: start worker (DIRECT R1 apply — HERMOD_APPLY_MODE unset) then API (emits NBIRTH)"
+echo "[GATE] step 6: start worker (DIRECT R1 apply — HERMOD_APPLY_MODE=direct) then API (emits NBIRTH)"
 : > "$WORKER_LOG"
 HERMOD_WORKER_NAME=emit-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 wait_for_log "$WORKER_LOG" "starting; polling" 60 || fail "worker did not reach 'starting; polling'"

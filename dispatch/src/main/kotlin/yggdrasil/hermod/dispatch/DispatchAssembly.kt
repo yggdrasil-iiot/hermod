@@ -16,6 +16,9 @@ import yggdrasil.hermod.registry.Registry
  * IR-lowering + test-block augmentation).
  */
 object DispatchAssembly {
+    /** Validates and prints `HERMOD_APPLY_MODE` at worker start; see [yggdrasil.hermod.opcua.ApplyPortFactory.announce]. */
+    fun announceApplyMode(who: String) { yggdrasil.hermod.opcua.ApplyPortFactory.announce(who) }
+
     private val MANIFEST_IDS = listOf("db.read", "transform.map", "db.upsert", "notify.email", "actuate", "merge", "opcua.write", "opcua.call", "delegate.score")
 
     /** The 9 built-in contracts, loaded from the blocks/opcua/delegation-module manifests on the classpath. */

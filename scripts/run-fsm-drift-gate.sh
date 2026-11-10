@@ -31,6 +31,7 @@ export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}
 export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
 export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort.default() / FsmStateReader read this in the CLI JVM
+export HERMOD_APPLY_MODE=direct   # this gate proves the direct OPC UA write path, which bypasses Heimdall; it must be named explicitly (default is ncmd)
 
 WORK="build/fsm-drift-gate"
 mkdir -p "$WORK"
