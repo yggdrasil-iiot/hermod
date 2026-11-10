@@ -4,9 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export CONDUCTOR_SERVER_URL="${CONDUCTOR_SERVER_URL:-http://localhost:18088/api}"
 
 TWORKER_LOG=/tmp/dag-gate-temporal-worker.log
@@ -19,12 +19,12 @@ CWORKER_LOG=/tmp/dag-gate-conductor-worker.log
 ctl() { ./gradlew -q --no-daemon :conductor-runtime:ctl --args="$*"; }
 
 psql_q() {
-  docker compose exec -T postgres psql -U koshei -d koshei -t -c "$1" | tr -d ' \n\r'
+  docker compose exec -T postgres psql -U hermod -d hermod -t -c "$1" | tr -d ' \n\r'
 }
 
-# Kill the Temporal app worker (koshei.app.WorkerKt)
+# Kill the Temporal app worker (yggdrasil.hermod.app.WorkerKt)
 kill_temporal_jvms() {
-  { jps -l 2>/dev/null | grep 'koshei.app.WorkerKt' || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep 'yggdrasil.hermod.app.WorkerKt' || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -146,7 +146,7 @@ echo ""
 echo "[GATE] assert 2: Temporal diamond run + [merge] fan-in marker (dag-diamond)"
 kill_temporal_jvms
 : > "$TWORKER_LOG"
-KOSHEI_WORKER_NAME=dag ./gradlew -q --no-daemon run >"$TWORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=dag ./gradlew -q --no-daemon run >"$TWORKER_LOG" 2>&1 &
 echo "[GATE]   booting Temporal worker (sleep 22)..."
 sleep 22
 
@@ -222,7 +222,7 @@ echo "[GATE] assert 4a: Temporal compensation (dag-diamond-comp, failAt=notify.e
 # workflow names but poll a DIFFERENT engine, so no contention.
 kill_temporal_jvms
 : > "$TWORKER_LOG"
-KOSHEI_WORKER_NAME=dag ./gradlew -q --no-daemon run >"$TWORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=dag ./gradlew -q --no-daemon run >"$TWORKER_LOG" 2>&1 &
 echo "[GATE]   re-booting Temporal worker (sleep 22)..."
 sleep 22
 

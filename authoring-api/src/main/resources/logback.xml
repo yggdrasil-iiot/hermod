@@ -14,8 +14,8 @@
   </appender>
 
   <!-- Emit surface: keep DEBUG so the Sparkplug publish decision is visible (dropped vs failed vs sent). -->
-  <logger name="koshei.authoring.emit" level="DEBUG"/>
-  <logger name="koshei.opcua" level="DEBUG"/>
+  <logger name="yggdrasil.hermod.authoring.emit" level="DEBUG"/>
+  <logger name="yggdrasil.hermod.opcua" level="DEBUG"/>
 
   <!-- Quiet the frameworks — a governance service must not run at DEBUG/TRACE by default. -->
   <logger name="org.springframework" level="INFO"/>

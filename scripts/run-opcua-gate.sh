@@ -16,9 +16,9 @@
 #   T3  EURange      : rpm=9999 (model high=3000) → stageRecipe fails with EURANGE_REJECT; no activate.
 #   T4  deny         : node absent from command-policy.json → DENIED (deny-by-default); no activate.
 #
-# Bring-up cloned from run-scenario-gate.sh (env incl. KOSHEI_FAULT_INJECT=1, psql_q, kill/cleanup,
+# Bring-up cloned from run-scenario-gate.sh (env incl. HERMOD_FAULT_INJECT=1, psql_q, kill/cleanup,
 # worker+API, save+poll-bind), PLUS: app schema.sql applied (command_audit/source_rows/target_rows),
-# the standalone Milo sim started via :opcua:runSim, and KOSHEI_OPCUA_URL exported into the worker JVM.
+# the standalone Milo sim started via :opcua:runSim, and HERMOD_OPCUA_URL exported into the worker JVM.
 #
 # Run from repo root with the stack up:
 #   docker compose up -d
@@ -26,14 +26,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
-export KOSHEI_FAULT_INJECT=1                                   # arm the worker's test-only fault_inject toggle
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort.default() reads this in the worker JVM
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
+export HERMOD_FAULT_INJECT=1                                   # arm the worker's test-only fault_inject toggle
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"   # OpcUaApplyPort.default() reads this in the worker JVM
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -43,20 +43,20 @@ WORKER_LOG="$WORK/worker.log"
 API_LOG="$WORK/api.log"
 SIM_LOG="$WORK/sim.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 kill_worker_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
 kill_api_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
 kill_sim_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -71,14 +71,14 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db = $KOSHEI_DB_URL ; opcua = $KOSHEI_OPCUA_URL ; poll = ${KOSHEI_WF_POLL_MS}ms ; fault-inject = on"
+echo "[GATE] db = $HERMOD_DB_URL ; opcua = $HERMOD_OPCUA_URL ; poll = ${HERMOD_WF_POLL_MS}ms ; fault-inject = on"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: ensure schemas (registry + app schema.sql for command_audit/source_rows/target_rows) + fault_inject + reset"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 # app schema.sql is NOT applied by run-scenario-gate.sh; we MUST apply it so command_audit (+ source_rows/
 # target_rows) exist for the OPC-UA audit assertions.
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, fault_inject, command_audit" >/dev/null
 echo "[GATE] schemas ensured; state reset"
@@ -93,15 +93,15 @@ for i in $(seq 1 90); do
   sleep 2
 done
 [ "$SIMUP" = "1" ] || { echo "--- sim log ---"; cat "$SIM_LOG" 2>/dev/null || true; fail "OPC-UA sim did not start (no 'OPC-UA sim listening' within ~180s)"; }
-echo "[GATE] OPC-UA sim listening on $KOSHEI_OPCUA_URL"
+echo "[GATE] OPC-UA sim listening on $HERMOD_OPCUA_URL"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 1: build worker + API"
 ./gradlew -q --no-daemon :app:build -x test :authoring-api:build -x test >/dev/null
 
-echo "[GATE] step 2: start the worker (background, fault-inject armed + KOSHEI_OPCUA_URL) BEFORE composing; then start API"
+echo "[GATE] step 2: start the worker (background, fault-inject armed + HERMOD_OPCUA_URL) BEFORE composing; then start API"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=opcua-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=opcua-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 WUP=0
 for i in $(seq 1 60); do
   if grep -q "starting; polling" "$WORKER_LOG" 2>/dev/null; then WUP=1; break; fi
@@ -125,7 +125,7 @@ echo "[GATE] step 3: save ot-recipe-stage-activate@1.0.0 + wait for the LIVE wor
 SAVE_CODE=$(curl -s -o "$WORK/save_osa.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" -H 'Content-Type: application/json' --data-binary "@$FIX/ot-recipe-stage-activate.json")
 echo "[GATE] save ot-recipe-stage-activate@1.0.0 http=$SAVE_CODE body=$(cat "$WORK/save_osa.json")"
 [ "$SAVE_CODE" = "200" ] || fail "save ot-recipe-stage-activate@1.0.0 expected 200, got $SAVE_CODE"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 echo "[GATE] sleeping ${SLEEP_S}s for the worker to poll-bind ot-recipe-stage-activate@1.0.0..."
 sleep "$SLEEP_S"
 grep -q "\[worker\] bound workflow ot-recipe-stage-activate@1.0.0" "$WORKER_LOG" || fail "worker did not poll-bind ot-recipe-stage-activate@1.0.0"

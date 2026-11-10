@@ -14,11 +14,11 @@ export async function startRun(
   return (await res.json()).runId ?? opts.runId;
 }
 
-// fault_inject is a test-only DB toggle (worker honors it when KOSHEI_FAULT_INJECT=1). psql via docker.
+// fault_inject is a test-only DB toggle (worker honors it when HERMOD_FAULT_INJECT=1). psql via docker.
 function psql(sql: string): string {
   return execFileSync(
     "docker",
-    ["compose", "exec", "-T", "postgres", "psql", "-U", "koshei", "-d", "koshei", "-tAc", sql],
+    ["compose", "exec", "-T", "postgres", "psql", "-U", "hermod", "-d", "hermod", "-tAc", sql],
     { encoding: "utf8" },
   ).trim();
 }

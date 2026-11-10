@@ -6,8 +6,8 @@ plugins {
 kotlin { jvmToolchain(21) }
 tasks.test {
     useJUnitPlatform()
-    systemProperty("koshei.repoRoot", rootProject.projectDir.absolutePath)
-    environment.remove("KOSHEI_RECIPE_SETPOINTS")  // hermetic: CanonicalAbsentTest asserts the no-canonical boot path
+    systemProperty("hermod.repoRoot", rootProject.projectDir.absolutePath)
+    environment.remove("HERMOD_RECIPE_SETPOINTS")  // hermetic: CanonicalAbsentTest asserts the no-canonical boot path
 }
 dependencies {
     implementation(project(":core"))
@@ -35,12 +35,12 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.temporal.testing)
 }
-application { mainClass.set("koshei.authoring.AuthoringApplicationKt") }
+application { mainClass.set("yggdrasil.hermod.authoring.AuthoringApplicationKt") }
 
-// Make env forwarding explicit and consistent with `:app` (see `forwardKosheiEnv` in app/build.gradle.kts):
-// forward every KOSHEI_* var from the live shell into the forked `run` JVM, so switches like
-// KOSHEI_PUBLISH_DISABLED / KOSHEI_BIND_ADDRESS reach the control plane the same way they reach the worker
+// Make env forwarding explicit and consistent with `:app` (see `forwardHermodEnv` in app/build.gradle.kts):
+// forward every HERMOD_* var from the live shell into the forked `run` JVM, so switches like
+// HERMOD_PUBLISH_DISABLED / HERMOD_BIND_ADDRESS reach the control plane the same way they reach the worker
 // and the CLI. No-op when unset.
 tasks.named<JavaExec>("run") {
-    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
+    System.getenv().filterKeys { it.startsWith("HERMOD_") }.forEach { (k, v) -> environment(k, v) }
 }

@@ -9,7 +9,7 @@ states:
   - { id: Complete, code: 17 }
   - { id: Aborted,  code: 9 }
 transitions:
-  - { id: loadRecipe, from: Idle, to: Idle, command: LoadRecipe, driver: koshei, action: { workflow: ot-recipe-stage-activate } }
+  - { id: loadRecipe, from: Idle, to: Idle, command: LoadRecipe, driver: hermod, action: { workflow: ot-recipe-stage-activate } }
   - { id: start, from: Idle, to: Execute, command: Start, driver: field }
   - { id: hold, from: Execute, to: Held, command: Hold, driver: field }
   - { id: complete, from: Execute, to: Complete, command: null, driver: field }

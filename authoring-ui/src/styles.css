@@ -1,5 +1,5 @@
 /* =============================================================================
-   KOSHEI Block Authoring Console — design system
+   HERMOD Block Authoring Console — design system
    Aesthetic: industrial control surface / aerospace ground-station instrument panel.
    Graphite base, warm paper-white ink, one acid-lime accent for affordance, and the
    domain risk triad (red/amber/green) as load-bearing signal colors with glow + LED.
@@ -1492,7 +1492,7 @@ a.link {
 .fsm-node-id { font-weight: 600; }
 .fsm-node-code { font-size: 11px; opacity: 0.7; }
 .fsm-node.fsm-invalid { border-color: #ff5c5c; box-shadow: 0 0 0 1px #ff5c5c; }
-.react-flow__edge.fsm-edge-koshei .react-flow__edge-path { stroke: #7fd77f; }
+.react-flow__edge.fsm-edge-hermod .react-flow__edge-path { stroke: #7fd77f; }
 .react-flow__edge.fsm-edge-field .react-flow__edge-path { stroke: #6aa0ff; }
 .react-flow__edge.fsm-invalid .react-flow__edge-path { stroke: #ff5c5c; }
 .fsm-yaml-rail { display: flex; flex-direction: column; gap: 12px; overflow: auto; }

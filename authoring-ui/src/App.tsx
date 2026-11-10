@@ -71,7 +71,7 @@ export default function App() {
         <div className="brand">
           <div className="mark">
             <span className="led" />
-            KOSHEI
+            HERMOD
           </div>
           <div className="sub">Block Authoring</div>
         </div>

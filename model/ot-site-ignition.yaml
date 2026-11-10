@@ -1,20 +1,20 @@
-# Ignition OPC-UA interop model variant. Loaded by ABSOLUTE PATH via KOSHEI_OPCUA_MODEL
+# Ignition OPC-UA interop model variant. Loaded by ABSOLUTE PATH via HERMOD_OPCUA_MODEL
 # (SiteModel.default -> fromFile); it is NOT the runtime default-load target (that stays
 # model/ot-site.yaml on the classpath). Reuses the SAME logical node keys as ot-site.yaml
 # so model/command-policy.json needs NO change.
 #
 # NodeIds resolved from the live Ignition OPC-UA server (2026-07-02): the exposed-tags namespace
 # `urn:inductiveautomation:ignition:opcua:tags` = ns=2 on this server; string identifiers are the
-# Designer OPC-item paths (`[default]/koshei/Line1/<tag>`). koshei's Milo `NodeId.parse` requires the
+# Designer OPC-item paths (`[default]/hermod/Line1/<tag>`). hermod's Milo `NodeId.parse` requires the
 # numeric `ns=<index>` form (it rejects the `nsu=<uri>` form Designer displays); the index is
 # server-specific — re-browse if the server's namespace table changes (see docs/ignition-interop-runbook.md).
 # command.type stays `Method` (declarative intent); R1 backs it with a Boolean-trigger write, so the
 # Ignition `ApplyRecipe` tag is a writable Boolean (NOT a UA Method).
 endpoint: "opc.tcp://localhost:62541"   # Ignition OPC-UA server
 nodes:
-  recipe.rpmSetpoint:  { nodeId: "ns=2;s=[default]/koshei/Line1/Rpm",  type: Double, euRange: { low: 0, high: 3000 } }
-  recipe.tempSetpoint: { nodeId: "ns=2;s=[default]/koshei/Line1/Temp", type: Double, euRange: { low: 0, high: 450  } }
+  recipe.rpmSetpoint:  { nodeId: "ns=2;s=[default]/hermod/Line1/Rpm",  type: Double, euRange: { low: 0, high: 3000 } }
+  recipe.tempSetpoint: { nodeId: "ns=2;s=[default]/hermod/Line1/Temp", type: Double, euRange: { low: 0, high: 450  } }
 activate:
-  command:  { nodeId: "ns=2;s=[default]/koshei/Line1/ApplyRecipe", type: Method }
-  doneNode: { nodeId: "ns=2;s=[default]/koshei/Line1/ApplyDone", type: Boolean }
+  command:  { nodeId: "ns=2;s=[default]/hermod/Line1/ApplyRecipe", type: Method }
+  doneNode: { nodeId: "ns=2;s=[default]/hermod/Line1/ApplyDone", type: Boolean }
   doneClear: on-release

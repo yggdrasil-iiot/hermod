@@ -73,7 +73,7 @@ export async function publish(
   form.append("jar", jar, jar.name);
   const res = await fetch("/api/publish", { method: "POST", body: form });
   // PublishController returns 200 {ok:true} on success, 400 {ok:false, errors:[...]} on a gating
-  // rejection, and 403 {ok:false, errors:[...]} when publish is disabled (KOSHEI_PUBLISH_DISABLED).
+  // rejection, and 403 {ok:false, errors:[...]} when publish is disabled (HERMOD_PUBLISH_DISABLED).
   // All three carry a JSON PublishResponse body that the UI renders as a value, so parse the body for
   // any of them rather than throwing. Only genuine transport / 5xx / non-JSON errors throw.
   if (res.status === 200 || res.status === 400 || res.status === 403) {

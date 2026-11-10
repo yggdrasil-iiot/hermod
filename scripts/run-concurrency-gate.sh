@@ -3,11 +3,11 @@
 # compensation under partial parallel failure. PASS = 3 hard asserts. Temporal-only (Conductor = v0.3c).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}" KOSHEI_DB_USER=koshei KOSHEI_DB_PASS=koshei
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}" HERMOD_DB_USER=hermod HERMOD_DB_PASS=hermod
 WORKER_LOG=/tmp/concurrency-gate-worker.log
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -t -c "$1" | tr -d ' \n\r'; }
-kill_worker_jvms() { { jps -l | grep koshei.app.WorkerKt || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -t -c "$1" | tr -d ' \n\r'; }
+kill_worker_jvms() { { jps -l | grep yggdrasil.hermod.app.WorkerKt || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 trap kill_worker_jvms EXIT
 
 # poll `starter result <id>` until it prints completed= (terminal), then echo the line
@@ -41,7 +41,7 @@ wait_for_count() {
 echo "[GATE] boot Temporal app worker..."
 kill_worker_jvms
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=conc ./gradlew -q --no-daemon run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=conc ./gradlew -q --no-daemon run >"$WORKER_LOG" 2>&1 &
 sleep 22
 
 # ---- assert 1: actual concurrency (worker-log wall-clock overlap; slow ONLY the parallel branches) ----

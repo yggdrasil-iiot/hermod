@@ -6,7 +6,7 @@
 # ANTHROPIC_API_KEY is unset — that is the ONLY path verifiable in an environment without a key.
 #
 # What this proves when a key IS present: the natural-language -> FsmSpec format contract holds end to
-# end — :authoring-api boots with KOSHEI_LLM_ASSIST=anthropic, each golden prompt in
+# end — :authoring-api boots with HERMOD_LLM_ASSIST=anthropic, each golden prompt in
 # scripts/fixtures/llm-assist-golden.jsonl comes back as HTTP 200 with a non-empty FsmSpec, and that spec
 # (converted to house-style YAML, dropped into a throwaway model/ copy under a DISTINCT name/unit so it
 # cannot collide with the shipped packml-line1.*) passes the real `:app:cli conformance` gate — the same
@@ -49,7 +49,7 @@ API_LOG="$WORK/api.log"
 
 TMP_MODEL=""
 cleanup() {
-  kill_jvms_by "koshei.authoring.AuthoringApplicationKt" || true
+  kill_jvms_by "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true
   [ -n "$TMP_MODEL" ] && rm -rf "$TMP_MODEL" || true
 }
 trap cleanup EXIT
@@ -68,10 +68,10 @@ fail() {
 echo "[GATE] step 1: build :authoring-api"
 ./gradlew -q --no-daemon :authoring-api:build -x test >/dev/null
 
-echo "[GATE] step 2: boot :authoring-api with KOSHEI_LLM_ASSIST=anthropic"
-KOSHEI_LLM_ASSIST=anthropic ./gradlew -q --no-daemon :authoring-api:run >"$API_LOG" 2>&1 &
+echo "[GATE] step 2: boot :authoring-api with HERMOD_LLM_ASSIST=anthropic"
+HERMOD_LLM_ASSIST=anthropic ./gradlew -q --no-daemon :authoring-api:run >"$API_LOG" 2>&1 &
 wait_tcp localhost 18090 60 2 || fail "authoring-api did not come up on :18090 (see log tail below)"
-echo "[GATE] authoring-api up on 18090 (KOSHEI_LLM_ASSIST=anthropic)"
+echo "[GATE] authoring-api up on 18090 (HERMOD_LLM_ASSIST=anthropic)"
 
 # Tiny throwaway JS: FsmSpecDto JSON -> house-style YAML (mirrors authoring-ui's fsmYaml.ts emitFsmYaml),
 # with the top-level name/unit forced to a value distinct from the shipped packml-line1.* set so the
@@ -161,7 +161,7 @@ cat > "$EDIT_REQ" <<'JSON'
  "context":{"name":"packml-line1","unit":"line1","version":"v1","stateNode":"line1.stateCurrent",
   "states":[{"id":"Idle","code":4},{"id":"Execute","code":6},{"id":"Aborted","code":9}],
   "transitions":[
-    {"id":"loadRecipe","from":"Idle","to":"Idle","command":"LoadRecipe","driver":"koshei","action":{"workflow":"ot-recipe-stage-activate"}},
+    {"id":"loadRecipe","from":"Idle","to":"Idle","command":"LoadRecipe","driver":"hermod","action":{"workflow":"ot-recipe-stage-activate"}},
     {"id":"start","from":"Idle","to":"Execute","command":"Start","driver":"field"},
     {"id":"abort","from":"Execute","to":"Aborted","command":"Abort","driver":"field"}]}}
 JSON

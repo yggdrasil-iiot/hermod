@@ -13,7 +13,7 @@ CREATE TABLE comp_ledger (
   idx         int,             -- v0.6c: 0-based reverse-topo execution order
   PRIMARY KEY (workflow_id, node_id)
 );
--- v0.4b/c: test-only fault toggle. When KOSHEI_FAULT_INJECT is set on the worker, BlockActivitiesImpl throws a
+-- v0.4b/c: test-only fault toggle. When HERMOD_FAULT_INJECT is set on the worker, BlockActivitiesImpl throws a
 -- permanent failure for any (block_id, phase) present here. phase distinguishes a forward fault (v0.4b, operator
 -- retry proof) from a compensate fault (v0.4c, best-effort timeline proof). DROP+CREATE because a bare CREATE IF
 -- NOT EXISTS can't add the phase column to the v0.4b single-column table. Empty + env-unset in prod -> inert.
@@ -53,6 +53,6 @@ DROP TABLE IF EXISTS reconciliation_provenance;
 CREATE TABLE reconciliation_provenance (
   run_id        text   NOT NULL,
   def_ref       text   NOT NULL,   -- git last-commit SHA (provenance metadata, from the manifest)
-  content_sha256 text  NOT NULL,   -- v3: the hash koshei COMPUTED and verified (self-attested)
+  content_sha256 text  NOT NULL,   -- v3: the hash hermod COMPUTED and verified (self-attested)
   at_millis     bigint NOT NULL
 );

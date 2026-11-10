@@ -18,7 +18,7 @@
 #   bash scripts/init-db.sh
 #   bash scripts/run-add-block-gate.sh   # expect: [GATE] PASS ... exit 0
 #
-# WINDOWS KILL NOTE (REF run-crash-recovery.sh): `./gradlew run` forks a separate JVM (koshei.app.WorkerKt);
+# WINDOWS KILL NOTE (REF run-crash-recovery.sh): `./gradlew run` forks a separate JVM (yggdrasil.hermod.app.WorkerKt);
 # $! is the wrapper PID, not the JVM. We resolve the real JVM via `jps` and taskkill by PID.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,11 +27,11 @@ cd "$(dirname "$0")/.."
 # --- worker resolves a jar_path the CLI never wrote. Pin both here so both child JVMs inherit them. ---
 # The store dir reaches the forked JVMs as a Windows path (cygpath -w) so java.io.File reads it correctly;
 # shell ops (rm -rf) need the MSYS form, kept separately in PLUGIN_DIR_SH.
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 
 WF="greet-$(date +%s)"
 PLUGIN_JAR="examples/greet-plugin/build/libs/greet-plugin.jar"
@@ -42,11 +42,11 @@ PLUGIN_JAR="examples/greet-plugin/build/libs/greet-plugin.jar"
 PLUGIN_JAR_ABS="$(cygpath -w "$(pwd)/$PLUGIN_JAR" 2>/dev/null || echo "$(pwd)/$PLUGIN_JAR")"
 WORKER_LOG="/tmp/gate-worker.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei "$@"; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod "$@"; }
 
 kill_worker_jvms() {
   local pids
-  pids=$({ jps -l | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}')
+  pids=$({ jps -l | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}')
   for p in $pids; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done
   sleep 2
 }
@@ -54,10 +54,10 @@ kill_worker_jvms() {
 cleanup() { kill_worker_jvms || true; }
 trap cleanup EXIT
 
-echo "[GATE] plugin dir = $KOSHEI_PLUGIN_DIR ; db = $KOSHEI_DB_URL"
+echo "[GATE] plugin dir = $HERMOD_PLUGIN_DIR ; db = $HERMOD_DB_URL"
 
 echo "[GATE] step 0: ensure registry schema (block_index) + reset registry state + seed a source row"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 # Reset so re-runs are clean (publish rejects duplicate id#version; immutable versions).
 psql_q -c "DELETE FROM block_index WHERE id='io.example.greet';" >/dev/null
 rm -rf "$PLUGIN_DIR_SH/io.example.greet"
@@ -65,9 +65,9 @@ psql_q -c "TRUNCATE source_rows;" >/dev/null
 psql_q -c "TRUNCATE target_rows;" >/dev/null
 psql_q -c "INSERT INTO source_rows(id,val) VALUES('A1','x') ON CONFLICT(id) DO UPDATE SET val='x';" >/dev/null
 
-# --no-daemon throughout: a daemon captures its env at startup, so the gate's exported KOSHEI_* would not
+# --no-daemon throughout: a daemon captures its env at startup, so the gate's exported HERMOD_* would not
 # reach a pre-existing daemon. With --no-daemon the Gradle launcher JVM inherits THIS shell's env, and the
-# app build forwards KOSHEI_* into the forked task JVMs (see app/build.gradle.kts forwardKosheiEnv).
+# app build forwards HERMOD_* into the forked task JVMs (see app/build.gradle.kts forwardHermodEnv).
 echo "[GATE] step 1: publish host :core + :sdk to mavenLocal"
 ./gradlew -q --no-daemon :core:publishToMavenLocal :sdk:publishToMavenLocal
 
@@ -96,7 +96,7 @@ JAR_PATH_SH=$(cygpath -u "$JAR_PATH" 2>/dev/null || echo "$JAR_PATH")
 
 echo "[GATE] step 5: start worker (binds demo + demo-with-greet); resolve real JVM via jps"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=gate-w ./gradlew -q --no-daemon run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=gate-w ./gradlew -q --no-daemon run >"$WORKER_LOG" 2>&1 &
 sleep 22   # cold --no-daemon JVM start + bind both workflows + begin polling
 
 echo "[GATE] step 6: run the demo-with-greet workflow $WF (db.read -> ... -> greet -> actuate)"

@@ -1,7 +1,7 @@
 # Git-canonical DESIRED setpoint values (the values the field should hold).
 # Complements model/ot-site.yaml (which declares node identity / type / EURange).
 # Single source of truth for the integration PoV:
-#   - koshei drives the field TO these values (ReconciliationController -> ot-recipe-stage-activate).
+#   - hermod drives the field TO these values (ReconciliationController -> ot-recipe-stage-activate).
 #   - the resequence twin reads these AS desired to detect drift.
 # nodeId/type are denormalized here for the external consumer; CanonicalSetpoints.load()
 # fail-closes if any entry disagrees with the authoritative ot-site.yaml.

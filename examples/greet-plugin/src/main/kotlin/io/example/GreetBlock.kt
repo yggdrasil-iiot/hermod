@@ -1,11 +1,11 @@
 package io.example
 
-import koshei.sdk.Block
-import koshei.sdk.BlockInput
-import koshei.sdk.BlockOutput
+import yggdrasil.hermod.sdk.Block
+import yggdrasil.hermod.sdk.BlockInput
+import yggdrasil.hermod.sdk.BlockOutput
 
 /**
- * External example plugin block. Built against `io.koshei:sdk` from mavenLocal (compileOnly); the host
+ * External example plugin block. Built against `yggdrasil.hermod:sdk` from mavenLocal (compileOnly); the host
  * provides the sdk at runtime, so the plugin jar carries ONLY io.example.* — proving the §15 v0.2 gate:
  * an outside engineer's jar is published, resolved, isolation-loaded (child URLClassLoader), and run.
  *

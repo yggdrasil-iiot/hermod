@@ -1,8 +1,8 @@
-# Koshei — Architecture (as-built)
+# Hermod — Architecture (as-built)
 
 ## 1. Purpose and the hard problem
 
-Koshei is the saga platform, which composes and runs contract-driven durable sagas on Temporal or
+Hermod is the saga platform, which composes and runs contract-driven durable sagas on Temporal or
 Conductor for transactional OT/IT integration. In these workflows, the final step is often an
 irreversible side-effect, such as writing a recipe to a PLC, and the people composing the canvas are
 operators who do not write code. The hard problem is ensuring that every step dragged onto the
@@ -12,7 +12,7 @@ without the author writing orchestration code.
 
 The episode outer loop moved to [incident-recovery](https://github.com/picasso-robotics/incident-recovery)
 (formerly koshchei) on 2026-10-05, and this document covers only the saga platform. Drift auto-correct no
-longer has an episode mode, and `KOSHEI_PICASSO` is not read. Drift auto-correct acts on OPC UA
+longer has an episode mode, and no picasso variable is read. Drift auto-correct acts on OPC UA
 recipes, and incident-recovery acts on picasso's robots, so the two no longer act on the same things.
 
 ## 2. System overview
@@ -64,7 +64,7 @@ flowchart LR
 
 ## 3. The keystone — block contract drives derived resilience
 
-Every block ships a declarative `BlockContract` (`core/src/main/kotlin/koshei/core/Contract.kt`)
+Every block ships a declarative `BlockContract` (`core/src/main/kotlin/hermod/core/Contract.kt`)
 loaded from a YAML manifest. The runtime derives all resilience behaviour generically from these
 fields, with no per-workflow orchestration code. The mapping is:
 
@@ -86,7 +86,7 @@ a `WAIT` task (`ConductorBackend.needsWait` → `taskFor`, type `WAIT`, 24h task
 ## 4. Engine neutrality — compile once, run on two engines (the headline)
 
 The control plane compiles an operator's workflow **once** into an engine-neutral `WorkflowIR`
-(`compiler/src/main/kotlin/koshei/compiler/Ir.kt`, produced by `WorkflowCompiler.compile`), then a
+(`compiler/src/main/kotlin/hermod/compiler/Ir.kt`, produced by `WorkflowCompiler.compile`), then a
 backend lowers that single IR to a concrete engine. The contract is the carrier: each `IrNode`
 holds the resolved, version-pinned `BlockContract`, so both backends read the same resilience facts.
 
@@ -119,10 +119,10 @@ The module placement across compiler and runtime boundaries is deliberately **as
   order (`TemporalBackend.lower` = `ir.nodes.map { it.contract }`).
 - **Engine ports**: The `EnginePort` interface lives in `:runtime`. `TemporalEnginePort` is in
   `:runtime`; `ConductorEnginePort` is in the `:authoring-api` edge, so that `:conductor-runtime`
-  itself never depends on Temporal or on `koshei.runtime`.
+  itself never depends on Temporal or on `yggdrasil.hermod.runtime`.
 
 **Boundary invariants** (verified, see §8): Measured on 2026-10-04, `:conductor-runtime/src/main`
-contains 0 `io.temporal` imports and 0 `koshei.runtime` imports. Spring Boot is a dependency of
+contains 0 `io.temporal` imports and 0 `yggdrasil.hermod.runtime` imports. Spring Boot is a dependency of
 `:authoring-api` only; `:app` is a plain Kotlin application with no Spring dependency. Sources in
 `:core / :registry / :compiler / :dispatch` contain 0 `org.springframework` imports, and assert 7 of
 `run-authoring-gate.sh` checks that the `:core`, `:registry`, `:compiler` and `:dispatch` jars carry
@@ -361,7 +361,7 @@ portal. It does so **by design**, subject to the as-built caveat at the end of t
 
 - **Backend scales horizontally.** Workers poll a shared task queue, so throughput increases by
   adding worker replicas without code changes. On Temporal, `app/.../Worker.kt` starts a
-  `WorkerFactory` worker that polls the shared `koshei-v0_1-tq` task queue (`factory.start()`). On
+  `WorkerFactory` worker that polls the shared `hermod-v0_1-tq` task queue (`factory.start()`). On
   Conductor, `conductor-runtime/.../ConductorWorkerMain.kt` boots one `ForwardWorker` per block id
   the registry knows (the builtins and every published plugin block, task type = blockId) plus a
   `CompensateWorker`, all polling Conductor via `TaskRunnerConfigurer`. Additional replicas add
@@ -429,8 +429,8 @@ is kept non-breaking toward it. See §10.
   writes, and `opcua.call` is a Boolean trigger plus rising-edge poll rather than a UA Method call.
   The Ignition gate (`run-ignition-interop-gate.sh`) has no recorded result in this repository; its
   NodeIds were browsed from a live Ignition server (2026-07-02).
-  The Sparkplug B NCMD gate (`scripts/run-r2-ncmd-gate.sh`) runs koshei's `opcua.write` / `opcua.call`
-  over Sparkplug B NCMD (`KOSHEI_APPLY_MODE=ncmd`) through Heimdall, Bifrost's command edge (built
+  The Sparkplug B NCMD gate (`scripts/run-r2-ncmd-gate.sh`) runs hermod's `opcua.write` / `opcua.call`
+  over Sparkplug B NCMD (`HERMOD_APPLY_MODE=ncmd`) through Heimdall, Bifrost's command edge (built
   from a bifrost checkout given as `BIFROST_DIR`), with the embedded Milo OPC UA simulator at the far
   end. `scripts/run-add-block-gate.sh` must have published the example plugin against the same
   database first, because the worker binds every bundled workflow at start. The NCMD gate passed on
@@ -443,11 +443,11 @@ is kept non-breaking toward it. See §10.
   Temporal one by `name@version`; multi-version Conductor is future work
   (`ConductorEnginePort` limitation note).
 - **E2E/GIFs run locally and on demand**, not in continuous CI.
-- **Product and demand axis is unvalidated.** Koshei is an engineering artifact, not a
+- **Product and demand axis is unvalidated.** Hermod is an engineering artifact, not a
   market-proven product.
 
 ## 11. Design rationale and decision record
 
 - `docs/scenario-ot-actuation-demo.md` — the deep walkthrough of the `ot-recipe-apply` scenario.
-- `docs/usage.md` — the **Using & Extending Koshei** developer guide: run it, author your own block (the SDK + `:app:cli` scaffold/publish flow), operate, and configure.
+- `docs/usage.md` — the **Using & Extending Hermod** developer guide: run it, author your own block (the SDK + `:app:cli` scaffold/publish flow), operate, and configure.
 

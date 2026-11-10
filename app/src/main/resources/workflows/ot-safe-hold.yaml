@@ -1,10 +1,10 @@
 name: ot-safe-hold
-# R4 governed Hold-on-drift: the corrective saga koshei dispatches (human-gated) when an operator runs
-# `fsm hold <unit>` after a detected drift and the FSM's koshei-driven SafeHold transition is ALLOWed.
+# R4 governed Hold-on-drift: the corrective saga hermod dispatches (human-gated) when an operator runs
+# `fsm hold <unit>` after a detected drift and the FSM's hermod-driven SafeHold transition is ALLOWed.
 # Issues a governed, human-approved OPC-UA command (opcua.call = irreversible, rising-edge confirm-by-read);
-# the equipment's transition to the safe state is the field/PLC response — koshei does NOT write the
+# the equipment's transition to the safe state is the field/PLC response — hermod does NOT write the
 # stateCurrent read-node (that is the PLC's read-back, and is deny-by-default under command-policy).
-# See design docs/superpowers/specs/2026-07-03-koshei-r4-governed-hold-on-drift-design.md.
+# See design docs/superpowers/specs/2026-07-03-hermod-r4-governed-hold-on-drift-design.md.
 steps:
   - { block: db.read,    version: "1.0.0", id: read }
   - { block: opcua.call, version: "1.0.0", id: safeHoldCall }

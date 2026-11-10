@@ -19,9 +19,9 @@
     <text x="80" y="132" font-size="11" fill="#0969da">governance &#183; downward command</text>
   </g>
 
-  <!-- koshei D4 banner (top, spans both axes) -->
+  <!-- hermod D4 banner (top, spans both axes) -->
   <rect x="340" y="64" width="600" height="94" rx="6" fill="#eaf3ea" stroke="#1a7f37" stroke-width="1.6"/>
-  <text x="640" y="96" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">koshei — D4 orchestration &amp; governance</text>
+  <text x="640" y="96" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2328">hermod — D4 orchestration &amp; governance</text>
   <text x="640" y="118" text-anchor="middle" font-size="11" fill="#57606a">Git canonical model = system-of-record &#183; deny-by-default authorization</text>
   <text x="640" y="136" text-anchor="middle" font-size="11" fill="#57606a">durable saga &#183; genealogy lockpoint &#183; human gate — restores what UNS dissolves</text>
 
@@ -45,7 +45,7 @@
   <rect x="88" y="558" width="472" height="170" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="324" y="600" text-anchor="middle" font-size="12.5" fill="#1f2328">L1 &#183; L0 — Field &#183; PLC &#183; sensors / actuators</text>
   <text x="324" y="622" text-anchor="middle" font-size="11" fill="#57606a">D1 Safety &#183; D2 Hard-RT</text>
-  <text x="324" y="642" text-anchor="middle" font-size="11" fill="#57606a">certified &amp; untouchable — koshei never enters</text>
+  <text x="324" y="642" text-anchor="middle" font-size="11" fill="#57606a">certified &amp; untouchable — hermod never enters</text>
 
   <!-- ================= RIGHT LANE : UNS data axis ================= -->
   <rect x="680" y="196" width="536" height="576" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
@@ -63,9 +63,9 @@
   <text x="956" y="426" text-anchor="middle" font-size="11" fill="#1f2328">point-to-point wiring disappears, but—</text>
   <text x="956" y="452" text-anchor="middle" font-size="11.5" font-weight="600" fill="#cf222e">system-of-record &#183; authorization &#183; genealogy authority = vacuum</text>
 
-  <!-- restoration callout : koshei fills the vacuum (pairs with collapse box) -->
+  <!-- restoration callout : hermod fills the vacuum (pairs with collapse box) -->
   <rect x="728" y="576" width="456" height="136" rx="6" fill="#eaf3ea" stroke="#1a7f37" stroke-width="1.4"/>
-  <text x="956" y="604" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f37">koshei D4 — fills this vacuum</text>
+  <text x="956" y="604" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f37">hermod D4 — fills this vacuum</text>
   <text x="956" y="630" text-anchor="middle" font-size="11" fill="#1f2328">authority → Git canonical = system-of-record</text>
   <text x="956" y="652" text-anchor="middle" font-size="11" fill="#1f2328">authorization → deny-by-default policy</text>
   <text x="956" y="674" text-anchor="middle" font-size="11" fill="#1f2328">genealogy → lockpoint &#183; human gate</text>
@@ -78,16 +78,16 @@
   <polyline points="560,496 728,496" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#agrey)"/>
   <polyline points="560,643 712,643" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#agrey)"/>
 
-  <!-- observation : UNS bus -> koshei (dashed) -->
+  <!-- observation : UNS bus -> hermod (dashed) -->
   <polyline points="1080,256 1080,180 900,180 900,158" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#agrey)"/>
   <g><rect x="1000" y="164" width="168" height="16" fill="#ffffff"/><text x="1004" y="176" font-size="11" fill="#57606a">observe &#183; subscribe drift</text></g>
 
-  <!-- governed command spine : koshei -> down ISA-95 axis -> field -->
+  <!-- governed command spine : hermod -> down ISA-95 axis -> field -->
   <polyline points="360,158 360,182 72,182 72,643 88,643" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ablue)"/>
   <g><rect x="60" y="300" width="162" height="16" fill="#fbfcfd"/><text x="64" y="312" font-size="11" fill="#0969da">&#9312; D4 governed injection</text></g>
   <g><rect x="60" y="486" width="120" height="16" fill="#f6f8fa"/><text x="64" y="498" font-size="11" fill="#0969da">&#9313; single-writer</text></g>
   <g><rect x="100" y="656" width="194" height="16" fill="#f6f8fa"/><text x="104" y="668" font-size="11" fill="#0969da">&#9314; authorized actuation = edge</text></g>
 
   <!-- bottom caption -->
-  <text x="640" y="802" text-anchor="middle" font-size="12.5" fill="#1f2328">Data flat (UNS) &#183; control layered (ISA-95) — koshei owns the boundary at D4</text>
+  <text x="640" y="802" text-anchor="middle" font-size="12.5" fill="#1f2328">Data flat (UNS) &#183; control layered (ISA-95) — hermod owns the boundary at D4</text>
 </svg>

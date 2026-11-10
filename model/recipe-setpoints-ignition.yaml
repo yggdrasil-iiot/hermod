@@ -1,9 +1,9 @@
 # Ignition variant of recipe-setpoints.yaml (Git-canonical DESIRED values). Loaded by the interop
-# gate via KOSHEI_RECIPE_SETPOINTS (RegistryConfig.canonicalSetpoints reads that env). nodeIds MUST
+# gate via HERMOD_RECIPE_SETPOINTS (RegistryConfig.canonicalSetpoints reads that env). nodeIds MUST
 # match model/ot-site-ignition.yaml — CanonicalSetpoints.parse cross-validates each entry against the
 # authoritative site model at API startup and fail-closes on any mismatch. Desired values mirror
 # model/recipe-setpoints.yaml (within the model EURange).
 endpoint: "opc.tcp://localhost:62541"
 setpoints:
-  recipe.rpmSetpoint:  { nodeId: "ns=2;s=[default]/koshei/Line1/Rpm",  desired: 1500, tolerance: 1.0 }
-  recipe.tempSetpoint: { nodeId: "ns=2;s=[default]/koshei/Line1/Temp", desired: 200,  tolerance: 1.0 }
+  recipe.rpmSetpoint:  { nodeId: "ns=2;s=[default]/hermod/Line1/Rpm",  desired: 1500, tolerance: 1.0 }
+  recipe.tempSetpoint: { nodeId: "ns=2;s=[default]/hermod/Line1/Temp", desired: 200,  tolerance: 1.0 }

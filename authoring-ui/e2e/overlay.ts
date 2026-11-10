@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
  * Synthetic HTML5 drag-and-drop helper — shared across specs.
  *
  * Playwright's native mouse-based drag does NOT populate the `dataTransfer` object, so
- * Canvas.tsx's `onDrop` (which reads `e.dataTransfer.getData("application/koshei-block")`)
+ * Canvas.tsx's `onDrop` (which reads `e.dataTransfer.getData("application/hermod-block")`)
  * receives nothing and silently returns without adding a node.
  *
  * Fix: use `page.evaluate` to construct a real `DataTransfer` in the browser, call setData()
@@ -25,7 +25,7 @@ export async function dragCardToCanvas(
   x: number,
   y: number,
 ): Promise<void> {
-  const DRAG_MIME = "application/koshei-block";
+  const DRAG_MIME = "application/hermod-block";
   const payload = JSON.stringify({ id: blockId, version });
 
   await page.evaluate(

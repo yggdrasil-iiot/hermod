@@ -8,7 +8,7 @@ inputs:
   - { name: rows, type: "Record[]", label: "입력 행" }
 outputs:
   - { name: rows, type: "Record[]", label: "출력 행" }
-forward: { handler: "koshei.blocks.ActuateBlock" }
+forward: { handler: "yggdrasil.hermod.blocks.ActuateBlock" }
 idempotency: { strategy: NONE }
 compensation:
   reversibility: IRREVERSIBLE

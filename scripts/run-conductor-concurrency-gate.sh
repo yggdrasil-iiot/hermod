@@ -6,8 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 WORKER_LOG=/tmp/conductor-concurrency-gate-worker.log
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -t -c "$1" | tr -d ' \n\r'; }
-kill_worker_jvms() { { jps -l | grep koshei.conductor.ConductorWorkerMainKt || true; } | awk '{print $1}' \
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -t -c "$1" | tr -d ' \n\r'; }
+kill_worker_jvms() { { jps -l | grep yggdrasil.hermod.conductor.ConductorWorkerMainKt || true; } | awk '{print $1}' \
   | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 trap kill_worker_jvms EXIT
 

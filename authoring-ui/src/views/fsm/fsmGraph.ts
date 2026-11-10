@@ -41,7 +41,7 @@ export function toGraph(spec: FsmSpec): { nodes: Node<StateNodeData>[]; edges: E
     source: nodeIdByState.get(t.from) ?? t.from,
     target: nodeIdByState.get(t.to) ?? t.to,
     label: t.command === null ? "(reactive)" : t.command,
-    className: t.driver === "koshei" ? "fsm-edge-koshei" : "fsm-edge-field",
+    className: t.driver === "hermod" ? "fsm-edge-hermod" : "fsm-edge-field",
     data: { command: t.command, driver: t.driver, workflow: t.action?.workflow },
   }));
   return { nodes, edges };
@@ -63,7 +63,7 @@ export function toSpec(meta: FsmMeta, nodes: Node<StateNodeData>[], edges: Edge<
       command: d.command ?? null,
       driver: d.driver,
     };
-    if (d.driver === "koshei" && d.workflow) tr.action = { workflow: d.workflow };
+    if (d.driver === "hermod" && d.workflow) tr.action = { workflow: d.workflow };
     return tr;
   });
   return { ...meta, states, transitions };

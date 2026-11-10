@@ -11,7 +11,7 @@
 #
 # DUAL-ENGINE STACK (assert 5 mixed-console needs BOTH engines live):
 #   Postgres 15432 + Conductor 18088 + Temporal 7233; the Conductor workers (ConductorWorkerMain) AND the
-#   Temporal worker (:app); plus :authoring-api with KOSHEI_CONDUCTOR_URL=http://localhost:18088/api exported
+#   Temporal worker (:app); plus :authoring-api with HERMOD_CONDUCTOR_URL=http://localhost:18088/api exported
 #   (the EngineConfig default is :8088 but the gate server is :18088 — LOAD-BEARING).
 #
 # Six hard asserts (ALL must hold for PASS):
@@ -33,16 +33,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # --- Shared env: pin the plugin store dir + DB + poll interval so the forked worker JVM agrees with this shell.
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 # LOAD-BEARING: the EngineConfig default is :8088, but the compose Conductor host port is :18088. Both the
-# :authoring-api ConductorEnginePort (KOSHEI_CONDUCTOR_URL) and the conductor workers (CONDUCTOR_SERVER_URL)
+# :authoring-api ConductorEnginePort (HERMOD_CONDUCTOR_URL) and the conductor workers (CONDUCTOR_SERVER_URL)
 # must point at the gate server.
-export KOSHEI_CONDUCTOR_URL="${KOSHEI_CONDUCTOR_URL:-http://localhost:18088/api}"
+export HERMOD_CONDUCTOR_URL="${HERMOD_CONDUCTOR_URL:-http://localhost:18088/api}"
 export CONDUCTOR_SERVER_URL="${CONDUCTOR_SERVER_URL:-http://localhost:18088/api}"
 
 FIX="scripts/fixtures/compose"
@@ -54,10 +54,10 @@ CWORKER_LOG="$WORK/conductor-worker.log"
 TWORKER_LOG="$WORK/temporal-worker.log"
 API_LOG="$WORK/api.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 kill_temporal_worker_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -67,7 +67,7 @@ kill_conductor_worker_jvms() {
   done
 }
 kill_api_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -82,11 +82,11 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db = $KOSHEI_DB_URL ; conductor = $KOSHEI_CONDUCTOR_URL ; poll = ${KOSHEI_WF_POLL_MS}ms"
+echo "[GATE] db = $HERMOD_DB_URL ; conductor = $HERMOD_CONDUCTOR_URL ; poll = ${HERMOD_WF_POLL_MS}ms"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: registry schema (incl. run_index.engine) + reset state + seed source_rows"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index" >/dev/null
 # comp_ledger only exists once the registry/app schema has it; ignore if absent.
 psql_q "TRUNCATE comp_ledger" >/dev/null 2>&1 || true
@@ -110,7 +110,7 @@ echo "[GATE] Conductor healthy"
 # ---------------------------------------------------------------------------
 echo "[GATE] step 2: start the Conductor workers (poll the per-blockId task types) + Temporal worker"
 : > "$CWORKER_LOG"
-KOSHEI_WORKER_NAME=cgate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$CWORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=cgate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$CWORKER_LOG" 2>&1 &
 CWUP=0
 for i in $(seq 1 60); do
   if grep -q "conductor workers polling" "$CWORKER_LOG" 2>/dev/null; then CWUP=1; break; fi
@@ -120,7 +120,7 @@ done
 echo "[GATE] conductor workers polling"
 
 : > "$TWORKER_LOG"
-KOSHEI_WORKER_NAME=cgate-tw ./gradlew -q --no-daemon :app:run >"$TWORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=cgate-tw ./gradlew -q --no-daemon :app:run >"$TWORKER_LOG" 2>&1 &
 TWUP=0
 for i in $(seq 1 60); do
   if grep -q "starting; polling" "$TWORKER_LOG" 2>/dev/null; then TWUP=1; break; fi
@@ -130,7 +130,7 @@ done
 echo "[GATE] temporal worker up"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 3: start :authoring-api (EngineRouter; KOSHEI_CONDUCTOR_URL=$KOSHEI_CONDUCTOR_URL)"
+echo "[GATE] step 3: start :authoring-api (EngineRouter; HERMOD_CONDUCTOR_URL=$HERMOD_CONDUCTOR_URL)"
 : > "$API_LOG"
 ./gradlew -q --no-daemon :authoring-api:run >"$API_LOG" 2>&1 &
 UP=0
@@ -141,7 +141,7 @@ done
 [ "$UP" = "1" ] || fail "API did not answer GET /api/workflows within ~120s"
 echo "[GATE] API up on 18090"
 
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 
 # ===========================================================================
 echo "[GATE] ===== Assert 1: Conductor run via REST -> 200 + runId; run EXISTS on Conductor server ====="

@@ -8,7 +8,7 @@ states:
   - { id: Idle, code: 4 }
   - { id: Execute, code: 6 }
 transitions:
-  - { id: loadRecipe, from: Idle, to: Idle, command: LoadRecipe, driver: koshei, action: { workflow: ot-recipe-stage-activate } }
+  - { id: loadRecipe, from: Idle, to: Idle, command: LoadRecipe, driver: hermod, action: { workflow: ot-recipe-stage-activate } }
   - { id: start, from: Idle, to: Execute, command: Start, driver: field }
 `;
 
@@ -20,7 +20,7 @@ test("FSM editor: load a spec, edit, and round-trip the YAML", async ({ page }) 
   await page.getByTestId("fsm-yaml-in").fill(SPEC);
   await page.getByTestId("fsm-load").click();
 
-  // The emitted YAML reflects the loaded spec (koshei action present, command: null absent here).
+  // The emitted YAML reflects the loaded spec (hermod action present, command: null absent here).
   const out = page.getByTestId("fsm-yaml-out");
   await expect(out).toContainText("stateNode: line1.stateCurrent");
   await expect(out).toContainText("action: { workflow: ot-recipe-stage-activate }");

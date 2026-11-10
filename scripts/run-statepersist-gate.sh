@@ -8,7 +8,7 @@
 # returned []). Conductor's timeline was already durable in comp_ledger; here we prove it ALSO lands in the
 # uniform run_comp_event snapshot and is served by the frozen (DB-first) branch.
 #
-# DETERMINISM: the background @Scheduled sweep is DISABLED (export KOSHEI_RECONCILER_DISABLED=1) and reconcile
+# DETERMINISM: the background @Scheduled sweep is DISABLED (export HERMOD_RECONCILER_DISABLED=1) and reconcile
 # is driven via the read-path endpoints (GET /api/runs, /runs/{id}/nodes, /runs/{id}/compensation), so the
 # asserts never race the 10s timer. TERMINAL_GRACE is 30s: a run is "frozen" (served from DB) only AFTER the
 # grace window elapses since completed_at AND its snapshots are present — failure runs (T2/T3/T5) sleep past it.
@@ -21,7 +21,7 @@
 #
 # FULL stack (Temporal + Conductor): Postgres 15432 + Temporal 7233 + Conductor 18088; the Temporal worker
 # (:app:run), the Conductor workers (:conductor-runtime:run) and :authoring-api, all sharing this shell's
-# KOSHEI_* env. KOSHEI_CONDUCTOR_URL/CONDUCTOR_SERVER_URL pin :18088 (EngineConfig default is :8088 — LOAD-BEARING).
+# HERMOD_* env. HERMOD_CONDUCTOR_URL/CONDUCTOR_SERVER_URL pin :18088 (EngineConfig default is :8088 — LOAD-BEARING).
 #
 # Run from repo root with the stack up + schema applied:
 #   docker compose up -d postgres temporal conductor
@@ -31,20 +31,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # --- Shared env: pin the plugin store dir + DB + poll interval so the forked worker JVMs agree with this shell.
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 # LOAD-BEARING: the EngineConfig default is :8088 but the compose Conductor host port is :18088. Both the
-# :authoring-api ConductorEnginePort (KOSHEI_CONDUCTOR_URL) and the conductor workers (CONDUCTOR_SERVER_URL)
+# :authoring-api ConductorEnginePort (HERMOD_CONDUCTOR_URL) and the conductor workers (CONDUCTOR_SERVER_URL)
 # must point at the gate server.
-export KOSHEI_CONDUCTOR_URL="${KOSHEI_CONDUCTOR_URL:-http://localhost:18088/api}"
+export HERMOD_CONDUCTOR_URL="${HERMOD_CONDUCTOR_URL:-http://localhost:18088/api}"
 export CONDUCTOR_SERVER_URL="${CONDUCTOR_SERVER_URL:-http://localhost:18088/api}"
 # LOAD-BEARING: disable the background reconciler sweep so reconcile is driven ONLY by the read-path endpoints
 # (deterministic asserts; no race with the 10s @Scheduled timer). Read inside the API JVM's RunReconciler.sweep().
-export KOSHEI_RECONCILER_DISABLED=1
+export HERMOD_RECONCILER_DISABLED=1
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -56,10 +56,10 @@ CWORKER_LOG="$WORK/conductor-worker.log"
 API_LOG="$WORK/api.log"
 GRACE_MS=30000   # backend TERMINAL_GRACE (RunReconciler.graceMs); failure runs must age past this to freeze.
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 kill_worker_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -69,7 +69,7 @@ kill_conductor_worker_jvms() {
   done
 }
 kill_api_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -84,14 +84,14 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db=$KOSHEI_DB_URL ; conductor=$KOSHEI_CONDUCTOR_URL ; poll=${KOSHEI_WF_POLL_MS}ms ; reconciler-sweep=DISABLED"
+echo "[GATE] db=$HERMOD_DB_URL ; conductor=$HERMOD_CONDUCTOR_URL ; poll=${HERMOD_WF_POLL_MS}ms ; reconciler-sweep=DISABLED"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: apply registry-schema THEN app schema, reset state, seed source_rows"
 # Order matters: registry-schema first (run_index archive columns + run_node_state + run_comp_event), then
 # app/schema.sql (source/target/comp_ledger/fault_inject). Apply schema BEFORE truncate so the tables exist.
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, comp_ledger, fault_inject, run_node_state, run_comp_event" >/dev/null
 psql_q "INSERT INTO source_rows(id,val) VALUES ('a','x'),('b','y') ON CONFLICT(id) DO UPDATE SET val=EXCLUDED.val" >/dev/null
 echo "[GATE] seeded source_rows count=$(psql_q "SELECT count(*) FROM source_rows")"
@@ -121,7 +121,7 @@ echo "[GATE] Temporal healthy"
 # ---------------------------------------------------------------------------
 echo "[GATE] step 2: start the Temporal worker (:app:run), the Conductor workers (:conductor-runtime:run), and :authoring-api"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=spgate-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=spgate-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 WUP=0
 for i in $(seq 1 60); do
   if grep -q "starting; polling" "$WORKER_LOG" 2>/dev/null; then WUP=1; break; fi
@@ -131,7 +131,7 @@ done
 echo "[GATE] temporal worker polling"
 
 : > "$CWORKER_LOG"
-KOSHEI_WORKER_NAME=spgate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$CWORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=spgate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$CWORKER_LOG" 2>&1 &
 CWUP=0
 for i in $(seq 1 60); do
   if grep -q "conductor workers polling" "$CWORKER_LOG" 2>/dev/null; then CWUP=1; break; fi
@@ -154,7 +154,7 @@ echo "[GATE] API up on 18090"
 SAVE_R=$(curl -s -o "$WORK/save_recipe.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" -H 'Content-Type: application/json' --data-binary "@$FIX/ot-recipe-apply.json")
 echo "[GATE] save ot-recipe-apply@1.0.0 http=$SAVE_R body=$(cat "$WORK/save_recipe.json")"
 [ "$SAVE_R" = "200" ] || fail "save ot-recipe-apply@1.0.0 expected 200, got $SAVE_R"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 echo "[GATE] sleeping ${SLEEP_S}s for the Temporal worker to poll-bind ot-recipe-apply@1.0.0..."
 sleep "$SLEEP_S"
 grep -q "\[worker\] bound workflow ot-recipe-apply@1.0.0" "$WORKER_LOG" || fail "temporal worker did not poll-bind ot-recipe-apply@1.0.0"

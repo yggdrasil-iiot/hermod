@@ -43,7 +43,7 @@ export function parseFsmYaml(text: string): FsmSpec {
  * Emit an FsmSpec as Git-canonical house-style YAML:
  *  - top-level keys block-style in canonical order (version omitted when "");
  *  - states/transitions as flow-style inline maps;
- *  - command: null preserved; action only for koshei transitions.
+ *  - command: null preserved; action only for hermod transitions.
  * Values in this schema are NON-EMPTY simple identifiers (ids, dotted node names,
  * hyphenated workflow names, integer codes) — safe unquoted in YAML flow context.
  * Out of scope for this thin PoC (would corrupt the flow map / round-trip): empty-string

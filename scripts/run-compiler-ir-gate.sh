@@ -2,15 +2,15 @@
 # §11 v0.2b GATE (objective): one engine-neutral IR -> two engine targets. PASS = 4 hard asserts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}" KOSHEI_DB_USER=koshei KOSHEI_DB_PASS=koshei
-export KOSHEI_TEST_BLOCKS=1
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}" HERMOD_DB_USER=hermod HERMOD_DB_PASS=hermod
+export HERMOD_TEST_BLOCKS=1
 WORKER_LOG=/tmp/compiler-gate-worker.log
 
 # The :app:cli JavaExec task runs with workingDir=app/, so relative paths resolve under app/.
 # Pass an ABSOLUTE Windows path so java.io.File resolves correctly from the forked JVM.
 FIXTURE_ABS="$(cygpath -w "$(pwd)/scripts/fixtures/mistyped.yaml" 2>/dev/null || echo "$(pwd)/scripts/fixtures/mistyped.yaml")"
 
-kill_worker_jvms() { { jps -l | grep koshei.app.WorkerKt || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_worker_jvms() { { jps -l | grep yggdrasil.hermod.app.WorkerKt || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 trap kill_worker_jvms EXIT
 
 echo "[GATE] assert 1: determinism — compile demo twice, byte-equal Conductor JSON"
@@ -29,7 +29,7 @@ echo "$A" | grep -q '"taskReferenceName"' || { echo "[GATE] FAIL: no conductor t
 
 echo "[GATE] assert 3: Temporal run + [compiler] marker (IR load-bearing)"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=cgate ./gradlew -q --no-daemon run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=cgate ./gradlew -q --no-daemon run >"$WORKER_LOG" 2>&1 &
 sleep 22
 WF="cir-$(date +%s)"
 ./gradlew -q --no-daemon starter --args="start $WF - 0 demo" >/dev/null

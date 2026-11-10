@@ -19,13 +19,13 @@ tasks.processResources {
     from(rootProject.file("model")) { into("model"); exclude("**/*.md") }
 }
 // Standalone scoring simulator for the gate/demo: ./gradlew :delegation:runSim
-application { mainClass.set("koshei.delegation.SimMainKt") }
-// Forward every KOSHEI_* var from the live shell into the forked JVM (same rule as `forwardKosheiEnv` in
+application { mainClass.set("yggdrasil.hermod.delegation.SimMainKt") }
+// Forward every HERMOD_* var from the live shell into the forked JVM (same rule as `forwardHermodEnv` in
 // app/build.gradle.kts): the Gradle daemon keeps the env it started with. No-op for vars that are unset.
 fun JavaExec.fwd() =
-    System.getenv().filterKeys { it.startsWith("KOSHEI_") }.forEach { (k, v) -> environment(k, v) }
+    System.getenv().filterKeys { it.startsWith("HERMOD_") }.forEach { (k, v) -> environment(k, v) }
 tasks.register<JavaExec>("runSim") {
-    group = "application"; mainClass.set("koshei.delegation.SimMainKt")
+    group = "application"; mainClass.set("yggdrasil.hermod.delegation.SimMainKt")
     classpath = sourceSets["main"].runtimeClasspath; fwd()
-    workingDir = rootDir   // repo root so a relative KOSHEI_DELEGATION_POLICY override resolves
+    workingDir = rootDir   // repo root so a relative HERMOD_DELEGATION_POLICY override resolves
 }

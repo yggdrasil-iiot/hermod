@@ -8,17 +8,17 @@ The `:opcua` Gradle subproject copies the entire `model/` tree into the classpat
 
 A *runnable* site model (e.g. `ot-site.yaml`) describes the OPC-UA endpoint, setpoint nodes
 (all `Double` in R1 — the only type the R1 write-path handles), and the activate command/done-node
-pair. It is selected at runtime via the `KOSHEI_OPCUA_MODEL` environment variable:
+pair. It is selected at runtime via the `HERMOD_OPCUA_MODEL` environment variable:
 
 ```
-KOSHEI_OPCUA_MODEL=/path/to/my-site.yaml   # path to a runnable site model; relative paths resolve against the process's working directory
+HERMOD_OPCUA_MODEL=/path/to/my-site.yaml   # path to a runnable site model; relative paths resolve against the process's working directory
 ```
 
 If the variable is not set, the default classpath resource `/model/ot-site.yaml` is loaded.
 Multiple runnable site files may coexist in this directory; select the one for a given deployment
 with the env var.
 
-The `KOSHEI_OPCUA_POLICY` env var selects the command-policy JSON in the same way
+The `HERMOD_OPCUA_POLICY` env var selects the command-policy JSON in the same way
 (default: `/model/command-policy.json` on the classpath).
 
 ## Activate DONE-clear (`doneClear`)
@@ -31,7 +31,7 @@ failing closed on a stale `done=true`:
 |------|-------------------|-----|-----------|
 | `on-release` | equipment | clears `done` when the master de-asserts the trigger (standard rung handshake) | ✅ implemented |
 | `explicit-reset` | equipment | latches `done` until a separate reset/ack node is written | declared, fail-closed |
-| `master-clears` | master (koshei) | master writes `done=false` directly (where `done` is client-writable) | declared, fail-closed |
+| `master-clears` | master (hermod) | master writes `done=false` directly (where `done` is client-writable) | declared, fail-closed |
 | level-triggered | n/a | `done` mirrors state, not an edge | not modeled (future) |
 | latching | equipment | `done` stays true until a separate physical reset (e.g. an operator ack) | not modeled (future) |
 
@@ -43,12 +43,12 @@ token (`explicit-reset` / `master-clears`) is accepted by the model but **fails 
 ## model/templates/ — illustrative, non-runnable exemplars
 
 `model/templates/` contains schema/standards exemplars that demonstrate how real-world standards
-map to the Koshei model format. These files are **not** runnable — they may use OPC-UA types
+map to the Hermod model format. These files are **not** runnable — they may use OPC-UA types
 (e.g. `Int`, `Method`) that R1's write-path does not yet support (typed write-path is R4).
 
 | File | Standard | Runnable? |
 |---|---|---|
 | `templates/packml-unit.yaml` | PackML/ISA-88 unit L0 interface (real codes, synthetic ranges) | No (R4) |
 
-Do not set `KOSHEI_OPCUA_MODEL` to a path under `templates/`; the templates will fail model
+Do not set `HERMOD_OPCUA_MODEL` to a path under `templates/`; the templates will fail model
 validation at first `forward()` by design.

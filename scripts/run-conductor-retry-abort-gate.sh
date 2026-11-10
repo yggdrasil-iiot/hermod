@@ -18,8 +18,8 @@
 #
 # CONDUCTOR-ONLY STACK (no Temporal worker needed):
 #   Postgres 15432 + Conductor 18088; the Conductor workers (ConductorWorkerMain) + :authoring-api with
-#   KOSHEI_CONDUCTOR_URL=http://localhost:18088/api exported (EngineConfig default is :8088 but the gate
-#   server is :18088 — LOAD-BEARING). KOSHEI_FAULT_INJECT=1 is exported for bring-up parity with the sibling
+#   HERMOD_CONDUCTOR_URL=http://localhost:18088/api exported (EngineConfig default is :8088 but the gate
+#   server is :18088 — LOAD-BEARING). HERMOD_FAULT_INJECT=1 is exported for bring-up parity with the sibling
 #   gate; this gate inserts NO fault_inject rows, so the forward fault (T1) comes purely from the run input
 #   `_failAtBlockId` and no compensate-fault is ever armed.
 #
@@ -39,18 +39,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # --- Shared env: pin the plugin store dir + DB + poll interval so the forked worker JVM agrees with this shell.
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
 # Bring-up parity with the sibling gate; this gate arms no DB fault rows (forward fault is run-input only).
-export KOSHEI_FAULT_INJECT=1
+export HERMOD_FAULT_INJECT=1
 # LOAD-BEARING: the EngineConfig default is :8088, but the compose Conductor host port is :18088. Both the
-# :authoring-api ConductorEnginePort (KOSHEI_CONDUCTOR_URL) and the conductor workers (CONDUCTOR_SERVER_URL)
+# :authoring-api ConductorEnginePort (HERMOD_CONDUCTOR_URL) and the conductor workers (CONDUCTOR_SERVER_URL)
 # must point at the gate server.
-export KOSHEI_CONDUCTOR_URL="${KOSHEI_CONDUCTOR_URL:-http://localhost:18088/api}"
+export HERMOD_CONDUCTOR_URL="${HERMOD_CONDUCTOR_URL:-http://localhost:18088/api}"
 export CONDUCTOR_SERVER_URL="${CONDUCTOR_SERVER_URL:-http://localhost:18088/api}"
 
 FIX="scripts/fixtures/compose"
@@ -61,7 +61,7 @@ mkdir -p "$WORK"
 CWORKER_LOG="$WORK/conductor-worker.log"
 API_LOG="$WORK/api.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
 kill_conductor_worker_jvms() {
   { jps -l 2>/dev/null | grep "ConductorWorkerMainKt" || true; } | awk '{print $1}' | while read -r p; do
@@ -69,7 +69,7 @@ kill_conductor_worker_jvms() {
   done
 }
 kill_api_jvms() {
-  { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
+  { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do
     taskkill //F //T //PID "$p" >/dev/null 2>&1 || true
   done
 }
@@ -83,12 +83,12 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db = $KOSHEI_DB_URL ; conductor = $KOSHEI_CONDUCTOR_URL ; poll = ${KOSHEI_WF_POLL_MS}ms"
+echo "[GATE] db = $HERMOD_DB_URL ; conductor = $HERMOD_CONDUCTOR_URL ; poll = ${HERMOD_WF_POLL_MS}ms"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: apply registry-schema THEN app schema, reset state, seed source_rows"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, comp_ledger, fault_inject" >/dev/null
 psql_q "INSERT INTO source_rows(id,val) VALUES ('a','x'),('b','y') ON CONFLICT(id) DO UPDATE SET val=EXCLUDED.val" >/dev/null
 echo "[GATE] seeded source_rows count=$(psql_q "SELECT count(*) FROM source_rows")"
@@ -109,7 +109,7 @@ echo "[GATE] Conductor healthy"
 # ---------------------------------------------------------------------------
 echo "[GATE] step 2: start the Conductor workers (poll the per-blockId task types)"
 : > "$CWORKER_LOG"
-KOSHEI_WORKER_NAME=ragate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$CWORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=ragate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$CWORKER_LOG" 2>&1 &
 CWUP=0
 for i in $(seq 1 60); do
   if grep -q "conductor workers polling" "$CWORKER_LOG" 2>/dev/null; then CWUP=1; break; fi
@@ -119,7 +119,7 @@ done
 echo "[GATE] conductor workers polling"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 3: start :authoring-api (EngineRouter; KOSHEI_CONDUCTOR_URL=$KOSHEI_CONDUCTOR_URL)"
+echo "[GATE] step 3: start :authoring-api (EngineRouter; HERMOD_CONDUCTOR_URL=$HERMOD_CONDUCTOR_URL)"
 : > "$API_LOG"
 ./gradlew -q --no-daemon :authoring-api:run >"$API_LOG" 2>&1 &
 UP=0

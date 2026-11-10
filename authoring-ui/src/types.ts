@@ -1,4 +1,4 @@
-// Mirrors the :authoring-api JSON DTOs (koshei.authoring.Dto.kt) and the authored-contract
+// Mirrors the :authoring-api JSON DTOs (yggdrasil.hermod.authoring.Dto.kt) and the authored-contract
 // shape that ManifestLoader (registry/ManifestLoader.kt) parses/serialises. Keep these in lockstep
 // with the Kotlin side: a key mismatch silently drops fields server-side.
 
@@ -177,7 +177,7 @@ export interface RunRequest {
 export type NodeState = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "COMPENSATED" | "PARKED" | "COMP_FAILED" | "AWAITING_APPROVAL";
 export type NodeStates = Record<string, NodeState>;   // nodeId -> state
 
-// ---- Operator console (v0.4c) — mirrors koshei.runtime.CompensationEvent -----------------------
+// ---- Operator console (v0.4c) — mirrors yggdrasil.hermod.runtime.CompensationEvent -----------------------
 export interface CompensationEvent {
   index: number;
   nodeId: string;
@@ -187,7 +187,7 @@ export interface CompensationEvent {
   atMillis: number;
 }
 
-// ---- Operator console (v0.4a) — mirrors koshei.authoring.RunSummary ---------------------------
+// ---- Operator console (v0.4a) — mirrors yggdrasil.hermod.authoring.RunSummary ---------------------------
 export interface RunSummary {
   runId: string;
   name: string;

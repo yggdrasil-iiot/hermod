@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # VERSION-REFERENCE GATE v3 (objective cross-repo proof): 청구서③ — data-lineage <-> definition-lineage
 # meet at a CONTENT-ADDRESSED reference minted ONCE by ① (sparkplug-governance-lab), independently
-# verified by both consumers (no runtime git in koshei or the twin).
+# verified by both consumers (no runtime git in hermod or the twin).
 #
 # ① publishes recipe-setpoints.yaml → registry/recipe/line1/1.0.0/{recipe-setpoints.yaml, manifest.json}
 #    (manifest: defRef=git commit SHA [provenance] + contentSha256=sha256 of the committed blob bytes).
-# koshei reads the published canonical, COMPUTES sha256(bytes)==manifest.contentSha256, stamps a
+# hermod reads the published canonical, COMPUTES sha256(bytes)==manifest.contentSha256, stamps a
 #    self-attested reconciliation_provenance row (fail-closed 409 tampered/unresolvable = UNIT tests).
 # the twin COMPUTES the same hash from the bytes it reads and verifies (UNVERIFIED on mismatch).
 #
@@ -15,10 +15,10 @@
 #   V2 lineage (independent): the twin's /api/drift finding is provenanceVerified with the SAME
 #                 contentSha256 (twin-computed) + defRef → both independently derived & agree.
 #   V-verify (independent SHA<->content binding, off runtime path): sha256(git show <defRef>) == manifest.
-#   (V4 tampered->409 / V5 unresolvable->409 are koshei @WebMvcTest unit tests; the twin reject is
+#   (V4 tampered->409 / V5 unresolvable->409 are hermod @WebMvcTest unit tests; the twin reject is
 #    SetpointDefRefTest — verification is against bootDigest fixed at boot, so not live per-request.)
 #
-# Run from the koshei repo root with the stack up + both sibling checkouts:
+# Run from the hermod repo root with the stack up + both sibling checkouts:
 #   docker compose up -d
 #   SPARKPLUG_LAB_DIR=".../sparkplug-governance-lab" RESEQUENCE_DIR=".../resequence-twin-lab" \
 #     bash scripts/run-version-reference-gate.sh
@@ -26,14 +26,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
-export KOSHEI_FAULT_INJECT=1
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
+export HERMOD_FAULT_INJECT=1
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -48,11 +48,11 @@ PERTURB_LOG="$WORK/perturb.log"
 PUBLISH_LOG="$WORK/publish.log"
 : > "$PERTURB_LOG"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
-kill_worker_jvms() { { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
-kill_api_jvms()    { { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
-kill_sim_jvms()    { { jps -l 2>/dev/null | grep "koshei.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_worker_jvms() { { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_api_jvms()    { { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_sim_jvms()    { { jps -l 2>/dev/null | grep "yggdrasil.hermod.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 kill_reseq_jvms()  { { jps -l 2>/dev/null | grep "ResequenceTwinControlApplication" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 cleanup() { kill_api_jvms || true; kill_worker_jvms || true; kill_sim_jvms || true; kill_reseq_jvms || true; }
 trap cleanup EXIT
@@ -99,27 +99,27 @@ MANIFEST_SHA="$(grep -oE '"contentSha256"[^,]*' "$PUB_DIR/manifest.json" | grep 
 [ -n "$MANIFEST_SHA" ] || fail "no contentSha256 in $PUB_DIR/manifest.json"
 
 # Both consumers read the PUBLISHED canonical + its sibling manifest.json (no working-tree file, no git).
-export KOSHEI_RECIPE_SETPOINTS="$PUB_CANON"
+export HERMOD_RECIPE_SETPOINTS="$PUB_CANON"
 
 echo "[GATE] published: def_ref=$DEFREF contentSha256=$MANIFEST_SHA"
-echo "[GATE] db=$KOSHEI_DB_URL ; opcua=$KOSHEI_OPCUA_URL ; pub_canon=$PUB_CANON ; resequence=$RESEQUENCE_DIR"
+echo "[GATE] db=$HERMOD_DB_URL ; opcua=$HERMOD_OPCUA_URL ; pub_canon=$PUB_CANON ; resequence=$RESEQUENCE_DIR"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step 0: schemas (registry + app: command_audit/reconciliation_provenance[+content_sha256]) + reset"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null   # DROP+CREATE reconciliation_provenance (v3 col)
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null   # DROP+CREATE reconciliation_provenance (v3 col)
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE target_rows, source_rows, workflow_def, run_index, fault_inject, command_audit, reconciliation_provenance" >/dev/null
 echo "[GATE] schemas ensured; state reset"
 
 # ---------------------------------------------------------------------------
-echo "[GATE] step 0.5: start the embedded Milo OPC-UA sim (shared by koshei write + resequence read)"
+echo "[GATE] step 0.5: start the embedded Milo OPC-UA sim (shared by hermod write + resequence read)"
 : > "$SIM_LOG"
 ./gradlew -q --no-daemon :opcua:runSim >"$SIM_LOG" 2>&1 &
 SIMUP=0
 for i in $(seq 1 90); do grep -q "OPC-UA sim listening" "$SIM_LOG" 2>/dev/null && { SIMUP=1; break; }; sleep 2; done
 [ "$SIMUP" = "1" ] || { cat "$SIM_LOG" 2>/dev/null || true; fail "OPC-UA sim did not start"; }
-echo "[GATE] OPC-UA sim listening on $KOSHEI_OPCUA_URL"
+echo "[GATE] OPC-UA sim listening on $HERMOD_OPCUA_URL"
 
 perturb() {  # $1=nodeId $2=value  (out-of-band raw write = ungoverned drift injection)
   ./gradlew -q --no-daemon :opcua:perturb -Pnode="$1" -Pvalue="$2" >>"$PERTURB_LOG" 2>&1 || fail "perturb $1=$2 failed (see $PERTURB_LOG)"
@@ -132,9 +132,9 @@ seed_canonical() { perturb "$RPM_NODE" 1500; perturb "$TEMP_NODE" 200; }
 echo "[GATE] step 1: build worker + API"
 ./gradlew -q --no-daemon :app:build -x test :authoring-api:build -x test >/dev/null
 
-echo "[GATE] step 2: start worker then API (KOSHEI_RECIPE_SETPOINTS → published canonical)"
+echo "[GATE] step 2: start worker then API (HERMOD_RECIPE_SETPOINTS → published canonical)"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=vref-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=vref-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 WUP=0
 for i in $(seq 1 60); do grep -q "starting; polling" "$WORKER_LOG" 2>/dev/null && { WUP=1; break; }; sleep 2; done
 [ "$WUP" = "1" ] || fail "worker did not reach 'starting; polling'"
@@ -151,7 +151,7 @@ echo "[GATE] API up on 18090"
 echo "[GATE] step 3: save ot-recipe-stage-activate@1.0.0 + wait for the LIVE worker to poll-bind it"
 SAVE_CODE=$(curl -s -o "$WORK/save_osa.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" -H 'Content-Type: application/json' --data-binary "@$FIX/ot-recipe-stage-activate.json")
 [ "$SAVE_CODE" = "200" ] || fail "save ot-recipe-stage-activate@1.0.0 expected 200, got $SAVE_CODE ($(cat "$WORK/save_osa.json"))"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 ))
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 ))
 echo "[GATE] sleeping ${SLEEP_S}s for poll-bind..."
 sleep "$SLEEP_S"
 grep -q "\[worker\] bound workflow ot-recipe-stage-activate@1.0.0" "$WORKER_LOG" || fail "worker did not poll-bind the saga"
@@ -220,7 +220,7 @@ curl -fsS "$API/api/runs/$RID?wait=true" | grep -q '"completed":true' || fail "V
 [ "$(aud opcua.write WRITTEN)"  -ge 1 ] || fail "V1 expected opcua.write WRITTEN >=1"
 [ "$(aud opcua.call CONFIRMED)" = "1" ] || fail "V1 expected opcua.call CONFIRMED=1"
 
-# V1a: provenance row is SELF-ATTESTED — koshei recorded the hash it COMPUTED (== manifest) + the def_ref
+# V1a: provenance row is SELF-ATTESTED — hermod recorded the hash it COMPUTED (== manifest) + the def_ref
 PROW="$(prov "$RID")";    [ "$PROW" = "$DEFREF" ]      || fail "V1 provenance def_ref '$PROW' != '$DEFREF'"
 PSHA="$(provsha "$RID")"; [ "$PSHA" = "$MANIFEST_SHA" ] || fail "V1 provenance content_sha256 '$PSHA' != manifest '$MANIFEST_SHA'"
 # V1b: the applied command_audit value == the PUBLISHED canonical's desired

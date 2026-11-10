@@ -6,7 +6,7 @@ const good: FsmSpec = {
   name: "u", unit: "u1", version: "v1", stateNode: "u1.state",
   states: [{ id: "Idle", code: 4 }, { id: "Run", code: 6 }],
   transitions: [
-    { id: "load", from: "Idle", to: "Idle", command: "LoadRecipe", driver: "koshei", action: { workflow: "ot-x" } },
+    { id: "load", from: "Idle", to: "Idle", command: "LoadRecipe", driver: "hermod", action: { workflow: "ot-x" } },
     { id: "start", from: "Idle", to: "Run", command: "Start", driver: "field" },
   ],
 };
@@ -37,9 +37,9 @@ describe("validateFsm", () => {
     const bad = { ...good, transitions: [{ ...good.transitions[1], driver: "nope" }] };
     expect(msgs(bad)).toContainEqual(expect.stringMatching(/driver/i));
   });
-  it("flags koshei without action.workflow", () => {
-    const bad = { ...good, transitions: [{ id: "t", from: "Idle", to: "Run", command: "C", driver: "koshei" }] };
-    expect(msgs(bad)).toContainEqual(expect.stringMatching(/koshei.*workflow/i));
+  it("flags hermod without action.workflow", () => {
+    const bad = { ...good, transitions: [{ id: "t", from: "Idle", to: "Run", command: "C", driver: "hermod" }] };
+    expect(msgs(bad)).toContainEqual(expect.stringMatching(/hermod.*workflow/i));
   });
   it("flags field with an action", () => {
     const bad = { ...good, transitions: [{ id: "t", from: "Idle", to: "Run", command: "C", driver: "field", action: { workflow: "ot-x" } }] };

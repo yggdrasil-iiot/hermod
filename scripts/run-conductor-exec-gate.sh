@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export CONDUCTOR_SERVER_URL="${CONDUCTOR_SERVER_URL:-http://localhost:18088/api}"
 
 WORKER_LOG=/tmp/conductor-gate-worker.log
@@ -17,7 +17,7 @@ WORKER_LOG=/tmp/conductor-gate-worker.log
 ctl() { ./gradlew -q --no-daemon :conductor-runtime:ctl --args="$*"; }
 
 psql_q() {
-  docker compose exec -T postgres psql -U koshei -d koshei -t -c "$1" | tr -d ' \n\r'
+  docker compose exec -T postgres psql -U hermod -d hermod -t -c "$1" | tr -d ' \n\r'
 }
 
 kill_worker_jvms() {

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # R4 auto-correct AUTO-DISPATCH -> park-for-approval live gate (design 2026-07-04). On a swept DriftCorrectable,
-# koshei auto-dispatches the ot-safe-hold governed saga via POST /api/autocorrect/sweep; the saga parks at the
+# hermod auto-dispatches the ot-safe-hold governed saga via POST /api/autocorrect/sweep; the saga parks at the
 # intrinsic IRREVERSIBLE human gate (safeHoldCall AWAITING_APPROVAL). A drift_correction PENDING row dedups: a re-swept
 # drift for the same unit while a correction is in flight does NOT storm a second run. On operator approve the
 # saga issues the governed command; the field/PLC reaches Held (:opcua:perturb) and the next sweep sees the
 # DECLARED Execute->Held = drift resolved, and reconcile flips the row PENDING->RESOLVED. A terminalized unit
 # re-dispatches on a NEW drift. Bootstrap REPLICATES run-fsm-hold-gate.sh; the @Scheduled bean is OFF
-# (KOSHEI_AUTOCORRECT_DISABLED=1) so the endpoint is the only sweep driver (no race). Module count 12.
+# (HERMOD_AUTOCORRECT_DISABLED=1) so the endpoint is the only sweep driver (no race). Module count 12.
 #
 # Run from repo root with the stack up:
 #   docker compose up -d
@@ -16,15 +16,15 @@ cd "$(dirname "$0")/.."
 
 source scripts/lib/gate-common.sh   # native_path; include-guarded, safe alongside inline psql_q
 
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
-export KOSHEI_WF_POLL_MS="${KOSHEI_WF_POLL_MS:-3000}"
-export KOSHEI_OPCUA_URL="${KOSHEI_OPCUA_URL:-opc.tcp://localhost:48400}"
-export KOSHEI_MODEL_DIR="$(native_path "${KOSHEI_MODEL_DIR:-$(pwd)/model}")"   # native_path (cygpath -m): a native JVM rejects an MSYS /c/... path
-export KOSHEI_AUTOCORRECT_DISABLED=1                          # @Scheduled bean OFF — endpoint is the only sweep driver
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
+export HERMOD_WF_POLL_MS="${HERMOD_WF_POLL_MS:-3000}"
+export HERMOD_OPCUA_URL="${HERMOD_OPCUA_URL:-opc.tcp://localhost:48400}"
+export HERMOD_MODEL_DIR="$(native_path "${HERMOD_MODEL_DIR:-$(pwd)/model}")"   # native_path (cygpath -m): a native JVM rejects an MSYS /c/... path
+export HERMOD_AUTOCORRECT_DISABLED=1                          # @Scheduled bean OFF — endpoint is the only sweep driver
 
 FIX="scripts/fixtures/compose"
 API="http://localhost:18090"
@@ -32,11 +32,11 @@ WORK="build/fsm-autocorrect-dispatch-gate"
 mkdir -p "$WORK"
 WORKER_LOG="$WORK/worker.log"; API_LOG="$WORK/api.log"; SIM_LOG="$WORK/sim.log"
 
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tAc "$1" | tr -d '[:space:]'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tAc "$1" | tr -d '[:space:]'; }
 
-kill_worker_jvms() { { jps -l 2>/dev/null | grep "koshei.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
-kill_api_jvms() { { jps -l 2>/dev/null | grep "koshei.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
-kill_sim_jvms() { { jps -l 2>/dev/null | grep "koshei.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_worker_jvms() { { jps -l 2>/dev/null | grep "yggdrasil.hermod.app.WorkerKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_api_jvms() { { jps -l 2>/dev/null | grep "yggdrasil.hermod.authoring.AuthoringApplicationKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
+kill_sim_jvms() { { jps -l 2>/dev/null | grep "yggdrasil.hermod.opcua.SimMainKt" || true; } | awk '{print $1}' | while read -r p; do taskkill //F //T //PID "$p" >/dev/null 2>&1 || true; done; }
 cleanup() { kill_api_jvms || true; kill_worker_jvms || true; kill_sim_jvms || true; }
 trap cleanup EXIT
 
@@ -48,11 +48,11 @@ fail() {
   exit 1
 }
 
-echo "[GATE] db=$KOSHEI_DB_URL opcua=$KOSHEI_OPCUA_URL model=$KOSHEI_MODEL_DIR"
+echo "[GATE] db=$HERMOD_DB_URL opcua=$HERMOD_OPCUA_URL model=$HERMOD_MODEL_DIR"
 
 echo "[GATE] step 0: ensure BOTH schemas + reset (incl. drift_correction)"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
-docker compose exec -T postgres psql -U koshei -d koshei < app/src/main/resources/schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < app/src/main/resources/schema.sql >/dev/null
 psql_q "DROP TABLE IF EXISTS fault_inject; CREATE TABLE fault_inject (block_id text NOT NULL, phase text NOT NULL DEFAULT 'forward', PRIMARY KEY (block_id, phase))" >/dev/null
 psql_q "TRUNCATE drift_observation, drift_audit, drift_correction, fsm_deployment, fsm_deployment_audit, command_audit, source_rows, target_rows, workflow_def, run_index, fault_inject" >/dev/null
 echo "[GATE] schemas ensured; state reset"
@@ -67,7 +67,7 @@ echo "[GATE] step 1: build worker + API"
 ./gradlew -q --no-daemon :app:build -x test :authoring-api:build -x test >/dev/null
 
 echo "[GATE] step 2: start worker then API"
-: > "$WORKER_LOG"; KOSHEI_WORKER_NAME=ac-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
+: > "$WORKER_LOG"; HERMOD_WORKER_NAME=ac-w ./gradlew -q --no-daemon :app:run >"$WORKER_LOG" 2>&1 &
 WUP=0; for i in $(seq 1 60); do grep -q "starting; polling" "$WORKER_LOG" 2>/dev/null && { WUP=1; break; }; sleep 2; done
 [ "$WUP" = "1" ] || fail "worker did not start"
 : > "$API_LOG"; ./gradlew -q --no-daemon :authoring-api:run >"$API_LOG" 2>&1 &
@@ -93,7 +93,7 @@ echo "[GATE] step 3: deploy line1 v1 + save ot-safe-hold@1.0.0 + poll-bind + see
 fsm_cli deploy line1 v1 | grep -q "^deployed line1 -> v1" || fail "deploy line1 v1 failed"
 SAVE_CODE=$(curl -s -o "$WORK/save.json" -w '%{http_code}' -X POST "$API/api/workflows?version=1.0.0" -H 'Content-Type: application/json' --data-binary "@$FIX/ot-safe-hold.json")
 [ "$SAVE_CODE" = "200" ] || fail "save ot-safe-hold@1.0.0 expected 200, got $SAVE_CODE"
-SLEEP_S=$(( (KOSHEI_WF_POLL_MS / 1000) + 6 )); sleep "$SLEEP_S"
+SLEEP_S=$(( (HERMOD_WF_POLL_MS / 1000) + 6 )); sleep "$SLEEP_S"
 grep -q "\[worker\] bound workflow ot-safe-hold@1.0.0" "$WORKER_LOG" || fail "worker did not poll-bind ot-safe-hold@1.0.0"
 psql_q "INSERT INTO source_rows(id,val) VALUES ('line1.interlock','1') ON CONFLICT(id) DO UPDATE SET val=EXCLUDED.val" >/dev/null
 echo "[GATE] deployed + bound + seeded"

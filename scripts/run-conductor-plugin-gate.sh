@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GATE (objective): a published PLUGIN block runs on CONDUCTOR, and a block published while the Conductor worker
-# is already running is picked up without a restart (the worker re-reads the registry every KOSHEI_WF_POLL_MS).
+# is already running is picked up without a restart (the worker re-reads the registry every HERMOD_WF_POLL_MS).
 #
 # Order matters: the Conductor worker starts BEFORE the plugin is published, so the plugin's task type can only
 # be polled through the registry refresh.
@@ -21,20 +21,20 @@ cd "$(dirname "$0")/.."
 
 # The CLI publish and the Conductor worker must agree on the DB; the jar path is stored absolute, so the
 # worker loads it wherever its working directory is. Paths reach the forked JVMs in Windows form (cygpath -w).
-PLUGIN_DIR_SH="${KOSHEI_PLUGIN_DIR:-$(pwd)/registry-store}"
-export KOSHEI_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
-export KOSHEI_DB_URL="${KOSHEI_DB_URL:-jdbc:postgresql://localhost:15432/koshei}"
-export KOSHEI_DB_USER="${KOSHEI_DB_USER:-koshei}"
-export KOSHEI_DB_PASS="${KOSHEI_DB_PASS:-koshei}"
+PLUGIN_DIR_SH="${HERMOD_PLUGIN_DIR:-$(pwd)/registry-store}"
+export HERMOD_PLUGIN_DIR="$(cygpath -w "$PLUGIN_DIR_SH" 2>/dev/null || echo "$PLUGIN_DIR_SH")"
+export HERMOD_DB_URL="${HERMOD_DB_URL:-jdbc:postgresql://localhost:15432/hermod}"
+export HERMOD_DB_USER="${HERMOD_DB_USER:-hermod}"
+export HERMOD_DB_PASS="${HERMOD_DB_PASS:-hermod}"
 export CONDUCTOR_SERVER_URL="${CONDUCTOR_SERVER_URL:-http://localhost:18088/api}"
-export KOSHEI_WF_POLL_MS=1000
+export HERMOD_WF_POLL_MS=1000
 
 PLUGIN_JAR="examples/greet-plugin/build/libs/greet-plugin.jar"
 PLUGIN_JAR_ABS="$(cygpath -w "$(pwd)/$PLUGIN_JAR" 2>/dev/null || echo "$(pwd)/$PLUGIN_JAR")"
 WORKER_LOG=/tmp/conductor-plugin-gate-worker.log
 
 ctl() { ./gradlew -q --no-daemon :conductor-runtime:ctl --args="$*"; }
-psql_q() { docker compose exec -T postgres psql -U koshei -d koshei -tA -c "$1" | tr -d ' \n\r'; }
+psql_q() { docker compose exec -T postgres psql -U hermod -d hermod -tA -c "$1" | tr -d ' \n\r'; }
 
 kill_worker_jvms() {
   local pids
@@ -81,7 +81,7 @@ until curl -sf http://localhost:18088/health 2>/dev/null | grep -q '"healthy":tr
 done
 
 echo "[GATE] step 0: ensure registry schema, unpublish io.example.greet, seed a source row"
-docker compose exec -T postgres psql -U koshei -d koshei < registry/src/main/resources/registry-schema.sql >/dev/null
+docker compose exec -T postgres psql -U hermod -d hermod < registry/src/main/resources/registry-schema.sql >/dev/null
 psql_q "DELETE FROM block_index WHERE id='io.example.greet';" >/dev/null
 rm -rf "$PLUGIN_DIR_SH/io.example.greet"
 psql_q "DELETE FROM source_rows;" >/dev/null
@@ -95,7 +95,7 @@ echo "[GATE] step 1: build the external greet-plugin (host :core + :sdk to maven
 
 echo "[GATE] step 2: start the Conductor worker BEFORE the plugin is published"
 : > "$WORKER_LOG"
-KOSHEI_WORKER_NAME=plgate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$WORKER_LOG" 2>&1 &
+HERMOD_WORKER_NAME=plgate-cw ./gradlew -q --no-daemon :conductor-runtime:run >"$WORKER_LOG" 2>&1 &
 wait_log 'conductor workers polling' 90 || { echo "[GATE] FAIL: worker did not start polling"; cat "$WORKER_LOG"; exit 1; }
 BOOT_LINE=$(grep 'task types=' "$WORKER_LOG" | head -1)
 echo "[GATE]   $BOOT_LINE"

@@ -1,9 +1,9 @@
-# koshei-local MQTT broker for the outbound governance-event gate (run-outbound-emit-gate.sh).
+# hermod-local MQTT broker for the outbound governance-event gate (run-outbound-emit-gate.sh).
 #
-# WHY a koshei-local compose: the R2 NCMD gate reuses HiveMQ CE from the EXTERNAL
+# WHY a hermod-local compose: the R2 NCMD gate reuses HiveMQ CE from the EXTERNAL
 # bifrost repo (run-r2-ncmd-gate.sh -> $BIFROST_DIR/docker-compose.yml). The outbound-emit
 # gate's only external repo is the TWIN (resequence-twin-lab); pulling a *second* external repo just for a
-# broker is avoided by shipping this small, self-contained broker compose. Keep a 2-repo gate (koshei + twin).
+# broker is avoided by shipping this small, self-contained broker compose. Keep a 2-repo gate (hermod + twin).
 #
 # BROKER CHOICE: HiveMQ CE is the portfolio-consistent default (Sparkplug B house broker, same image the
 # R2 gate uses). Plain MQTT v3 + Sparkplug-payload passthrough is all this gate needs; `eclipse-mosquitto`
@@ -17,14 +17,14 @@
 services:
   hivemq-ce:
     image: hivemq/hivemq-ce:latest   # the tag cached locally in the gate environment
-    container_name: koshei-emit-broker
+    container_name: hermod-emit-broker
     ports:
-      - "1883:1883"                  # plain MQTT to the host; koshei API + twin both connect to tcp://localhost:1883
+      - "1883:1883"                  # plain MQTT to the host; hermod API + twin both connect to tcp://localhost:1883
 
   # --- Lighter substitute (uncomment and comment out hivemq-ce above if desired) ---
   # mosquitto:
   #   image: eclipse-mosquitto:2
-  #   container_name: koshei-emit-broker
+  #   container_name: hermod-emit-broker
   #   command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]  # allow anonymous, listen on 1883
   #   ports:
   #     - "1883:1883"

@@ -9,12 +9,12 @@ inputs:
   - { name: rows, type: "Record[]", label: "입력 행" }
 outputs:
   - { name: written, type: "Record[]", label: "기록된 행" }
-forward: { handler: "koshei.blocks.DbUpsertBlock" }
+forward: { handler: "yggdrasil.hermod.blocks.DbUpsertBlock" }
 idempotency: { strategy: UPSERT, keyExpression: "row:id" }
 compensation:
   reversibility: REVERSIBLE
   kind: STATIC
-  handler: "koshei.blocks.DbUpsertBlock#compensate"
+  handler: "yggdrasil.hermod.blocks.DbUpsertBlock#compensate"
   requiresState: [priorValues, insertedIds]
 stateBinding:
   - { key: priorValues, description: "prior snapshot" }
