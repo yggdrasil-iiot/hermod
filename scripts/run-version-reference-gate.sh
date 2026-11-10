@@ -18,9 +18,9 @@
 #   (V4 tampered->409 / V5 unresolvable->409 are hermod @WebMvcTest unit tests; the twin reject is
 #    SetpointDefRefTest — verification is against bootDigest fixed at boot, so not live per-request.)
 #
-# Run from the hermod repo root with the stack up + both sibling checkouts:
+# Run from the hermod repo root with the stack up + three sibling checkouts:
 #   docker compose up -d
-#   SPARKPLUG_LAB_DIR=".../sparkplug-governance-lab" RESEQUENCE_DIR=".../resequence-twin-lab" \
+#   SPARKPLUG_LAB_DIR=".../sparkplug-governance-lab" BIFROST_DIR=".../bifrost" RESEQUENCE_DIR=".../resequence-twin-lab" \
 #     bash scripts/run-version-reference-gate.sh
 #   # expect: [GATE] PASS ... exit 0
 set -euo pipefail
@@ -72,8 +72,11 @@ RESEQUENCE_DIR="${RESEQUENCE_DIR:-}"
 [ -n "$RESEQUENCE_DIR" ] || fail "RESEQUENCE_DIR not set — point it at the resequence-twin-lab checkout (control/pom.xml). No silent skip."
 [ -f "$RESEQUENCE_DIR/control/pom.xml" ] || fail "no control/pom.xml under RESEQUENCE_DIR='$RESEQUENCE_DIR'"
 SPARKPLUG_LAB_DIR="${SPARKPLUG_LAB_DIR:-}"
-[ -n "$SPARKPLUG_LAB_DIR" ] || fail "SPARKPLUG_LAB_DIR not set — point it at the sparkplug-governance-lab checkout (RecipePublish CLI). No silent skip."
-[ -f "$SPARKPLUG_LAB_DIR/pom.xml" ] || fail "no pom.xml under SPARKPLUG_LAB_DIR='$SPARKPLUG_LAB_DIR'"
+[ -n "$SPARKPLUG_LAB_DIR" ] || fail "SPARKPLUG_LAB_DIR not set — point it at the sparkplug-governance-lab checkout (source of model/recipe-setpoints.yaml). No silent skip."
+[ -d "$SPARKPLUG_LAB_DIR/.git" ] || fail "SPARKPLUG_LAB_DIR='$SPARKPLUG_LAB_DIR' is not a git checkout (the published yaml is read from its history)"
+BIFROST_DIR="${BIFROST_DIR:-}"
+[ -n "$BIFROST_DIR" ] || fail "BIFROST_DIR not set — point it at a bifrost checkout (RecipePublish CLI in core). No silent skip."
+[ -f "$BIFROST_DIR/core/pom.xml" ] || fail "no core/pom.xml under BIFROST_DIR='$BIFROST_DIR'"
 
 # ---------------------------------------------------------------------------
 echo "[GATE] step -1: ① publish recipe-setpoints.yaml (the single mint; the only git in the feature)"
@@ -85,9 +88,11 @@ rm -rf "$REG"
 REG_WIN="$(cygpath -m "$REG" 2>/dev/null || echo "$REG")"
 LAB_WIN="$(cygpath -m "$SPARKPLUG_LAB_DIR" 2>/dev/null || echo "$SPARKPLUG_LAB_DIR")"
 : > "$PUBLISH_LOG"
-( cd "$SPARKPLUG_LAB_DIR" && mvn -q -DskipTests package && \
-  mvn -q exec:java -Dexec.mainClass=yggdrasil.sparkplug.schema.RecipePublish \
-    -Dexec.args="$REG_WIN $LAB_WIN model/recipe-setpoints.yaml line1 1.0.0" ) >"$PUBLISH_LOG" 2>&1 \
+# RecipePublish lives in bifrost core (it moved out of the lab); the lab stays the source repo of the yaml.
+# The paths contain spaces, so each is quoted inside exec.args.
+( cd "$BIFROST_DIR" && mvn -q -pl core -am -DskipTests install && \
+  mvn -q -f core/pom.xml exec:java -Dexec.mainClass=yggdrasil.bifrost.core.schema.RecipePublish \
+    "-Dexec.args=\"$REG_WIN\" \"$LAB_WIN\" model/recipe-setpoints.yaml line1 1.0.0" ) >"$PUBLISH_LOG" 2>&1 \
   || { cat "$PUBLISH_LOG"; fail "① publish failed"; }
 PUB_DIR="$REG/recipe/line1/1.0.0"
 PUB_CANON_RAW="$PUB_DIR/recipe-setpoints.yaml"

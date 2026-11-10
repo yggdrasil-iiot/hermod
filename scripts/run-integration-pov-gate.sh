@@ -17,9 +17,10 @@
 #
 # R1 is untouched (run-opcua-gate.sh, ot-recipe-stage-activate, :opcua/src/main, Conductor[frozen]).
 #
-# Run from the hermod repo root with the stack up + a resequence checkout:
+# Run from the hermod repo root with the stack up + three sibling checkouts:
 #   docker compose up -d
-#   RESEQUENCE_DIR="/c/Users/Eisen/Desktop/Labs/[iiot]/resequence-twin-lab" bash scripts/run-integration-pov-gate.sh
+#   SPARKPLUG_LAB_DIR=".../sparkplug-governance-lab" BIFROST_DIR=".../bifrost" RESEQUENCE_DIR=".../resequence-twin-lab" \
+#     bash scripts/run-integration-pov-gate.sh
 #   # expect: [GATE] PASS ... exit 0
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -70,15 +71,20 @@ RESEQUENCE_DIR="${RESEQUENCE_DIR:-}"
 # v3: hermod consumes a ①-PUBLISHED canonical (no working-tree classpath fallback) — its reconcile preflight
 # needs a sibling manifest.json to verify, so integration-pov must publish too (else T1 → 409 unresolvable).
 SPARKPLUG_LAB_DIR="${SPARKPLUG_LAB_DIR:-}"
-[ -n "$SPARKPLUG_LAB_DIR" ] || fail "SPARKPLUG_LAB_DIR not set — point it at the sparkplug-governance-lab checkout (RecipePublish CLI). No silent skip."
-[ -f "$SPARKPLUG_LAB_DIR/pom.xml" ] || fail "no pom.xml under SPARKPLUG_LAB_DIR='$SPARKPLUG_LAB_DIR'"
+[ -n "$SPARKPLUG_LAB_DIR" ] || fail "SPARKPLUG_LAB_DIR not set — point it at the sparkplug-governance-lab checkout (source of model/recipe-setpoints.yaml). No silent skip."
+[ -d "$SPARKPLUG_LAB_DIR/.git" ] || fail "SPARKPLUG_LAB_DIR='$SPARKPLUG_LAB_DIR' is not a git checkout (the published yaml is read from its history)"
+BIFROST_DIR="${BIFROST_DIR:-}"
+[ -n "$BIFROST_DIR" ] || fail "BIFROST_DIR not set — point it at a bifrost checkout (RecipePublish CLI in core). No silent skip."
+[ -f "$BIFROST_DIR/core/pom.xml" ] || fail "no core/pom.xml under BIFROST_DIR='$BIFROST_DIR'"
 # ①'s registry/ is tracked → publish to a THROWAWAY dir; mvn exec:java is a Windows JVM → cygpath -m every path arg.
 REG="$SPARKPLUG_LAB_DIR/build/gate-registry"; rm -rf "$REG"
 REG_WIN="$(cygpath -m "$REG" 2>/dev/null || echo "$REG")"
 LAB_WIN="$(cygpath -m "$SPARKPLUG_LAB_DIR" 2>/dev/null || echo "$SPARKPLUG_LAB_DIR")"
-( cd "$SPARKPLUG_LAB_DIR" && mvn -q -DskipTests package && \
-  mvn -q exec:java -Dexec.mainClass=yggdrasil.sparkplug.schema.RecipePublish \
-    -Dexec.args="$REG_WIN $LAB_WIN model/recipe-setpoints.yaml line1 1.0.0" ) >"$WORK/publish.log" 2>&1 \
+# RecipePublish lives in bifrost core (it moved out of the lab); the lab stays the source repo of the yaml.
+# The paths contain spaces, so each is quoted inside exec.args.
+( cd "$BIFROST_DIR" && mvn -q -pl core -am -DskipTests install && \
+  mvn -q -f core/pom.xml exec:java -Dexec.mainClass=yggdrasil.bifrost.core.schema.RecipePublish \
+    "-Dexec.args=\"$REG_WIN\" \"$LAB_WIN\" model/recipe-setpoints.yaml line1 1.0.0" ) >"$WORK/publish.log" 2>&1 \
   || { cat "$WORK/publish.log"; fail "① publish failed"; }
 CANON_RAW="$REG/recipe/line1/1.0.0/recipe-setpoints.yaml"
 CANON="$(cygpath -m "$CANON_RAW" 2>/dev/null || echo "$CANON_RAW")"
