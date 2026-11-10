@@ -86,7 +86,7 @@ REG_WIN="$(cygpath -m "$REG" 2>/dev/null || echo "$REG")"
 LAB_WIN="$(cygpath -m "$SPARKPLUG_LAB_DIR" 2>/dev/null || echo "$SPARKPLUG_LAB_DIR")"
 : > "$PUBLISH_LOG"
 ( cd "$SPARKPLUG_LAB_DIR" && mvn -q -DskipTests package && \
-  mvn -q exec:java -Dexec.mainClass=dev.krillin.sparkplug.schema.RecipePublish \
+  mvn -q exec:java -Dexec.mainClass=yggdrasil.sparkplug.schema.RecipePublish \
     -Dexec.args="$REG_WIN $LAB_WIN model/recipe-setpoints.yaml line1 1.0.0" ) >"$PUBLISH_LOG" 2>&1 \
   || { cat "$PUBLISH_LOG"; fail "① publish failed"; }
 PUB_DIR="$REG/recipe/line1/1.0.0"

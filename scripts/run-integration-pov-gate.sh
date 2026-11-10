@@ -77,7 +77,7 @@ REG="$SPARKPLUG_LAB_DIR/build/gate-registry"; rm -rf "$REG"
 REG_WIN="$(cygpath -m "$REG" 2>/dev/null || echo "$REG")"
 LAB_WIN="$(cygpath -m "$SPARKPLUG_LAB_DIR" 2>/dev/null || echo "$SPARKPLUG_LAB_DIR")"
 ( cd "$SPARKPLUG_LAB_DIR" && mvn -q -DskipTests package && \
-  mvn -q exec:java -Dexec.mainClass=dev.krillin.sparkplug.schema.RecipePublish \
+  mvn -q exec:java -Dexec.mainClass=yggdrasil.sparkplug.schema.RecipePublish \
     -Dexec.args="$REG_WIN $LAB_WIN model/recipe-setpoints.yaml line1 1.0.0" ) >"$WORK/publish.log" 2>&1 \
   || { cat "$WORK/publish.log"; fail "① publish failed"; }
 CANON_RAW="$REG/recipe/line1/1.0.0/recipe-setpoints.yaml"
