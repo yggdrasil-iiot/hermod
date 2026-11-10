@@ -79,12 +79,12 @@ mkdir -p "$WORK"
 # whose contentSha256 the API re-computes, it fails closed 409 canonical-unresolvable (since a01e5f9), so
 # no run could start. Unless the caller points at a published canonical, stage the bundled
 # model/recipe-setpoints.yaml with a local manifest (defRef = this checkout's HEAD).
-if [ -z "${KOSHEI_RECIPE_SETPOINTS:-}" ]; then
+if [ -z "${HERMOD_RECIPE_SETPOINTS:-}" ]; then
   CANON_DIR="$WORK/canonical"; mkdir -p "$CANON_DIR"
   cp model/recipe-setpoints.yaml "$CANON_DIR/recipe-setpoints.yaml"
   printf '{"kind":"recipe","ref":"recipe-setpoints","version":"gate","defRef":"%s","contentSha256":"%s","sourcePath":"model/recipe-setpoints.yaml","publishedAt":0}\n' \
     "$(git rev-parse HEAD)" "$(sha256sum "$CANON_DIR/recipe-setpoints.yaml" | cut -d' ' -f1)" > "$CANON_DIR/manifest.json"
-  export KOSHEI_RECIPE_SETPOINTS="$(native_path "$(pwd)/$CANON_DIR/recipe-setpoints.yaml")"
+  export HERMOD_RECIPE_SETPOINTS="$(native_path "$(pwd)/$CANON_DIR/recipe-setpoints.yaml")"
 fi
 WORKER_LOG="$WORK/worker.log"
 API_LOG="$WORK/api.log"
