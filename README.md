@@ -145,4 +145,3 @@ The project keeps an explicit record of what is grounded and what is still a hyp
 
 **Apache License, Version 2.0** — see [`LICENSE`](LICENSE). Commercial and noncommercial use are both permitted under Apache-2.0's terms. This is an OSI-approved open-source license (previously under the PolyForm Noncommercial License 1.0.0).
 
-Copyright © 2026 LivingLikeKrillin (livinglikekrillin@gmail.com).
