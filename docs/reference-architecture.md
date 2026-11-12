@@ -2,7 +2,7 @@
 
 > **Standardize the edge · Govern the transaction · Compose the value.**
 
-> **Honest banner.** This is an engineering portfolio of proof-of-concepts running on
+> **Honest banner.** This is a set of related proof-of-concept projects running on
 > synthetic / demo topologies — not a shipped commercial product. Every capability stated
 > here is backed by a concrete artifact in one of the three repositories, or is explicitly
 > marked as roadmap.
@@ -165,9 +165,9 @@ The one-line idea that ties the modules together: *the pre-deploy gate (`schema`
 opens a governance loop that runtime drift detection (`drift`) closes.* On top of the code sit
 11 bilingual ADRs and a namespace standard that maps ISA-95 onto a concrete topic hierarchy.
 
-- Repository: <https://github.com/LivingLikeKrillin/sparkplug-governance-lab>
+- Repository: <https://github.com/yggdrasil-iiot/sparkplug-governance-lab>
 - Namespace standard (ISA-95 → topic):
-  <https://github.com/LivingLikeKrillin/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md>
+  <https://github.com/yggdrasil-iiot/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md>
 
 ### 3.2 Govern the transaction — ② `hermod`
 
@@ -227,7 +227,7 @@ It will tell you reality has drifted from intent and propose what to do, but it 
 the field itself. That refusal is deliberate — driving the field is ②'s job — and it is what
 makes the closed loop in [§4](#4-the-organic-loop--composition-proven) safe.
 
-- Repository: <https://github.com/LivingLikeKrillin/resequence-twin-lab>
+- Repository: <https://github.com/yggdrasil-iiot/resequence-twin-lab>
 
 ## 4. The organic loop — composition, proven
 
@@ -592,7 +592,7 @@ These are designed, not delivered. They are named here so the gap is impossible 
   gateway/BFF (the UX commitments in [§6.5](#65-ux--single-pane-of-glass) are design, not running
   infrastructure).
 
-**The one closing sentence:** this is an engineering portfolio of proof-of-concepts running on
+**The one closing sentence:** this is a set of related proof-of-concept projects running on
 synthetic / demo topologies — it is **not** a shipped product, and every claim above either names
 the artifact that proves it or is marked roadmap.
 
@@ -603,9 +603,9 @@ links are relative paths within this repo.
 
 | Pillar | Repository | Key docs | Start here |
 |---|---|---|---|
-| **① edge governance** | [`sparkplug-governance-lab`](https://github.com/LivingLikeKrillin/sparkplug-governance-lab) (public) | [namespace standard (ISA-95→topic)](https://github.com/LivingLikeKrillin/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md); 11 bilingual ADRs | The repo README (incl. its **Portfolio integration** section — the NCMD edge bridge that receives hermod's governed command and re-authorizes it deny-by-default), then the `schema`/`SchemaGate` and `acl` modules |
+| **① edge governance** | [`sparkplug-governance-lab`](https://github.com/yggdrasil-iiot/sparkplug-governance-lab) (public) | [namespace standard (ISA-95→topic)](https://github.com/yggdrasil-iiot/sparkplug-governance-lab/blob/main/docs/namespace-standard.en.md); 11 bilingual ADRs | The lab README (incl. its [#running](https://github.com/yggdrasil-iiot/sparkplug-governance-lab#running) section for legacy demos); the NCMD edge bridge now lives in [Bifrost's Heimdall module](https://github.com/yggdrasil-iiot/bifrost/tree/main/heimdall) |
 | **② transaction governance** | `hermod` (this repository) | [`docs/architecture.md`](architecture.md) (as-built, incl. [module map](architecture.md#7-module-map-and-dependency-graph)) | [`README.md`](../README.md) — value-first overview, then the capability/proof table |
-| **③ apps / twin** | [`resequence-twin-lab`](https://github.com/LivingLikeKrillin/resequence-twin-lab) (public) | the repo README + ADRs; the benchmark + `DriftMonitor` surfaces | The repo README (incl. its **Portfolio integration** section — recipe-setpoint drift vs the shared canonical + the Sparkplug governance subscriber), then `GET /api/drift` and the SimPy→Kafka→Ditto pipeline |
+| **③ apps / twin** | [`resequence-twin-lab`](https://github.com/yggdrasil-iiot/resequence-twin-lab) (public) | the repo README + ADRs; the benchmark + `DriftMonitor` surfaces | The repo README (incl. its **Governed Reconciliation Integration** section — recipe-setpoint drift vs the shared canonical + the Sparkplug governance subscriber), then `GET /api/drift` and the SimPy→Kafka→Ditto pipeline |
 
 ## Appendix A. Glossary
 
