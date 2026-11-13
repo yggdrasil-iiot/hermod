@@ -25,15 +25,15 @@
 **Tech Stack:** Kotlin 2.2.0 / JVM 21, Gradle 9.0.0, Temporal Java SDK 1.25.1, Jackson 2.17.2, Postgres JDBC 42.7.4 + Testcontainers 1.20.1(postgres:16), Spring Boot 3.3.4 + HikariCP 5.1.0, React 18.3 + Vite 5 + Vitest 2 + Playwright 1.49.
 
 **작업 위치:**
-- 새 저장소: `C:\Users\Eisen\Desktop\Labs\[projects] koshchei\koshchei` (아래 `$K`). 원본은 worktree `C:\Users\Eisen\Desktop\Labs\[projects] koshchei\koshei-episode-core` (아래 `$S`), main `6e66dbe` 와 같은 트리.
+- 새 저장소: `<workspace>/koshchei` (아래 `$K`). 원본은 worktree `<workspace>/koshei-episode-core` (아래 `$S`), main `6e66dbe` 와 같은 트리.
 - 덩이 5(koshei 정리)는 `$S` 에서 새 브랜치 `chore/remove-episode-loop` 로 한다.
 - 쉘 변수(bash):
   ```bash
-  S="/c/Users/Eisen/Desktop/Labs/[projects] koshchei/koshei-episode-core"
-  K="/c/Users/Eisen/Desktop/Labs/[projects] koshchei/koshchei"
+  S="<workspace>/koshei-episode-core"
+  K="<workspace>/koshchei"
   ```
 
-**금지:** `./gradlew --stop` · `clean` 금지(공유 데몬). 메인 체크아웃 `koshei` 는 건드리지 않는다. 산문(README · usage · 커밋 메시지 · PR 본문 · 설계 문서 문장)은 `delegating-prose-to-gemini` 스킬로 Gemini 가 쓰고 Claude 가 대조한다. 커밋 꼬리말은 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` 한 줄뿐.
+**금지:** `./gradlew --stop` · `clean` 금지(공유 데몬). 메인 체크아웃 `koshei` 는 건드리지 않는다. 커밋 꼬리말은 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` 한 줄뿐.
 
 ---
 
@@ -313,7 +313,7 @@ Expected: BUILD SUCCESSFUL. 시험 **311** 개(옛 308 + `RawJsonConverterTest` 
 
 **재생이 깨지면(예상하지 않지만):** 패키지 이름은 이력에 없으므로 원인은 큐 이름이다. 그때만 — 옛 묶음을 지우지 말고 이유를 기록한 뒤 사용자에게 묻는다(묶음 삭제는 R3 규칙상 `getVersion` 갈래와 함께만 한다).
 
-- [ ] **Step 7: 첫 커밋** — 메시지는 Gemini 로(사실: koshei `6e66dbe` 에서 분리, PR #4 · #5, 이력은 koshei 에 있다, 이 커밋은 core 와 runtime). 꼬리말은 Claude 한 줄.
+- [ ] **Step 7: 첫 커밋** — 메시지(사실: koshei `6e66dbe` 에서 분리, PR #4 · #5, 이력은 koshei 에 있다, 이 커밋은 core 와 runtime). 꼬리말은 한 줄.
 
 ```bash
 cd "$K" && git add -A && git commit -q -F <msg-file> && git log --oneline -1
@@ -497,7 +497,7 @@ Expected: 통과 **29** 개(옮긴 27 + `WorkerStartTest` 2). `EpisodeCliTest` �
 
 동작이 달라진 두 곳도 커밋 메시지에 적는다: (1) 워커 로그 「(…, else the worker's own)」→「else KOSHCHEI_DB_USER」 (2) `forwardKoshcheiEnv` 가 `cli` 에도 정책 기본 경로를 넣는다(koshei 는 run · watcher 에만).
 
-- [ ] **Step 7: 커밋** — `git add host settings.gradle.kts` 와 Gemini 커밋 메시지.
+- [ ] **Step 7: 커밋** — `git add host settings.gradle.kts` 와 커밋 메시지.
 
 ---
 
@@ -693,13 +693,13 @@ Expected: **20** 개 통과(설치된 Chrome — 위 Step 0 참고). `npx playwr
 ### Task 7: 문서
 
 **Files:**
-- Create: `$K/README.md`, `$K/docs/usage.md` (Gemini 초안 + 대조)
+- Create: `$K/README.md`, `$K/docs/usage.md`
 - Create: `$K/docs/design/2026-09-27-episode-outer-loop-design.md` ← `$S/docs/superpowers/specs/…`
 - Create: `$K/docs/plans/*` ← `$S/docs/superpowers/plans/` 의 에피소드 계획 14개(b1 … d-lite)와 이 계획
 - Modify: 설계 문서 머리 블록
 
-- [ ] **Step 1: 설계 문서와 계획을 옮기고 sed 를 적용한다.** 설계 문서 본문의 「koshei」 중 **시스템 자체**를 가리키는 말은 sed 가 건드리지 않으므로(소문자 단독 낱말) 그대로 둔다 — 역사 기록이다. 머리 블록만 새로 쓴다(Gemini, 한국어 두세 줄): 상태(구현됨 — A·B·C1·C2·D-lite·C3), 분리 사실(2026-10-05, koshei `6e66dbe`, PR #4·#5 에서 옮김, 이력은 koshei 에), 본문의 `koshei` 는 분리 전 이름이라는 한 줄.
-- [ ] **Step 2: README** — Gemini brief 의 사실: 무엇인가(예외 하나를 증상부터 해소까지, 결정적 순수 코어 + Temporal 껍데기), 무엇과 함께 도나(picasso 판 4 승인 창구 · ResultExport 판 1, narrator 계약 0.6 `narrator-tq`), 모듈 넷과 UI, 시험 수(Task 2-6 의 실제 합), 빠른 시작(`docker compose up -d`, Temporal 7233, `./gradlew :host:run` 등), 출처(S2), 라이선스. koshei README 의 에피소드 절(100-126 · 157-170 · 180-190)을 사실 원천으로 쓴다.
+- [ ] **Step 1: 설계 문서와 계획을 옮기고 sed 를 적용한다.** 설계 문서 본문의 「koshei」 중 **시스템 자체**를 가리키는 말은 sed 가 건드리지 않으므로(소문자 단독 낱말) 그대로 둔다 — 역사 기록이다. 머리 블록만 새로 쓴다(한국어 두세 줄): 상태(구현됨 — A·B·C1·C2·D-lite·C3), 분리 사실(2026-10-05, koshei `6e66dbe`, PR #4·#5 에서 옮김, 이력은 koshei 에), 본문의 `koshei` 는 분리 전 이름이라는 한 줄.
+- [ ] **Step 2: README** — 사실: 무엇인가(예외 하나를 증상부터 해소까지, 결정적 순수 코어 + Temporal 껍데기), 무엇과 함께 도나(picasso 판 4 승인 창구 · ResultExport 판 1, narrator 계약 0.6 `narrator-tq`), 모듈 넷과 UI, 시험 수(Task 2-6 의 실제 합), 빠른 시작(`docker compose up -d`, Temporal 7233, `./gradlew :host:run` 등), 출처(S2), 라이선스. koshei README 의 에피소드 절(100-126 · 157-170 · 180-190)을 사실 원천으로 쓴다.
 - [ ] **Step 3: `docs/usage.md`** — koshei `docs/usage.md` §5(279-406)와 §4 표의 에피소드 행을 원천으로, 이름 대응표대로 바꾼 사실만. 환경변수 표는 16개 전부.
 - [ ] **Step 4: 남은 상표** — `grep -rn -i koshei "$K" --exclude-dir=build --exclude-dir=node_modules --exclude-dir=replay --exclude-dir=docs` 가 비어야 한다. `docs/` 안은 출처 문장과 역사 서술만.
 - [ ] **Step 5: 커밋.**
@@ -743,7 +743,7 @@ cd "$K" && gh repo create LivingLikeKrillin/koshchei --private --source . --push
 - `:runtime`: `DataConverterSupport.kt` 에서 `RawJson` 과 `RawAwareJsonPayloadConverter` 감싸기만 지운다. **`JacksonJsonPayloadConverter(jacksonObjectMapper())` 덮어쓰기는 남긴다** — 사가 메시지(Kotlin data class)가 그것으로 풀린다. `RawJsonConverterTest` 는 RawJson 시험 둘만 지우고 Kotlin 변환 시험은 남긴다.
 - 그 밖: `model/README.md:24`(정책 줄), `scripts/run-fsm-autocorrect-dispatch-gate.sh:28`(`export KOSHEI_PICASSO=off` 와 에피소드 모드 주석), `.gitattributes`(1-4행 — app · authoring-api 자원 디렉터리에도 `picasso/` 뿐이라 파일 전체가 빈다), `Worker.kt:23` 의 쓰이지 않게 되는 `import java.nio.file.Files`.
 - UI: `App.tsx`(10, 12, 21, 61-66, 144), `styles.css`(1511-1523). Delete `src/views/episodes/`, `e2e/episodes.spec.ts`
-- 문서(Gemini + 대조): `README.md`(21-25 Two parts · 65 시험 수 · 77 증거 행 · 98 모듈 목록 · 100-126 에피소드 절 · 157-170 빠른 시작 · 180-190 범위 · 198 문서 목록 → koshchei 를 가리키는 한 단락), `docs/architecture.md`(§1 의 에피소드 · 모듈 그림 · §12 → 가리키는 한 줄), `docs/usage.md`(§4 표의 에피소드 행, §5), `docs/reference-architecture.md`(193-202, 576)
+- 문서: `README.md`(21-25 Two parts · 65 시험 수 · 77 증거 행 · 98 모듈 목록 · 100-126 에피소드 절 · 157-170 빠른 시작 · 180-190 범위 · 198 문서 목록 → koshchei 를 가리키는 한 단락), `docs/architecture.md`(§1 의 에피소드 · 모듈 그림 · §12 → 가리키는 한 줄), `docs/usage.md`(§4 표의 에피소드 행, §5), `docs/reference-architecture.md`(193-202, 576)
 
 - [ ] **Step 1:** 브랜치를 main 에서 만든다: `git switch -c chore/remove-episode-loop origin/main`.
 - [ ] **Step 2:** 코드 삭제와 수정. `grep -rn 'koshei\.episode\|PicassoMode\|KOSHEI_PICASSO\|KOSHEI_EPISODE\|KOSHEI_NARRATOR\|KOSHEI_WATCH\|EpisodeStore\|X-Koshei-Operator\|episode-policy' --include=*.kt --include=*.kts --include=*.ts --include=*.tsx --include=*.sh --include=*.md . | grep -v plans/2026-10-05` 가 Step 5 의 문서 정리 대상 말고는 비어야 한다.
